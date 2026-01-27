@@ -1,0 +1,70 @@
+{
+  "name": "clodds",
+  "version": "0.1.0",
+  "description": "Open-source AI assistant for prediction markets. Claude + Odds. Free for everyone.",
+  "main": "dist/index.js",
+  "bin": {
+    "clodds": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "gateway": "tsx src/gateway/index.ts",
+    "onboard": "tsx src/cli/onboard.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "prediction-markets",
+    "polymarket",
+    "kalshi",
+    "manifold",
+    "metaculus",
+    "trading",
+    "ai-assistant",
+    "claude",
+    "telegram-bot"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alsk1992/CloddsBot"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@hapi/boom": "^10.0.1",
+    "@slack/bolt": "^3.17.1",
+    "@whiskeysockets/baileys": "^6.7.0",
+    "chalk": "^5.3.0",
+    "chokidar": "^3.5.3",
+    "commander": "^12.0.0",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.1",
+    "eventemitter3": "^5.0.1",
+    "express": "^4.18.2",
+    "fast-xml-parser": "^4.3.4",
+    "glob": "^10.3.10",
+    "grammy": "^1.21.1",
+    "inquirer": "^9.2.14",
+    "json5": "^2.2.3",
+    "node-cron": "^3.0.3",
+    "pino": "^8.18.0",
+    "pino-pretty": "^10.3.1",
+    "sql.js": "^1.10.3",
+    "ws": "^8.16.0",
+    "yaml": "^2.3.4",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/hapi__boom": "^9.0.1",
+    "@types/node": "^20.11.16",
+    "@types/sql.js": "^1.4.9",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
