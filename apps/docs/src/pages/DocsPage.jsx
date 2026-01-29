@@ -1,36 +1,123 @@
-import React from 'react';
-import DocsLayout from '../components/DocsLayout';
-import CodeBlock, { InlineCode } from '../components/CodeBlock';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 
-// Feature card component
-function FeatureCard({ icon, title, description }) {
+// Navigation structure
+const navigation = [
+  {
+    title: 'Getting Started',
+    items: [
+      { id: 'quickstart', name: 'Quick Start' },
+      { id: 'cli-commands', name: 'CLI Commands' },
+      { id: 'chat-commands', name: 'Chat Commands' },
+      { id: 'configuration', name: 'Configuration' },
+    ],
+  },
+  {
+    title: 'Channels (22)',
+    items: [
+      { id: 'channels-overview', name: 'Overview' },
+      { id: 'telegram-setup', name: 'Telegram' },
+      { id: 'discord-setup', name: 'Discord' },
+      { id: 'other-channels', name: 'Other Channels' },
+    ],
+  },
+  {
+    title: 'Markets (9)',
+    items: [
+      { id: 'markets-overview', name: 'Overview' },
+      { id: 'polymarket', name: 'Polymarket' },
+      { id: 'kalshi', name: 'Kalshi' },
+      { id: 'other-markets', name: 'Other Markets' },
+    ],
+  },
+  {
+    title: 'Arbitrage',
+    items: [
+      { id: 'arb-overview', name: 'Overview' },
+      { id: 'arb-types', name: 'Opportunity Types' },
+      { id: 'arb-combinatorial', name: 'Combinatorial' },
+      { id: 'arb-scoring', name: 'Scoring System' },
+    ],
+  },
+  {
+    title: 'Trading',
+    items: [
+      { id: 'trading-execution', name: 'Execution' },
+      { id: 'trading-bots', name: 'Trading Bots' },
+      { id: 'trading-safety', name: 'Safety Controls' },
+    ],
+  },
+  {
+    title: 'AI & Tools',
+    items: [
+      { id: 'ai-providers', name: 'LLM Providers' },
+      { id: 'ai-tools', name: 'Tools (21)' },
+      { id: 'ai-memory', name: 'Memory System' },
+      { id: 'ai-skills', name: 'Skills (13)' },
+    ],
+  },
+  {
+    title: 'Crypto & DeFi',
+    items: [
+      { id: 'solana-dex', name: 'Solana DEX' },
+      { id: 'wormhole', name: 'Wormhole Bridge' },
+      { id: 'x402', name: 'x402 Payments' },
+    ],
+  },
+];
+
+function CodeBlock({ children, title, language = 'bash' }) {
   return (
-    <div className="p-6 bg-white rounded-xl border border-gray-200 hover:shadow-md transition-shadow">
-      <div className="text-3xl mb-3">{icon}</div>
-      <h3 className="font-semibold text-gray-900 mb-2">{title}</h3>
-      <p className="text-sm text-gray-600">{description}</p>
+    <div className="my-4 rounded-lg overflow-hidden border border-slate-700">
+      {title && (
+        <div className="px-4 py-2 bg-slate-800 border-b border-slate-700 text-sm text-slate-400">
+          {title}
+        </div>
+      )}
+      <pre className="p-4 bg-slate-900 overflow-x-auto">
+        <code className="text-sm text-slate-300 font-mono">{children}</code>
+      </pre>
     </div>
   );
 }
 
-// Command table component
-function CommandTable({ commands }) {
+function Section({ id, title, children }) {
+  return (
+    <section id={id} className="mb-16 scroll-mt-24">
+      <h2 className="text-2xl font-bold text-white mb-6 pb-3 border-b border-slate-700">
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function Subsection({ title, children }) {
+  return (
+    <div className="mb-8">
+      <h3 className="text-lg font-semibold text-slate-200 mb-4">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function Table({ headers, rows }) {
   return (
     <div className="overflow-x-auto my-4">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Command</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-700">
+            {headers.map((h, i) => (
+              <th key={i} className="px-4 py-3 text-left text-slate-400 font-medium">{h}</th>
+            ))}
           </tr>
         </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {commands.map((cmd, i) => (
-            <tr key={i} className="hover:bg-gray-50">
-              <td className="px-4 py-3 whitespace-nowrap">
-                <code className="text-sm text-indigo-600 font-mono">{cmd.command}</code>
-              </td>
-              <td className="px-4 py-3 text-sm text-gray-600">{cmd.description}</td>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50">
+              {row.map((cell, j) => (
+                <td key={j} className="px-4 py-3 text-slate-300">{cell}</td>
+              ))}
             </tr>
           ))}
         </tbody>
@@ -39,471 +126,710 @@ function CommandTable({ commands }) {
   );
 }
 
-// Section component
-function Section({ id, title, children }) {
+function Badge({ children, color = 'cyan' }) {
+  const colors = {
+    cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+    green: 'bg-green-500/20 text-green-400 border-green-500/30',
+    purple: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    yellow: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  };
   return (
-    <section id={id} className="mb-16 scroll-mt-8">
-      <h2 className="text-2xl font-bold text-gray-900 mb-6 pb-2 border-b border-gray-200">
-        {title}
-      </h2>
+    <span className={`px-2 py-1 text-xs rounded border ${colors[color]}`}>
       {children}
-    </section>
+    </span>
   );
 }
 
-// Subsection component
-function Subsection({ title, children }) {
-  return (
-    <div className="mb-8">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-// Alert component
 function Alert({ type = 'info', children }) {
   const styles = {
-    info: 'bg-blue-50 border-blue-200 text-blue-800',
-    warning: 'bg-yellow-50 border-yellow-200 text-yellow-800',
-    success: 'bg-green-50 border-green-200 text-green-800',
-    danger: 'bg-red-50 border-red-200 text-red-800',
+    info: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300',
+    warning: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-300',
+    success: 'bg-green-500/10 border-green-500/30 text-green-300',
   };
-
-  const icons = {
-    info: 'i',
-    warning: '!',
-    success: '✓',
-    danger: '×',
-  };
-
   return (
     <div className={`p-4 rounded-lg border ${styles[type]} my-4`}>
-      <div className="flex items-start">
-        <span className="font-bold mr-2">{icons[type]}</span>
-        <div className="text-sm">{children}</div>
-      </div>
+      {children}
     </div>
   );
 }
 
 export default function DocsPage() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
-    <DocsLayout>
-      {/* Hero */}
-      <div className="mb-16">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Clodds Trading Documentation
-        </h1>
-        <p className="text-xl text-gray-600 mb-8">
-          Cross-platform prediction market trading with arbitrage detection,
-          automated bots, and comprehensive risk management.
-        </p>
+    <div className="min-h-screen bg-slate-900">
+      {/* Mobile toggle */}
+      <button
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-800 rounded-lg border border-slate-700"
+      >
+        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <FeatureCard
-            icon="🎯"
-            title="Opportunity Finder"
-            description="Semantic matching finds arbitrage across 8+ platforms automatically"
-          />
-          <FeatureCard
-            icon="🤖"
-            title="Trading Bots"
-            description="Built-in strategies with customizable entry/exit logic"
-          />
-          <FeatureCard
-            icon="🛡️"
-            title="Safety Controls"
-            description="Circuit breakers, drawdown limits, and kill switches"
-          />
-        </div>
-      </div>
+      {/* Sidebar */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-40 w-72 bg-slate-800/50 backdrop-blur-sm border-r border-slate-700
+        transform transition-transform duration-200 ease-in-out overflow-y-auto
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
+      `}>
+        <div className="p-6">
+          <Link to="/" className="flex items-center gap-3 mb-2">
+            <span className="text-2xl">🎲</span>
+            <span className="text-xl font-bold text-white">Clodds</span>
+          </Link>
+          <p className="text-sm text-slate-400 mb-6">Documentation</p>
 
-      {/* Quick Start */}
-      <Section id="quickstart" title="Quick Start">
-        <p className="text-gray-600 mb-4">
-          Get up and running in minutes with the trading system.
-        </p>
-
-        <CodeBlock language="typescript" title="Initialize Trading System">
-{`import { createTradingSystem } from './trading';
-import { createOpportunityFinder } from './opportunity';
-
-// Create trading system
-const trading = createTradingSystem(db, {
-  execution: {
-    polymarket: { apiKey: '...', apiSecret: '...' },
-    dryRun: false,
-  },
-  portfolioValue: 10000,
-});
-
-// Create opportunity finder
-const finder = createOpportunityFinder(db, feeds, embeddings, {
-  minEdge: 0.5,
-  semanticMatching: true,
-});
-
-// Find opportunities
-const opps = await finder.scan({ minEdge: 1 });
-
-// Execute a trade
-await trading.execution.buyLimit({
-  platform: 'polymarket',
-  marketId: opps[0].markets[0].marketId,
-  outcome: 'YES',
-  price: 0.45,
-  size: 100,
-});`}
-        </CodeBlock>
-      </Section>
-
-      {/* Commands */}
-      <Section id="commands" title="Commands">
-        <Subsection title="Opportunity Commands">
-          <CommandTable commands={[
-            { command: '/opportunity scan [query]', description: 'Find arbitrage opportunities' },
-            { command: '/opportunity combinatorial', description: 'Scan for combinatorial arb (arXiv:2508.03474)' },
-            { command: '/opportunity active', description: 'Show active opportunities' },
-            { command: '/opportunity link <a> <b>', description: 'Link equivalent markets' },
-            { command: '/opportunity stats', description: 'View performance statistics' },
-            { command: '/opportunity pairs', description: 'Platform pair analysis' },
-            { command: '/opportunity realtime start', description: 'Enable real-time scanning' },
-          ]} />
-        </Subsection>
-
-        <Subsection title="Trading Commands">
-          <CommandTable commands={[
-            { command: '/bot list', description: 'Show all trading bots' },
-            { command: '/bot start <id>', description: 'Start a bot' },
-            { command: '/bot stop <id>', description: 'Stop a bot' },
-            { command: '/trades stats', description: 'View trade statistics' },
-            { command: '/trades recent', description: 'Recent trade history' },
-            { command: '/safety status', description: 'Safety controls status' },
-            { command: '/safety kill', description: 'Emergency stop all trading' },
-          ]} />
-        </Subsection>
-      </Section>
-
-      {/* Opportunity Finder */}
-      <Section id="opportunity-overview" title="Opportunity Finder">
-        <p className="text-gray-600 mb-6">
-          Automatically detects arbitrage and edge opportunities across multiple
-          prediction market platforms using semantic matching and real-time price analysis.
-        </p>
-
-        <div className="bg-gray-50 rounded-xl p-6 mb-6">
-          <h4 className="font-semibold text-gray-800 mb-4">Supported Platforms</h4>
-          <div className="flex flex-wrap gap-2">
-            {['Polymarket', 'Kalshi', 'Betfair', 'Manifold', 'PredictIt', 'Metaculus', 'Drift', 'Smarkets'].map(p => (
-              <span key={p} className="px-3 py-1 bg-white rounded-full text-sm text-gray-700 border border-gray-200">
-                {p}
-              </span>
+          <nav className="space-y-6">
+            {navigation.map((section) => (
+              <div key={section.title}>
+                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  {section.title}
+                </h2>
+                <ul className="space-y-1">
+                  {section.items.map((item) => (
+                    <li key={item.id}>
+                      <a
+                        href={`#${item.id}`}
+                        onClick={() => setSidebarOpen(false)}
+                        className="block px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-md transition-colors"
+                      >
+                        {item.name}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
+          </nav>
+
+          <div className="mt-8 pt-6 border-t border-slate-700">
+            <a
+              href="https://github.com/alsk1992/CloddsBot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm text-slate-400 hover:text-white"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
+              </svg>
+              View on GitHub
+            </a>
           </div>
         </div>
-      </Section>
+      </aside>
 
-      {/* Opportunity Types */}
-      <Section id="opportunity-types" title="Opportunity Types">
-        <div className="space-y-6">
-          <div className="p-6 bg-white rounded-xl border border-gray-200">
-            <div className="flex items-center mb-3">
-              <span className="text-2xl mr-3">🔄</span>
-              <h3 className="font-semibold text-gray-900">Internal Arbitrage</h3>
-            </div>
-            <p className="text-gray-600 mb-4">
-              Buy both YES and NO on the same market when combined price is less than $1.00.
+      {/* Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Main content */}
+      <main className="lg:pl-72">
+        <div className="max-w-4xl mx-auto px-6 py-12">
+
+          {/* Hero */}
+          <div className="mb-16">
+            <h1 className="text-4xl font-bold text-white mb-4">Clodds Documentation</h1>
+            <p className="text-xl text-slate-400 mb-6">
+              AI-powered prediction market trading platform. 22 channels, 9 markets, 21 tools.
             </p>
-            <CodeBlock language="text">
-{`Example: Polymarket "Will X happen?"
-  YES: 45c + NO: 52c = 97c
-  Edge: 3% guaranteed profit`}
-            </CodeBlock>
-          </div>
-
-          <div className="p-6 bg-white rounded-xl border border-gray-200">
-            <div className="flex items-center mb-3">
-              <span className="text-2xl mr-3">🌐</span>
-              <h3 className="font-semibold text-gray-900">Cross-Platform Arbitrage</h3>
+            <div className="flex flex-wrap gap-2">
+              <Badge color="cyan">22 Channels</Badge>
+              <Badge color="green">9 Markets</Badge>
+              <Badge color="purple">21 Tools</Badge>
+              <Badge color="yellow">13 Skills</Badge>
             </div>
-            <p className="text-gray-600 mb-4">
-              Same market priced differently across platforms. Semantic matching catches equivalent questions.
-            </p>
-            <CodeBlock language="text">
-{`Example: "Fed rate hike in January"
-  Polymarket YES: 65c
-  Kalshi YES: 72c
+          </div>
 
-  Strategy: Buy low, sell high
-  Edge: 7%`}
+          {/* Quick Start */}
+          <Section id="quickstart" title="Quick Start">
+            <p className="text-slate-400 mb-4">Get running in under 2 minutes.</p>
+
+            <CodeBlock title="Terminal">
+{`git clone https://github.com/alsk1992/CloddsBot.git
+cd CloddsBot
+npm install
+cp .env.example .env
+# Add ANTHROPIC_API_KEY to .env
+npm run build && npm start`}
             </CodeBlock>
-          </div>
 
-          <div className="p-6 bg-white rounded-xl border border-gray-200">
-            <div className="flex items-center mb-3">
-              <span className="text-2xl mr-3">📊</span>
-              <h3 className="font-semibold text-gray-900">Edge vs Fair Value</h3>
-            </div>
-            <p className="text-gray-600 mb-4">
-              Market mispriced relative to external benchmarks (polls, prediction models).
+            <p className="text-slate-400 mt-4">
+              Open <code className="text-cyan-400">http://localhost:18789/webchat</code> — no account needed.
             </p>
-            <CodeBlock language="text">
-{`Example: Election market
-  Market price: 45%
-  538 model: 52%
-  Edge: 7% (buy YES)`}
-            </CodeBlock>
-          </div>
 
-          <div className="p-6 bg-white rounded-xl border border-gray-200">
-            <div className="flex items-center mb-3">
-              <span className="text-2xl mr-3">🔗</span>
-              <h3 className="font-semibold text-gray-900">Combinatorial Arbitrage</h3>
-            </div>
-            <p className="text-gray-600 mb-4">
-              Based on <a href="https://arxiv.org/abs/2508.03474" className="text-blue-600 hover:underline">arXiv:2508.03474</a>.
-              Exploits conditional dependencies between markets ($40M+ found on Polymarket).
-            </p>
-            <CodeBlock language="text">
-{`Relationship Types:
-  → implies: "Trump wins" → "Republican wins"
-  ¬ inverse: P(A) + P(B) = 1
-  ⊕ exclusive: "Biden wins" vs "Trump wins"
-  ∨ exhaustive: All candidates sum to 100%
+            <Alert type="info">
+              For Telegram: add <code>TELEGRAM_BOT_TOKEN</code> to <code>.env</code> and message your bot.
+            </Alert>
+          </Section>
 
-Example: Trump 55c, Republican 52c
-  Mispricing! P(Trump) should be ≤ P(Republican)
-  Strategy: Sell Trump YES, Buy Republican YES`}
-            </CodeBlock>
-          </div>
-        </div>
-      </Section>
+          {/* CLI Commands */}
+          <Section id="cli-commands" title="CLI Commands">
+            <p className="text-slate-400 mb-4">All terminal commands start with <code className="text-cyan-400">clodds</code>:</p>
 
-      {/* Scoring System */}
-      <Section id="scoring" title="Scoring System">
-        <p className="text-gray-600 mb-6">
-          Opportunities are scored 0-100 based on multiple factors to prioritize the best trades.
-        </p>
+            <Subsection title="Core">
+              <CodeBlock>
+{`clodds start                    # Start the gateway
+clodds repl                     # Interactive local REPL
+clodds doctor                   # Run system diagnostics
+clodds status                   # Show system status
+clodds endpoints                # Show webhook endpoints`}
+              </CodeBlock>
+            </Subsection>
 
-        <div className="overflow-x-auto my-4">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Factor</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Weight</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              <tr><td className="px-4 py-3 font-medium">Edge %</td><td className="px-4 py-3">35%</td><td className="px-4 py-3 text-gray-600">Raw arbitrage spread</td></tr>
-              <tr><td className="px-4 py-3 font-medium">Liquidity</td><td className="px-4 py-3">25%</td><td className="px-4 py-3 text-gray-600">Available $ to trade</td></tr>
-              <tr><td className="px-4 py-3 font-medium">Confidence</td><td className="px-4 py-3">25%</td><td className="px-4 py-3 text-gray-600">Match quality</td></tr>
-              <tr><td className="px-4 py-3 font-medium">Execution</td><td className="px-4 py-3">15%</td><td className="px-4 py-3 text-gray-600">Platform reliability</td></tr>
-            </tbody>
-          </table>
-        </div>
+            <Subsection title="User Management">
+              <CodeBlock>
+{`clodds pairing list <channel>   # List pending pairing requests
+clodds pairing approve <ch> <c> # Approve a pairing request
+clodds pairing users <channel>  # List paired users
+clodds pairing add <ch> <user>  # Add user to allowlist`}
+              </CodeBlock>
+            </Subsection>
 
-        <Alert type="info">
-          Penalties are applied for low liquidity (-5), cross-platform complexity (-3 per platform),
-          high slippage (-5 if &gt;2%), and low confidence (-5 if &lt;70%).
-        </Alert>
-      </Section>
+            <Subsection title="Configuration">
+              <CodeBlock>
+{`clodds config get [key]         # Get config value
+clodds config set <key> <val>   # Set config value
+clodds config path              # Show config file path`}
+              </CodeBlock>
+            </Subsection>
 
-      {/* Market Matching */}
-      <Section id="matching" title="Market Matching">
-        <Subsection title="Semantic Matching">
-          <p className="text-gray-600 mb-4">
-            Uses embeddings to match markets with different wording that refer to the same event.
-          </p>
-          <CodeBlock language="text">
-{`"Will the Fed raise rates?"
-  = "FOMC vote for rate hike?"
-  = "Federal Reserve interest rate increase?"`}
-          </CodeBlock>
-        </Subsection>
+            <Subsection title="Skills & Extensions">
+              <CodeBlock>
+{`clodds skills list              # List installed skills
+clodds skills search <query>    # Search skill registry
+clodds skills install <slug>    # Install a skill
+clodds skills update [slug]     # Update skills`}
+              </CodeBlock>
+            </Subsection>
 
-        <Subsection title="Manual Linking">
-          <p className="text-gray-600 mb-4">
-            Override automatic matching for known equivalent markets:
-          </p>
-          <CodeBlock language="bash">
-{`/opportunity link polymarket:abc123 kalshi:fed-rate-jan`}
-          </CodeBlock>
-        </Subsection>
-      </Section>
+            <Subsection title="Sessions, Memory & MCP">
+              <CodeBlock>
+{`clodds session list             # List active sessions
+clodds session clear [id]       # Clear session(s)
+clodds memory list <userId>     # View user memories
+clodds memory clear <userId>    # Clear memories
+clodds mcp list                 # List MCP servers
+clodds mcp add <name> <cmd>     # Add MCP server`}
+              </CodeBlock>
+            </Subsection>
+          </Section>
 
-      {/* Trading Bots */}
-      <Section id="bots" title="Trading Bots">
-        <p className="text-gray-600 mb-6">
-          Run automated trading strategies with built-in risk management.
-        </p>
+          {/* Chat Commands */}
+          <Section id="chat-commands" title="Chat Commands">
+            <p className="text-slate-400 mb-4">These work inside any chat (Telegram, Discord, WebChat, etc.):</p>
 
-        <CodeBlock language="typescript" title="Start a Bot">
-{`// Register strategy
-trading.bots.registerStrategy(createMeanReversionStrategy({
-  platforms: ['polymarket'],
-  threshold: 0.05,
-  stopLoss: 0.1,
-}));
+            <Subsection title="Opportunity Finding">
+              <CodeBlock>
+{`/opportunity scan [query]        Find arbitrage opportunities
+/opportunity combinatorial       Scan conditional dependencies
+/opportunity active              Show active opportunities
+/opportunity stats               Performance statistics
+/opportunity link <a> <b>        Link equivalent markets
+/opportunity realtime start      Enable real-time scanning`}
+              </CodeBlock>
+            </Subsection>
 
-// Start trading
-await trading.bots.startBot('mean-reversion');
+            <Subsection title="Trading">
+              <CodeBlock>
+{`/buy <platform> <market> <side> <size> @ <price>
+/sell <platform> <market> <side> <size> @ <price>
+/portfolio                       Show positions and P&L
+/trades stats                    Trade statistics
+/trades recent                   Recent history`}
+              </CodeBlock>
+            </Subsection>
 
-// Monitor status
-const status = trading.bots.getBotStatus('mean-reversion');
-console.log(\`Trades: \${status.tradesCount}, Win Rate: \${status.winRate}%\`);`}
-        </CodeBlock>
-      </Section>
+            <Subsection title="Bots & Safety">
+              <CodeBlock>
+{`/bot list                        List trading bots
+/bot start <id>                  Start a bot
+/bot stop <id>                   Stop a bot
+/safety status                   View safety controls
+/safety kill                     Emergency stop all`}
+              </CodeBlock>
+            </Subsection>
 
-      {/* Strategies */}
-      <Section id="strategies" title="Built-in Strategies">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="p-4 bg-white rounded-lg border border-gray-200">
-            <h4 className="font-semibold text-gray-900 mb-2">Mean Reversion</h4>
-            <p className="text-sm text-gray-600">Buys dips, sells rallies based on deviation from average</p>
-          </div>
-          <div className="p-4 bg-white rounded-lg border border-gray-200">
-            <h4 className="font-semibold text-gray-900 mb-2">Momentum</h4>
-            <p className="text-sm text-gray-600">Follows trends and rides price movements</p>
-          </div>
-          <div className="p-4 bg-white rounded-lg border border-gray-200">
-            <h4 className="font-semibold text-gray-900 mb-2">Arbitrage</h4>
-            <p className="text-sm text-gray-600">Exploits cross-platform price differences</p>
-          </div>
-        </div>
+            <Subsection title="Research & Memory">
+              <CodeBlock>
+{`/markets <query>                 Search all markets
+/compare <query>                 Compare prices across platforms
+/news <topic>                    Get relevant news
+/remember <type> <key>=<value>   Store preference/fact/note
+/memory                          View stored memories
+/help                            List all commands`}
+              </CodeBlock>
+            </Subsection>
+          </Section>
 
-        <Subsection title="Custom Strategy">
-          <CodeBlock language="typescript">
-{`const myStrategy: Strategy = {
-  config: {
-    id: 'my-strategy',
-    name: 'My Custom Strategy',
-    platforms: ['polymarket'],
-    intervalMs: 60000,
-  },
+          {/* Configuration */}
+          <Section id="configuration" title="Configuration">
+            <Subsection title="Environment Variables">
+              <CodeBlock title=".env">
+{`# Required
+ANTHROPIC_API_KEY=sk-ant-...
 
-  async evaluate(context) {
-    const signals = [];
-    const price = context.prices.get('polymarket:market123');
+# Channels (pick any)
+TELEGRAM_BOT_TOKEN=...
+DISCORD_BOT_TOKEN=...
+SLACK_BOT_TOKEN=...
+SLACK_APP_TOKEN=...
 
-    if (price && price < 0.3) {
-      signals.push({
-        type: 'buy',
-        platform: 'polymarket',
-        marketId: 'market123',
-        outcome: 'YES',
-        price: price,
-        sizePct: 5,
-        reason: 'Undervalued',
-      });
-    }
-    return signals;
-  },
-};
+# Trading
+POLYMARKET_API_KEY=...
+POLYMARKET_API_SECRET=...
+KALSHI_API_KEY=...
+BETFAIR_APP_KEY=...
 
-trading.bots.registerStrategy(myStrategy);`}
-          </CodeBlock>
-        </Subsection>
-      </Section>
+# Solana
+SOLANA_RPC_URL=...
+SOLANA_PRIVATE_KEY=...
 
-      {/* Safety Controls */}
-      <Section id="safety" title="Safety Controls">
-        <Alert type="warning">
-          Always configure safety limits before live trading. The kill switch
-          immediately stops all bots and blocks new trades.
-        </Alert>
+# Features
+MARKET_INDEX_ENABLED=true
+OPPORTUNITY_FINDER_ENABLED=true`}
+              </CodeBlock>
+            </Subsection>
 
-        <div className="overflow-x-auto my-4">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Breaker</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Default</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              <tr><td className="px-4 py-3 font-medium">Daily Loss</td><td className="px-4 py-3">$500</td><td className="px-4 py-3 text-gray-600">Max loss per day</td></tr>
-              <tr><td className="px-4 py-3 font-medium">Max Drawdown</td><td className="px-4 py-3">20%</td><td className="px-4 py-3 text-gray-600">From peak equity</td></tr>
-              <tr><td className="px-4 py-3 font-medium">Position Limit</td><td className="px-4 py-3">25%</td><td className="px-4 py-3 text-gray-600">Single position max</td></tr>
-              <tr><td className="px-4 py-3 font-medium">Correlation</td><td className="px-4 py-3">3</td><td className="px-4 py-3 text-gray-600">Max same-direction bets</td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <CodeBlock language="bash" title="Emergency Stop">
-{`/safety kill "Market volatility"
-# Immediately stops all bots and blocks new trades
-
-/safety resume
-# Resume trading after review`}
-        </CodeBlock>
-      </Section>
-
-      {/* A/B Testing */}
-      <Section id="abtesting" title="A/B Testing">
-        <p className="text-gray-600 mb-4">
-          Run the same strategy on multiple accounts with different parameters to optimize performance.
-        </p>
-
-        <CodeBlock language="typescript">
-{`// Create test
-const test = createQuickABTest(trading.accounts, {
-  name: 'Stop Loss Test',
-  strategyId: 'mean-reversion',
-  accountA: 'main-account',
-  accountB: 'test-account',
-  varyParam: 'stopLossPct',
-  valueA: 5,
-  valueB: 10,
-});
-
-// Start test
-await trading.accounts.startABTest(test.id);
-
-// Check results
-const results = trading.accounts.calculateResults(test.id);
-console.log('Winner:', results.significance.winner);`}
-        </CodeBlock>
-      </Section>
-
-      {/* Configuration */}
-      <Section id="config" title="Configuration">
-        <CodeBlock language="json" title="clodds.json">
+            <Subsection title="Config File">
+              <CodeBlock title="clodds.json">
 {`{
+  "gateway": { "port": 18789 },
+  "agent": { "model": "claude-sonnet-4-20250514" },
   "opportunityFinder": {
     "enabled": true,
     "minEdge": 0.5,
-    "minLiquidity": 100,
-    "platforms": ["polymarket", "kalshi", "betfair"],
-    "semanticMatching": true,
-    "realtime": false
-  },
-  "trading": {
-    "execution": {
-      "polymarket": {
-        "apiKey": "...",
-        "apiSecret": "..."
-      },
-      "dryRun": false
-    },
-    "portfolioValue": 10000
+    "platforms": ["polymarket", "kalshi", "betfair"]
   },
   "safety": {
     "dailyLossLimit": 500,
-    "maxDrawdownPct": 20
-  }
+    "maxDrawdownPct": 20,
+    "maxPositionPct": 25
+  },
+  "trading": { "dryRun": true }
 }`}
-        </CodeBlock>
-      </Section>
+              </CodeBlock>
+            </Subsection>
+          </Section>
 
-      {/* Footer */}
-      <div className="mt-16 pt-8 border-t border-gray-200">
-        <p className="text-sm text-gray-500 text-center">
-          Clodds Trading Documentation • Built with React
-        </p>
-      </div>
-    </DocsLayout>
+          {/* Channels Overview */}
+          <Section id="channels-overview" title="Channels Overview (22)">
+            <p className="text-slate-400 mb-6">Connect via any messaging platform you already use.</p>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+              {['Telegram', 'Discord', 'WhatsApp', 'Slack', 'Teams', 'Matrix', 'Signal', 'Google Chat', 'iMessage', 'LINE', 'Mattermost', 'Nextcloud Talk', 'Zalo', 'Nostr', 'Tlon/Urbit', 'Twitch', 'Voice', 'WebChat', 'IRC', 'Email', 'SMS', 'Webhook'].map(ch => (
+                <div key={ch} className="px-3 py-2 bg-slate-800 rounded-lg text-slate-300 text-sm text-center border border-slate-700">
+                  {ch}
+                </div>
+              ))}
+            </div>
+
+            <Alert type="success">
+              All channels support: real-time sync, message editing, rich text, images, reactions, and offline queuing.
+            </Alert>
+          </Section>
+
+          {/* Telegram Setup */}
+          <Section id="telegram-setup" title="Telegram Setup">
+            <ol className="list-decimal list-inside space-y-2 text-slate-400">
+              <li>Create bot via <a href="https://t.me/botfather" className="text-cyan-400 hover:underline">@BotFather</a></li>
+              <li>Copy the token</li>
+              <li>Add <code className="text-cyan-400">TELEGRAM_BOT_TOKEN=...</code> to <code>.env</code></li>
+              <li>Restart Clodds</li>
+              <li>Message your bot</li>
+            </ol>
+          </Section>
+
+          {/* Discord Setup */}
+          <Section id="discord-setup" title="Discord Setup">
+            <ol className="list-decimal list-inside space-y-2 text-slate-400">
+              <li>Create app at <a href="https://discord.com/developers" className="text-cyan-400 hover:underline">Discord Developer Portal</a></li>
+              <li>Enable <strong>Message Content Intent</strong> under Bot settings</li>
+              <li>Copy bot token</li>
+              <li>Add <code className="text-cyan-400">DISCORD_BOT_TOKEN=...</code> to <code>.env</code></li>
+              <li>Generate OAuth2 URL with <code>bot</code> scope and invite to server</li>
+            </ol>
+          </Section>
+
+          {/* Other Channels */}
+          <Section id="other-channels" title="Other Channels">
+            <Table
+              headers={['Channel', 'Setup', 'Auth']}
+              rows={[
+                ['Slack', 'Create app, enable Socket Mode', 'Bot + App tokens'],
+                ['WhatsApp', 'BlueBubbles or Baileys', 'Session file'],
+                ['Teams', 'Azure AD app registration', 'OAuth'],
+                ['Matrix', 'Homeserver account', 'Access token'],
+                ['Signal', 'Signal-cli bridge', 'Phone number'],
+                ['WebChat', 'Built-in, no setup', 'None'],
+              ]}
+            />
+          </Section>
+
+          {/* Markets Overview */}
+          <Section id="markets-overview" title="Markets Overview (9)">
+            <Subsection title="Full Trading Support">
+              <Table
+                headers={['Platform', 'Feed', 'Trading', 'Type']}
+                rows={[
+                  ['Polymarket', 'WebSocket', '✓', 'Crypto (USDC)'],
+                  ['Kalshi', 'WebSocket', '✓', 'US Regulated'],
+                  ['Betfair', 'WebSocket', '✓', 'Sports Exchange'],
+                  ['Smarkets', 'WebSocket', '✓', 'Sports (2% fees)'],
+                  ['Drift', 'REST', '✓', 'Solana DEX'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Data Feeds Only">
+              <Table
+                headers={['Platform', 'Feed', 'Type']}
+                rows={[
+                  ['Manifold', 'WebSocket', 'Play Money'],
+                  ['Metaculus', 'REST', 'Forecasting'],
+                  ['PredictIt', 'REST', 'US Politics'],
+                ]}
+              />
+            </Subsection>
+          </Section>
+
+          {/* Polymarket */}
+          <Section id="polymarket" title="Polymarket Integration">
+            <p className="text-slate-400 mb-4">Full trading support with CLOB API.</p>
+
+            <CodeBlock title=".env">
+{`POLYMARKET_API_KEY=...
+POLYMARKET_API_SECRET=...
+POLYMARKET_FUNDER_ADDRESS=0x...`}
+            </CodeBlock>
+
+            <p className="text-slate-400 mt-4">Features: limit/market orders, real-time orderbook, position tracking, P&L calculation.</p>
+          </Section>
+
+          {/* Kalshi */}
+          <Section id="kalshi" title="Kalshi Integration">
+            <p className="text-slate-400 mb-4">US regulated exchange with full trading support.</p>
+
+            <CodeBlock title=".env">
+{`KALSHI_API_KEY=...
+KALSHI_EMAIL=...`}
+            </CodeBlock>
+          </Section>
+
+          {/* Other Markets */}
+          <Section id="other-markets" title="Other Markets">
+            <Table
+              headers={['Platform', 'API Key Env', 'Notes']}
+              rows={[
+                ['Betfair', 'BETFAIR_APP_KEY', 'UK sports exchange'],
+                ['Smarkets', 'SMARKETS_API_KEY', 'EU sports, 2% fees'],
+                ['Drift', 'SOLANA_PRIVATE_KEY', 'Solana perps'],
+                ['Manifold', 'MANIFOLD_API_KEY', 'Play money markets'],
+              ]}
+            />
+          </Section>
+
+          {/* Arbitrage Overview */}
+          <Section id="arb-overview" title="Arbitrage Detection">
+            <p className="text-slate-400 mb-4">
+              Based on <a href="https://arxiv.org/abs/2508.03474" className="text-cyan-400 hover:underline">arXiv:2508.03474</a> —
+              researchers found <strong>$40M+ in realized arbitrage</strong> on Polymarket.
+            </p>
+
+            <Alert type="info">
+              Clodds implements semantic matching, liquidity scoring, Kelly sizing, and real-time WebSocket scanning.
+            </Alert>
+          </Section>
+
+          {/* Arbitrage Types */}
+          <Section id="arb-types" title="Opportunity Types">
+            <Subsection title="1. Internal Arbitrage">
+              <CodeBlock>
+{`YES: 45c + NO: 52c = 97c
+Buy both → guaranteed $1 payout
+Profit: 3c per dollar (3% risk-free)`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="2. Cross-Platform Arbitrage">
+              <CodeBlock>
+{`Polymarket: Trump YES @ 52c
+Kalshi: Trump YES @ 55c
+
+Buy Polymarket, Sell Kalshi → 3c profit`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="3. Edge vs Fair Value">
+              <CodeBlock>
+{`Market price: 45%
+538 model: 52%
+
+Edge: 7% → Buy YES`}
+              </CodeBlock>
+            </Subsection>
+          </Section>
+
+          {/* Combinatorial */}
+          <Section id="arb-combinatorial" title="Combinatorial Arbitrage">
+            <p className="text-slate-400 mb-4">Exploits logical relationships between markets.</p>
+
+            <CodeBlock title="Relationship Types">
+{`→ implies:    "Trump wins" → "Republican wins"
+¬ inverse:    P(A) + P(B) = 1
+⊕ exclusive:  "Biden wins" vs "Trump wins"
+∨ exhaustive: All candidates sum to 100%`}
+            </CodeBlock>
+
+            <CodeBlock title="Example Mispricing">
+{`"Trump wins": 55c
+"Republican wins": 52c
+
+Violation! P(Trump) must be ≤ P(Republican)
+Strategy: Sell Trump YES, Buy Republican YES`}
+            </CodeBlock>
+          </Section>
+
+          {/* Scoring */}
+          <Section id="arb-scoring" title="Scoring System">
+            <p className="text-slate-400 mb-4">Opportunities scored 0-100 based on:</p>
+
+            <Table
+              headers={['Factor', 'Weight', 'Description']}
+              rows={[
+                ['Edge %', '35%', 'Raw arbitrage spread'],
+                ['Liquidity', '25%', 'Available $ to trade'],
+                ['Confidence', '25%', 'Match quality'],
+                ['Execution', '15%', 'Platform reliability'],
+              ]}
+            />
+
+            <p className="text-slate-400 mt-4">
+              Penalties: low liquidity (-5), cross-platform (-3/platform), high slippage (-5 if &gt;2%), low confidence (-5 if &lt;70%).
+            </p>
+          </Section>
+
+          {/* Trading Execution */}
+          <Section id="trading-execution" title="Trade Execution">
+            <p className="text-slate-400 mb-4">Unified interface for all platforms.</p>
+
+            <CodeBlock title="Order Types">
+{`# Limit order
+/buy polymarket "Trump wins" YES 100 @ 0.52
+
+# Market order
+/buy kalshi "Fed rate hike" YES 50
+
+# Sell position
+/sell polymarket "Trump wins" YES 100 @ 0.55`}
+            </CodeBlock>
+
+            <Subsection title="Features">
+              <ul className="list-disc list-inside text-slate-400 space-y-1">
+                <li>Limit, market, GTC, FOK orders</li>
+                <li>Real-time orderbook data</li>
+                <li>Position tracking with cost basis</li>
+                <li>P&L calculation (realized + unrealized)</li>
+                <li>Trade history with fill prices</li>
+              </ul>
+            </Subsection>
+          </Section>
+
+          {/* Trading Bots */}
+          <Section id="trading-bots" title="Trading Bots">
+            <Table
+              headers={['Strategy', 'Description']}
+              rows={[
+                ['Mean Reversion', 'Buy dips, sell rallies based on moving average deviation'],
+                ['Momentum', 'Follow price trends with configurable lookback'],
+                ['Arbitrage', 'Auto-execute cross-platform opportunities'],
+              ]}
+            />
+
+            <Subsection title="Bot Features">
+              <ul className="list-disc list-inside text-slate-400 space-y-1">
+                <li>Configurable intervals and position sizes</li>
+                <li>Kelly criterion or fixed percentage sizing</li>
+                <li>Stop-loss and take-profit exits</li>
+                <li>Portfolio-aware execution</li>
+                <li>Signal logging and backtesting</li>
+              </ul>
+            </Subsection>
+          </Section>
+
+          {/* Safety */}
+          <Section id="trading-safety" title="Safety Controls">
+            <Alert type="warning">
+              Always configure safety limits before live trading!
+            </Alert>
+
+            <Table
+              headers={['Control', 'Default', 'Description']}
+              rows={[
+                ['Daily Loss Limit', '$500', 'Stop after max daily loss'],
+                ['Max Drawdown', '20%', 'Halt at portfolio drawdown'],
+                ['Position Limit', '25%', 'Max single position size'],
+                ['Correlation Limit', '3', 'Max same-direction bets'],
+              ]}
+            />
+
+            <CodeBlock title="Emergency Stop">
+{`/safety kill "Market volatility"
+# Immediately stops all bots, blocks new trades
+
+/safety resume
+# Resume trading after review`}
+            </CodeBlock>
+          </Section>
+
+          {/* AI Providers */}
+          <Section id="ai-providers" title="LLM Providers (6)">
+            <Table
+              headers={['Provider', 'Models', 'Use Case']}
+              rows={[
+                ['Anthropic', 'Claude Opus, Sonnet, Haiku', 'Primary (best for trading)'],
+                ['OpenAI', 'GPT-4, GPT-4o', 'Fallback'],
+                ['Google', 'Gemini Pro, Flash', 'Multimodal'],
+                ['Groq', 'Llama, Mixtral', 'High-speed inference'],
+                ['Together', 'Open models', 'Cost-effective'],
+                ['Ollama', 'Local models', 'Privacy-first'],
+              ]}
+            />
+          </Section>
+
+          {/* Tools */}
+          <Section id="ai-tools" title="Tools (21)">
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="text-slate-200 font-medium mb-3">Trading & Markets</h4>
+                <ul className="text-slate-400 text-sm space-y-1">
+                  <li>• markets — Search markets</li>
+                  <li>• trading — Execute orders</li>
+                  <li>• portfolio — Position tracking</li>
+                  <li>• opportunity — Arbitrage finder</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-slate-200 font-medium mb-3">Development</h4>
+                <ul className="text-slate-400 text-sm space-y-1">
+                  <li>• browser — Puppeteer automation</li>
+                  <li>• exec — Shell commands (sandboxed)</li>
+                  <li>• files — File operations</li>
+                  <li>• git — Version control</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-slate-200 font-medium mb-3">Communication</h4>
+                <ul className="text-slate-400 text-sm space-y-1">
+                  <li>• email — SMTP sending</li>
+                  <li>• sms — Twilio SMS</li>
+                  <li>• webhooks — HTTP callbacks</li>
+                  <li>• web-fetch — HTTP requests</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-slate-200 font-medium mb-3">Data & Analysis</h4>
+                <ul className="text-slate-400 text-sm space-y-1">
+                  <li>• sql — Database queries</li>
+                  <li>• image — Vision analysis</li>
+                  <li>• transcription — Audio to text</li>
+                  <li>• web-search — Search engines</li>
+                </ul>
+              </div>
+            </div>
+          </Section>
+
+          {/* Memory */}
+          <Section id="ai-memory" title="Memory System">
+            <ul className="list-disc list-inside text-slate-400 space-y-2">
+              <li><strong>Semantic search</strong> — Vector embeddings via LanceDB</li>
+              <li><strong>Hybrid search</strong> — BM25 + semantic for best results</li>
+              <li><strong>Context compression</strong> — Auto-summarize old messages</li>
+              <li><strong>User profiles</strong> — Preferences, trading rules</li>
+              <li><strong>Facts & notes</strong> — Persistent knowledge storage</li>
+            </ul>
+          </Section>
+
+          {/* Skills */}
+          <Section id="ai-skills" title="Skills (13)">
+            <div className="grid md:grid-cols-2 gap-2">
+              {[
+                ['alerts', 'Price and event alerts'],
+                ['edge', 'Edge detection and analysis'],
+                ['markets', 'Market search and discovery'],
+                ['news', 'News aggregation'],
+                ['portfolio', 'Portfolio management'],
+                ['portfolio-sync', 'Multi-platform sync'],
+                ['research', 'Market research automation'],
+                ['trading-kalshi', 'Kalshi trading'],
+                ['trading-manifold', 'Manifold trading'],
+                ['trading-polymarket', 'Polymarket trading'],
+              ].map(([name, desc]) => (
+                <div key={name} className="flex items-center gap-2 text-sm">
+                  <code className="text-cyan-400">{name}</code>
+                  <span className="text-slate-500">—</span>
+                  <span className="text-slate-400">{desc}</span>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          {/* Solana DEX */}
+          <Section id="solana-dex" title="Solana DEX Integration">
+            <Table
+              headers={['Protocol', 'Features']}
+              rows={[
+                ['Jupiter', 'DEX aggregator, best route finding'],
+                ['Raydium', 'AMM swaps, pool discovery'],
+                ['Orca', 'Whirlpool concentrated liquidity'],
+                ['Meteora', 'DLMM dynamic pools'],
+                ['Pump.fun', 'Token launch protocol'],
+              ]}
+            />
+
+            <CodeBlock title=".env">
+{`SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+SOLANA_PRIVATE_KEY=...`}
+            </CodeBlock>
+          </Section>
+
+          {/* Wormhole */}
+          <Section id="wormhole" title="Wormhole Bridge">
+            <p className="text-slate-400 mb-4">Cross-chain token transfers:</p>
+            <ul className="list-disc list-inside text-slate-400 space-y-1">
+              <li>Ethereum ↔ Solana</li>
+              <li>Polygon ↔ Base</li>
+              <li>Avalanche ↔ Optimism</li>
+              <li>Auto-route selection</li>
+              <li>USDC and token wrapping</li>
+            </ul>
+          </Section>
+
+          {/* x402 */}
+          <Section id="x402" title="x402 Payments">
+            <p className="text-slate-400 mb-4">Machine-to-machine crypto payments:</p>
+            <ul className="list-disc list-inside text-slate-400 space-y-1">
+              <li><strong>Networks:</strong> Base, Base Sepolia, Solana, Solana Devnet</li>
+              <li><strong>Asset:</strong> USDC</li>
+              <li><strong>Features:</strong> Auto-approval, fee-free via Coinbase facilitator</li>
+              <li>Full client and server middleware</li>
+            </ul>
+          </Section>
+
+          {/* Footer */}
+          <div className="mt-20 pt-8 border-t border-slate-700 text-center">
+            <p className="text-slate-500 text-sm">
+              Clodds Documentation • <a href="https://github.com/alsk1992/CloddsBot" className="text-cyan-400 hover:underline">GitHub</a> • MIT License
+            </p>
+          </div>
+
+        </div>
+      </main>
+    </div>
   );
 }
