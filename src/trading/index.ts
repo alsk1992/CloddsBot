@@ -40,6 +40,10 @@ export * from './state';
 export * from './stream';
 export * from './builder';
 export * from './accounts';
+export * from './safety';
+export * from './resilience';
+export * from './secrets';
+export * from './backtest';
 
 import {
   createTradeLogger,

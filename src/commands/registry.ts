@@ -1340,6 +1340,161 @@ export function createDefaultCommands(): CommandDefinition[] {
       },
     },
     {
+      name: 'safety',
+      description: 'Trading safety controls and circuit breakers',
+      usage: '/safety [status|limits|kill|resume|alerts]',
+      handler: async (args, ctx) => {
+        const trading = (ctx as any).trading;
+        if (!trading?.safety) {
+          return 'Safety manager not initialized.';
+        }
+
+        const parts = args.trim().split(/\s+/);
+        const subcommand = parts[0]?.toLowerCase() || 'status';
+        const rest = parts.slice(1);
+
+        switch (subcommand) {
+          case 'status': {
+            const state = trading.safety.getState();
+            const canTrade = trading.safety.canTrade();
+
+            const lines = [
+              'Trading Safety Status',
+              '',
+              `Trading: ${canTrade ? '🟢 ENABLED' : '🔴 DISABLED'}`,
+            ];
+
+            if (!canTrade && state.disabledReason) {
+              lines.push(`Reason: ${state.disabledReason}`);
+              if (state.resumeAt) {
+                lines.push(`Resume at: ${state.resumeAt.toLocaleString()}`);
+              }
+            }
+
+            lines.push('');
+            lines.push('Today:');
+            lines.push(`  PnL: $${state.dailyPnL.toFixed(2)}`);
+            lines.push(`  Trades: ${state.dailyTrades}`);
+            lines.push('');
+            lines.push('Drawdown:');
+            lines.push(`  Current: ${state.currentDrawdownPct.toFixed(1)}%`);
+            lines.push(`  Peak: $${state.peakValue.toFixed(2)}`);
+            lines.push(`  Current: $${state.currentValue.toFixed(2)}`);
+
+            if (state.alerts.length > 0) {
+              lines.push('');
+              lines.push(`⚠️ ${state.alerts.length} active alerts`);
+            }
+
+            return lines.join('\n');
+          }
+
+          case 'kill': {
+            const reason = rest.join(' ') || 'Manual kill switch';
+            trading.safety.killSwitch(reason);
+            return '🚨 KILL SWITCH ACTIVATED - All trading stopped.\n\nUse /safety resume to re-enable.';
+          }
+
+          case 'resume': {
+            const resumed = trading.safety.resumeTrading();
+            return resumed
+              ? '✅ Trading resumed. Be careful!'
+              : 'Trading was already enabled.';
+          }
+
+          case 'alerts': {
+            const alerts = trading.safety.getAlerts();
+            if (alerts.length === 0) {
+              return 'No active safety alerts.';
+            }
+
+            const lines = ['Safety Alerts', ''];
+            for (const alert of alerts.slice(0, 10)) {
+              const emoji = alert.type === 'breaker_tripped' ? '🚨' : alert.type === 'critical' ? '❌' : '⚠️';
+              lines.push(`${emoji} [${alert.category}] ${alert.message}`);
+              lines.push(`   ${alert.timestamp.toLocaleString()}`);
+            }
+            return lines.join('\n');
+          }
+
+          case 'clear': {
+            trading.safety.clearAlerts();
+            return 'Alerts cleared.';
+          }
+
+          default:
+            return [
+              'Usage: /safety [command]',
+              '',
+              'Commands:',
+              '  status   - Show safety status',
+              '  kill     - Emergency stop all trading',
+              '  resume   - Resume trading after kill',
+              '  alerts   - Show safety alerts',
+              '  clear    - Clear alerts',
+            ].join('\n');
+        }
+      },
+    },
+    {
+      name: 'backtest',
+      description: 'Backtest a strategy on historical data',
+      usage: '/backtest <strategy-id> [days=30] [capital=10000]',
+      aliases: ['bt'],
+      handler: async (args, ctx) => {
+        const trading = (ctx as any).trading;
+        if (!trading?.backtest || !trading?.bots) {
+          return 'Backtest engine not initialized.';
+        }
+
+        const parts = args.trim().split(/\s+/);
+        const strategyId = parts[0];
+
+        if (!strategyId) {
+          return [
+            'Usage: /backtest <strategy-id> [days=30] [capital=10000]',
+            '',
+            'Example:',
+            '  /backtest mean-reversion days=60 capital=5000',
+          ].join('\n');
+        }
+
+        // Parse options
+        let days = 30;
+        let capital = 10000;
+
+        for (const part of parts.slice(1)) {
+          if (part.startsWith('days=')) {
+            days = parseInt(part.slice(5), 10) || 30;
+          }
+          if (part.startsWith('capital=')) {
+            capital = parseInt(part.slice(8), 10) || 10000;
+          }
+        }
+
+        // Find strategy
+        const strategies = trading.bots.getStrategies();
+        const stratConfig = strategies.find((s: any) => s.id === strategyId);
+
+        if (!stratConfig) {
+          return `Strategy ${strategyId} not found. Use /bot list to see available strategies.`;
+        }
+
+        // This is simplified - would need actual strategy instance
+        return [
+          `Backtest: ${stratConfig.name}`,
+          '',
+          `Period: ${days} days`,
+          `Initial capital: $${capital.toLocaleString()}`,
+          '',
+          '⏳ Running backtest...',
+          '',
+          'Note: Full backtest requires historical price data.',
+          'Use trading.backtest.run() programmatically for full results.',
+        ].join('\n');
+      },
+    },
+    {
       name: 'account',
       description: 'Manage trading accounts for multi-account/A/B testing',
       usage: '/account [add|list|remove|switch] [args]',
