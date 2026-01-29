@@ -2,42 +2,42 @@ import React from 'react';
 
 const features = [
   {
-    icon: '🔗',
+    color: 'cyan',
     title: '22 Messaging Channels',
     description: 'Telegram, Discord, WhatsApp, Slack, Teams, Matrix, Signal, iMessage, Nostr, and more.',
   },
   {
-    icon: '📊',
+    color: 'green',
     title: '9 Prediction Markets',
     description: 'Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt.',
   },
   {
-    icon: '🎯',
+    color: 'purple',
     title: 'Arbitrage Detection',
-    description: 'Cross-platform, internal, and combinatorial arbitrage based on arXiv:2508.03474.',
+    description: 'Cross-platform, internal, and combinatorial arbitrage scanning.',
   },
   {
-    icon: '🐋',
+    color: 'blue',
     title: 'Whale Tracking & Copy Trading',
     description: 'Monitor large trades, follow successful wallets, and automatically mirror positions.',
   },
   {
-    icon: '⚡',
+    color: 'orange',
     title: 'Multi-Chain DeFi',
     description: 'Solana (Jupiter, Raydium) + EVM (Uniswap, 1inch) with MEV protection.',
   },
   {
-    icon: '🧠',
+    color: 'pink',
     title: 'Smart Order Routing',
     description: 'Auto-route to best price/liquidity. Maker rebates. Auto-arbitrage execution.',
   },
   {
-    icon: '🛡️',
+    color: 'red',
     title: 'Safety Controls',
     description: 'Circuit breakers, drawdown limits, position limits, and kill switches.',
   },
   {
-    icon: '📡',
+    color: 'yellow',
     title: 'External Data Feeds',
     description: 'CME FedWatch, 538, Silver Bulletin, RCP polls for edge detection.',
   },
@@ -47,7 +47,7 @@ const stats = [
   { value: '22', label: 'Channels' },
   { value: '9', label: 'Markets' },
   { value: '10', label: 'Chains' },
-  { value: '$40M+', label: 'Arb Found*' },
+  { value: '21', label: 'Tools' },
 ];
 
 const codeExample = `# Install
@@ -153,9 +153,6 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-          <p className="text-center text-slate-500 text-xs mt-4">
-            *Based on arXiv:2508.03474 research on Polymarket arbitrage
-          </p>
         </div>
       </section>
 
@@ -221,17 +218,29 @@ export default function LandingPage() {
             A complete platform for prediction market trading, research, and automation.
           </p>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((feature) => (
-              <div
-                key={feature.title}
-                className="p-6 bg-slate-800/50 rounded-xl border border-slate-700 hover:border-cyan-500/50 transition-colors"
-              >
-                <div className="text-3xl mb-4">{feature.icon}</div>
-                <h3 className="text-lg font-semibold text-white mb-2">{feature.title}</h3>
-                <p className="text-slate-400 text-sm">{feature.description}</p>
-              </div>
-            ))}
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {features.map((feature) => {
+              const colorMap = {
+                cyan: 'bg-cyan-500',
+                green: 'bg-green-500',
+                purple: 'bg-purple-500',
+                blue: 'bg-blue-500',
+                orange: 'bg-orange-500',
+                pink: 'bg-pink-500',
+                red: 'bg-red-500',
+                yellow: 'bg-yellow-500',
+              };
+              return (
+                <div
+                  key={feature.title}
+                  className="p-5 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-slate-500 transition-colors"
+                >
+                  <div className={`w-3 h-3 rounded-sm ${colorMap[feature.color]} mb-3`}></div>
+                  <h3 className="text-sm font-semibold text-white mb-1">{feature.title}</h3>
+                  <p className="text-slate-500 text-xs leading-relaxed">{feature.description}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -304,60 +313,52 @@ export default function LandingPage() {
             Professional-grade tools for serious traders.
           </p>
 
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Whale Tracking */}
-            <div className="p-6 bg-slate-800/50 rounded-xl border border-slate-700">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">🐋</span>
-                <h3 className="text-lg font-semibold text-white">Whale Tracking</h3>
-              </div>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li>• Monitor trades &gt;$10k in real-time</li>
-                <li>• Track specific wallet addresses</li>
-                <li>• View top traders leaderboard</li>
-                <li>• Position history and PnL analysis</li>
+            <div className="p-5 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="w-3 h-3 rounded-sm bg-blue-500 mb-3"></div>
+              <h3 className="text-sm font-semibold text-white mb-2">Whale Tracking</h3>
+              <ul className="space-y-1 text-xs text-slate-500">
+                <li>Monitor trades &gt;$10k</li>
+                <li>Track wallet addresses</li>
+                <li>Top traders leaderboard</li>
+                <li>Position history</li>
               </ul>
             </div>
 
             {/* Copy Trading */}
-            <div className="p-6 bg-slate-800/50 rounded-xl border border-slate-700">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">📋</span>
-                <h3 className="text-lg font-semibold text-white">Copy Trading</h3>
-              </div>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li>• Auto-mirror whale positions</li>
-                <li>• Configurable sizing modes</li>
-                <li>• Copy delay to avoid detection</li>
-                <li>• Built-in risk limits</li>
+            <div className="p-5 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="w-3 h-3 rounded-sm bg-green-500 mb-3"></div>
+              <h3 className="text-sm font-semibold text-white mb-2">Copy Trading</h3>
+              <ul className="space-y-1 text-xs text-slate-500">
+                <li>Auto-mirror positions</li>
+                <li>Configurable sizing</li>
+                <li>Copy delay option</li>
+                <li>Built-in risk limits</li>
               </ul>
             </div>
 
             {/* Smart Routing */}
-            <div className="p-6 bg-slate-800/50 rounded-xl border border-slate-700">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">🧭</span>
-                <h3 className="text-lg font-semibold text-white">Smart Order Routing</h3>
-              </div>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li>• Best price across platforms</li>
-                <li>• Maker order preference (-0.5% rebate)</li>
-                <li>• Liquidity-aware execution</li>
-                <li>• Auto-split large orders</li>
+            <div className="p-5 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="w-3 h-3 rounded-sm bg-purple-500 mb-3"></div>
+              <h3 className="text-sm font-semibold text-white mb-2">Smart Order Routing</h3>
+              <ul className="space-y-1 text-xs text-slate-500">
+                <li>Best price routing</li>
+                <li>Maker rebates</li>
+                <li>Liquidity-aware</li>
+                <li>Auto-split orders</li>
               </ul>
             </div>
 
             {/* MEV Protection */}
-            <div className="p-6 bg-slate-800/50 rounded-xl border border-slate-700">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-2xl">🛡️</span>
-                <h3 className="text-lg font-semibold text-white">MEV Protection</h3>
-              </div>
-              <ul className="space-y-2 text-sm text-slate-400">
-                <li>• Flashbots Protect (Ethereum)</li>
-                <li>• Jito bundles (Solana)</li>
-                <li>• L2 sequencer protection</li>
-                <li>• Price impact limits</li>
+            <div className="p-5 bg-slate-800/50 rounded-lg border border-slate-700">
+              <div className="w-3 h-3 rounded-sm bg-red-500 mb-3"></div>
+              <h3 className="text-sm font-semibold text-white mb-2">MEV Protection</h3>
+              <ul className="space-y-1 text-xs text-slate-500">
+                <li>Flashbots (Ethereum)</li>
+                <li>Jito bundles (Solana)</li>
+                <li>L2 sequencer protection</li>
+                <li>Price impact limits</li>
               </ul>
             </div>
           </div>
