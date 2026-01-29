@@ -33,6 +33,15 @@ You can control paths for config and workspace with:
 
 ## Deployment options
 
+Choose the deployment method that fits your needs:
+
+| Method | Best For | Infra Required |
+|--------|----------|----------------|
+| Node.js | Development, full control | Server/VPS |
+| Docker | Containerized environments | Docker host |
+| systemd | Production Linux servers | Linux VPS |
+| **Cloudflare Workers** | Edge, no server needed | Cloudflare account |
+
 ### 1) Node.js (bare metal)
 
 ```
@@ -109,6 +118,51 @@ systemctl daemon-reload
 systemctl enable clodds
 systemctl start clodds
 ```
+
+### 5) Cloudflare Workers (edge/serverless)
+
+For lightweight edge deployment without dedicated hardware. Supports webhook-based
+channels (Telegram, Discord, Slack), market search, and arbitrage scanning.
+
+**Limitations vs full deployment:**
+- No WebSocket channels (webchat, real-time feeds)
+- No trading execution (read-only market data)
+- No shell/browser tools
+- No whale tracking or copy trading
+
+**Setup:**
+
+```bash
+cd apps/clodds-worker
+npm install
+
+# Create Cloudflare resources
+npx wrangler d1 create clodds
+npx wrangler kv:namespace create CACHE
+
+# Update wrangler.toml with the returned IDs
+# database_id = "..." and id = "..."
+
+# Run migrations
+npx wrangler d1 migrations apply clodds
+
+# Set secrets
+npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler secret put TELEGRAM_BOT_TOKEN  # optional
+npx wrangler secret put DISCORD_PUBLIC_KEY  # optional
+npx wrangler secret put SLACK_BOT_TOKEN     # optional
+
+# Deploy
+npx wrangler deploy
+```
+
+**Set up Telegram webhook:**
+
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://clodds-worker.<account>.workers.dev/webhook/telegram"
+```
+
+See [apps/clodds-worker/README.md](../apps/clodds-worker/README.md) for full documentation.
 
 ## Reverse proxy and TLS
 

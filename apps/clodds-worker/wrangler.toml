@@ -1,0 +1,31 @@
+name = "clodds-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+ENVIRONMENT = "production"
+
+# Durable Objects for session state
+[[durable_objects.bindings]]
+name = "SESSION"
+class_name = "SessionDO"
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "clodds"
+database_id = "placeholder" # Replace after running: wrangler d1 create clodds
+
+# KV for market cache
+[[kv_namespaces]]
+binding = "CACHE"
+id = "placeholder" # Replace after running: wrangler kv:namespace create CACHE
+
+# Cron trigger for arbitrage scanning
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["SessionDO"]
