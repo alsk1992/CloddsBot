@@ -60,7 +60,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 w-full z-50 bg-slate-900/80 backdrop-blur-sm border-b border-slate-700">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">🎲</span>
+            <img src="/logo.png" alt="Clodds" className="w-8 h-8" />
             <span className="text-xl font-bold text-white">Clodds</span>
           </div>
           <div className="flex items-center gap-6">
@@ -279,7 +279,7 @@ export default function LandingPage() {
       <footer className="py-8 px-6 border-t border-slate-700">
         <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-xl">🎲</span>
+            <img src="/logo.png" alt="Clodds" className="w-6 h-6" />
             <span className="text-white font-semibold">Clodds</span>
             <span className="text-slate-500 text-sm">Claude + Odds</span>
           </div>

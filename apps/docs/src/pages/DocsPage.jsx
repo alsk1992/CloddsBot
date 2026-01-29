@@ -176,7 +176,7 @@ export default function DocsPage() {
       `}>
         <div className="p-6">
           <Link to="/" className="flex items-center gap-3 mb-2">
-            <span className="text-2xl">🎲</span>
+            <img src="/logo.png" alt="Clodds" className="w-8 h-8" />
             <span className="text-xl font-bold text-white">Clodds</span>
           </Link>
           <p className="text-sm text-slate-400 mb-6">Documentation</p>
