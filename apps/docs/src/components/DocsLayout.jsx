@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 const navigation = [
   {
@@ -64,6 +65,9 @@ export default function DocsLayout({ children }) {
       `}>
         <div className="h-full overflow-y-auto px-4 py-6">
           <div className="mb-8">
+            <Link to="/" className="flex items-center gap-2 mb-2 text-gray-600 hover:text-gray-900 text-sm">
+              <span>&larr;</span> Back to Home
+            </Link>
             <h1 className="text-xl font-bold text-gray-900">Clodds Docs</h1>
             <p className="text-sm text-gray-500">Trading & Opportunity Finding</p>
           </div>
