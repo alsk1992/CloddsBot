@@ -45,6 +45,7 @@ export * from './scoring';
 export * from './outcomes';
 export * from './analytics';
 export * from './links';
+export * from './combinatorial';
 
 import { createMarketMatcher, MarketMatcher, MarketMatch } from './matching';
 import { createOpportunityScorer, OpportunityScorer, ScoredOpportunity } from './scoring';

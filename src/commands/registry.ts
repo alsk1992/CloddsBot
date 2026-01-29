@@ -2703,6 +2703,85 @@ export function createDefaultCommands(): CommandDefinition[] {
             ].join('\n');
           }
 
+          case 'combinatorial':
+          case 'comb': {
+            // Combinatorial arbitrage scanner (from arXiv:2508.03474)
+            // Detects: rebalancing (YES+NO != $1), conditional dependencies
+            const { scanCombinatorialArbitrage } = await import('../opportunity/combinatorial');
+
+            let minEdge = 0.5;
+            const platforms: string[] = [];
+
+            for (const part of rest) {
+              const lower = part.toLowerCase();
+              if (lower.startsWith('minedge=')) {
+                minEdge = parseFloat(lower.slice(8)) || 0.5;
+              } else if (lower.startsWith('platforms=')) {
+                platforms.push(...lower.slice(10).split(','));
+              }
+            }
+
+            const result = await scanCombinatorialArbitrage(ctx.feeds, {
+              platforms: platforms.length > 0 ? platforms : ['polymarket', 'kalshi', 'betfair'],
+              minEdgePct: minEdge,
+            });
+
+            const lines = [
+              '**Combinatorial Arbitrage Scan**',
+              `(Based on arXiv:2508.03474 - "Unravelling the Probabilistic Forest")`,
+              '',
+              `Scanned: ${result.scannedMarkets} markets, ${result.scannedPairs} pairs`,
+              `Clusters found: ${result.clusters.length}`,
+              '',
+            ];
+
+            // Rebalancing opportunities
+            if (result.rebalance.length > 0) {
+              lines.push(`**Rebalancing (YES+NO != $1): ${result.rebalance.length}**`);
+              for (const opp of result.rebalance.slice(0, 5)) {
+                const emoji = opp.type === 'rebalance_long' ? '📈' : '📉';
+                lines.push(`${emoji} ${opp.edgePct.toFixed(2)}% - ${opp.market.question.slice(0, 40)}...`);
+                lines.push(`   Cost: $${opp.totalCost.toFixed(3)} → Payout: $1.00 | Net: $${opp.netProfit.toFixed(3)}`);
+              }
+              lines.push('');
+            }
+
+            // Combinatorial opportunities
+            if (result.combinatorial.length > 0) {
+              lines.push(`**Combinatorial (conditional deps): ${result.combinatorial.length}**`);
+              for (const opp of result.combinatorial.slice(0, 5)) {
+                const relEmoji: Record<string, string> = {
+                  implies: '→',
+                  implied_by: '←',
+                  mutually_exclusive: '⊕',
+                  exhaustive: '∨',
+                  equivalent: '↔',
+                  inverse: '¬',
+                };
+                lines.push(`${relEmoji[opp.relationship] || '?'} ${opp.edgePct.toFixed(2)}% (${opp.relationship})`);
+                for (const m of opp.markets.slice(0, 2)) {
+                  lines.push(`   ${m.platform}: ${m.question.slice(0, 35)}...`);
+                }
+                lines.push(`   Strategy: ${opp.strategy.action.toUpperCase()} | Conf: ${(opp.confidence * 100).toFixed(0)}%`);
+              }
+              lines.push('');
+            }
+
+            // Cluster summary
+            if (result.clusters.length > 0) {
+              lines.push('**Top Clusters:**');
+              for (const cluster of result.clusters.slice(0, 5)) {
+                lines.push(`  ${cluster.topic}: ${cluster.markets.length} markets (sim: ${cluster.avgSimilarity.toFixed(2)})`);
+              }
+            }
+
+            if (result.rebalance.length === 0 && result.combinatorial.length === 0) {
+              lines.push('No combinatorial arbitrage found above threshold.');
+            }
+
+            return lines.join('\n');
+          }
+
           default:
             return [
               'Usage: /opportunity [command]',
@@ -2710,6 +2789,7 @@ export function createDefaultCommands(): CommandDefinition[] {
               'Commands:',
               '  scan [query] [minEdge=0.5] [limit=20]  - Find opportunities',
               '  active                                  - Show active opportunities',
+              '  combinatorial [minEdge=0.5]            - Scan for combinatorial arbitrage',
               '  link <a> <b> [confidence]              - Link equivalent markets',
               '  unlink <a> <b>                         - Remove market link',
               '  links [market]                         - Show market links',
@@ -2723,6 +2803,10 @@ export function createDefaultCommands(): CommandDefinition[] {
               '  limit=N        - Max results (default: 20)',
               '  platforms=a,b  - Filter platforms',
               '  types=a,b      - Filter types (internal, cross_platform, edge)',
+              '',
+              'Combinatorial (arXiv:2508.03474):',
+              '  - Rebalancing: YES+NO != $1 within single market',
+              '  - Dependencies: implies, inverse, mutually_exclusive',
             ].join('\n');
         }
       },
