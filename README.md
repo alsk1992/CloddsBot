@@ -294,33 +294,36 @@ docker compose up --build
 
 ## Screenshots
 
-<details>
-<summary>Telegram Chat</summary>
+### Arbitrage Scanner
+Find cross-platform arbitrage opportunities in seconds.
 
-<img src="./assets/screenshots/telegram.png" alt="Telegram" width="400" />
+<img src="./assets/screenshots/arbitrage.png" alt="Arbitrage Scanner" width="700" />
 
-</details>
+### Portfolio Dashboard
+Track positions and P&L across all platforms.
 
-<details>
-<summary>WebChat Interface</summary>
+<img src="./assets/screenshots/portfolio.png" alt="Portfolio Dashboard" width="700" />
 
-<img src="./assets/screenshots/webchat.png" alt="WebChat" width="600" />
+### Chat Interfaces
 
-</details>
+<table>
+<tr>
+<td width="40%">
 
-<details>
-<summary>Arbitrage Scanner</summary>
+**Telegram**
 
-<img src="./assets/screenshots/arbitrage.png" alt="Arbitrage" width="600" />
+<img src="./assets/screenshots/telegram.png" alt="Telegram" width="280" />
 
-</details>
+</td>
+<td width="60%">
 
-<details>
-<summary>Portfolio Dashboard</summary>
+**WebChat**
 
-<img src="./assets/screenshots/portfolio.png" alt="Portfolio" width="600" />
+<img src="./assets/screenshots/webchat.png" alt="WebChat" width="420" />
 
-</details>
+</td>
+</tr>
+</table>
 
 ---
 
