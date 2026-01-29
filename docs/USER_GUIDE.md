@@ -64,7 +64,24 @@ Send these in any supported channel (Telegram, Discord, WebChat, etc.):
 - `/model [sonnet|opus|haiku|claude-...]` - change model
 - `/markets [platform] <query>` - search markets
 - `/compare <query> [platforms=polymarket,kalshi] [limit=3]` - compare prices
-- `/arbitrage [query] [minEdge=1] [platforms=polymarket,kalshi] [mode=internal|cross|both] [limit=10]`
+
+**Opportunity Finding:**
+- `/opportunity scan [query]` - find arbitrage opportunities
+- `/opportunity combinatorial` - scan for combinatorial arb (based on arXiv:2508.03474)
+- `/opportunity active` - show active opportunities
+- `/opportunity stats` - performance statistics
+- `/opportunity link <a> <b>` - link equivalent markets
+- `/opportunity realtime start` - enable real-time scanning
+
+**Trading:**
+- `/trades stats` - trade statistics
+- `/trades recent` - recent trades
+- `/bot list` - list trading bots
+- `/bot start <id>` - start a bot
+- `/safety status` - safety controls
+- `/safety kill` - emergency stop
+
+**Portfolio & Risk:**
 - `/portfolio` - show positions and P&L
 - `/pnl [24h|7d|30m] [limit=50]` - historical P&L snapshots
 - `/digest [on|off|HH:MM|show|reset]` - daily digest settings

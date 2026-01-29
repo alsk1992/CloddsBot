@@ -163,6 +163,7 @@ await trading.execution.buyLimit({
         <Subsection title="Opportunity Commands">
           <CommandTable commands={[
             { command: '/opportunity scan [query]', description: 'Find arbitrage opportunities' },
+            { command: '/opportunity combinatorial', description: 'Scan for combinatorial arb (arXiv:2508.03474)' },
             { command: '/opportunity active', description: 'Show active opportunities' },
             { command: '/opportunity link <a> <b>', description: 'Link equivalent markets' },
             { command: '/opportunity stats', description: 'View performance statistics' },
@@ -252,6 +253,28 @@ await trading.execution.buyLimit({
   Market price: 45%
   538 model: 52%
   Edge: 7% (buy YES)`}
+            </CodeBlock>
+          </div>
+
+          <div className="p-6 bg-white rounded-xl border border-gray-200">
+            <div className="flex items-center mb-3">
+              <span className="text-2xl mr-3">🔗</span>
+              <h3 className="font-semibold text-gray-900">Combinatorial Arbitrage</h3>
+            </div>
+            <p className="text-gray-600 mb-4">
+              Based on <a href="https://arxiv.org/abs/2508.03474" className="text-blue-600 hover:underline">arXiv:2508.03474</a>.
+              Exploits conditional dependencies between markets ($40M+ found on Polymarket).
+            </p>
+            <CodeBlock language="text">
+{`Relationship Types:
+  → implies: "Trump wins" → "Republican wins"
+  ¬ inverse: P(A) + P(B) = 1
+  ⊕ exclusive: "Biden wins" vs "Trump wins"
+  ∨ exhaustive: All candidates sum to 100%
+
+Example: Trump 55c, Republican 52c
+  Mispricing! P(Trump) should be ≤ P(Republican)
+  Strategy: Sell Trump YES, Buy Republican YES`}
             </CodeBlock>
           </div>
         </div>

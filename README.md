@@ -613,14 +613,28 @@ clodds permissions approve <id>
 ### Chat Commands
 
 ```
-/help                     # List commands
-/new                      # Reset conversation
-/model sonnet             # Change model
-/portfolio                # Show positions
-/markets trump            # Search markets
-/arbitrage               # Find opportunities
-/alert price BTC > 100000 # Set alert
-/risk show                # View risk limits
+/help                           # List commands
+/new                            # Reset conversation
+/model sonnet                   # Change model
+/portfolio                      # Show positions
+/markets trump                  # Search markets
+
+# Opportunity Finding
+/opportunity scan [query]       # Find arbitrage opportunities
+/opportunity combinatorial      # Scan for combinatorial arb (arXiv:2508.03474)
+/opportunity active             # Show active opportunities
+/opportunity stats              # Performance statistics
+/opportunity link <a> <b>       # Link equivalent markets
+
+# Trading
+/trades stats                   # Trade statistics
+/trades recent                  # Recent trades
+/bot list                       # List trading bots
+/safety status                  # Safety controls
+
+# Alerts & Risk
+/alert price BTC > 100000       # Set alert
+/risk show                      # View risk limits
 ```
 
 ---
