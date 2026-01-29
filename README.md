@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="./assets/demo.gif" alt="Clodds Demo" width="600">
+  <img src="./assets/logo.png" alt="Clodds Logo" width="280">
 </p>
-
-<h1 align="center">Clodds</h1>
 
 <p align="center">
   <strong>The AI-powered prediction market platform you run yourself</strong>
+  <br>
+  <sub>Claude + Odds = Clodds</sub>
 </p>
 
 <p align="center">
@@ -337,6 +337,11 @@ Edge: 7% (buy YES)
 ---
 
 ## Screenshots
+
+### Demo
+<p align="center">
+  <img src="./assets/demo.gif" alt="Clodds Demo" width="600">
+</p>
 
 ### Arbitrage Scanner
 <img src="./assets/screenshots/arbitrage.png" alt="Arbitrage Scanner" width="700">
