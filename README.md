@@ -9,11 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/alsk1992/CloddsBot/actions"><img src="https://img.shields.io/github/actions/workflow/status/alsk1992/CloddsBot/ci.yml?label=CI" alt="CI"></a>
-  <a href="https://github.com/alsk1992/CloddsBot/releases"><img src="https://img.shields.io/github/v/release/alsk1992/CloddsBot" alt="GitHub release"></a>
-  <a href="https://deepwiki.com/alsk1992/CloddsBot"><img src="https://img.shields.io/badge/DeepWiki-alsk1992%2FCloddsBot-blue" alt="DeepWiki"></a>
-  <a href="https://discord.gg/clodds"><img src="https://img.shields.io/discord/1234567890?label=Discord&logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" alt="Node.js">
+  <img src="https://img.shields.io/badge/typescript-5.3-blue" alt="TypeScript">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/channels-22-purple" alt="22 Channels">
+  <img src="https://img.shields.io/badge/markets-9-orange" alt="9 Markets">
 </p>
 
 <p align="center">
