@@ -1340,6 +1340,205 @@ export function createDefaultCommands(): CommandDefinition[] {
       },
     },
     {
+      name: 'track',
+      description: 'Manage custom tracking columns and data',
+      usage: '/track [columns|add|remove|get|summary] [args]',
+      aliases: ['tracking'],
+      handler: async (args, ctx) => {
+        const trading = (ctx as any).trading;
+        if (!trading?.tracking) {
+          return 'Tracking manager not initialized.';
+        }
+
+        const parts = args.trim().split(/\s+/);
+        const subcommand = parts[0]?.toLowerCase() || 'columns';
+        const rest = parts.slice(1);
+
+        switch (subcommand) {
+          case 'columns': {
+            const category = rest[0];
+            const columns = trading.tracking.getColumns(category);
+
+            if (columns.length === 0) {
+              return category
+                ? `No columns in category "${category}".`
+                : 'No tracking columns defined.';
+            }
+
+            const grouped = new Map<string, typeof columns>();
+            for (const col of columns) {
+              const cat = col.category || 'other';
+              const list = grouped.get(cat) || [];
+              list.push(col);
+              grouped.set(cat, list);
+            }
+
+            const lines = ['Tracking Columns', ''];
+            for (const [cat, cols] of grouped) {
+              lines.push(`**${cat}**`);
+              for (const col of cols) {
+                const summary = col.showInSummary ? ' [summary]' : '';
+                lines.push(`  ${col.name} (${col.type})${summary}`);
+                if (col.description) {
+                  lines.push(`    ${col.description}`);
+                }
+              }
+              lines.push('');
+            }
+
+            return lines.join('\n');
+          }
+
+          case 'add': {
+            // /track add column_name type [category] [description]
+            const name = rest[0];
+            const type = (rest[1]?.toLowerCase() || 'string') as 'number' | 'string' | 'boolean' | 'json';
+            const category = rest[2] || 'custom';
+            const description = rest.slice(3).join(' ') || undefined;
+
+            if (!name) {
+              return [
+                'Usage: /track add <name> [type] [category] [description]',
+                '',
+                'Types: number, string, boolean, json',
+                '',
+                'Examples:',
+                '  /track add my_score number trade My custom score',
+                '  /track add trade_notes string trade Notes for each trade',
+              ].join('\n');
+            }
+
+            if (!['number', 'string', 'boolean', 'json'].includes(type)) {
+              return `Invalid type: ${type}. Use: number, string, boolean, json`;
+            }
+
+            trading.tracking.defineColumn({
+              name,
+              label: name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+              type,
+              category,
+              description,
+              showInSummary: type === 'number',
+              aggregation: type === 'number' ? 'avg' : undefined,
+            });
+
+            return `Column "${name}" added (${type}, ${category}).`;
+          }
+
+          case 'remove': {
+            const name = rest[0];
+            if (!name) {
+              return 'Usage: /track remove <column_name>';
+            }
+
+            trading.tracking.removeColumn(name);
+            return `Column "${name}" removed.`;
+          }
+
+          case 'set': {
+            // /track set entity_type entity_id column value
+            const [entityType, entityId, column, ...valueParts] = rest;
+
+            if (!entityType || !entityId || !column || valueParts.length === 0) {
+              return [
+                'Usage: /track set <entity_type> <entity_id> <column> <value>',
+                '',
+                'Examples:',
+                '  /track set trade trade_abc123 my_score 85',
+                '  /track set bot mean-reversion notes "Tweaked params"',
+              ].join('\n');
+            }
+
+            const value = valueParts.join(' ');
+            const numValue = parseFloat(value);
+            const finalValue = isNaN(numValue) ? value : numValue;
+
+            trading.tracking.track({
+              entityType,
+              entityId,
+              column,
+              value: finalValue,
+            });
+
+            return `Tracked: ${entityType}/${entityId}.${column} = ${finalValue}`;
+          }
+
+          case 'get': {
+            // /track get entity_type entity_id [column]
+            const [entityType, entityId, column] = rest;
+
+            if (!entityType || !entityId) {
+              return 'Usage: /track get <entity_type> <entity_id> [column]';
+            }
+
+            if (column) {
+              const value = trading.tracking.getLatest(entityType, entityId, column);
+              return value !== undefined
+                ? `${column}: ${JSON.stringify(value)}`
+                : `No value for ${column}`;
+            }
+
+            const entries = trading.tracking.get({ entityType, entityId, limit: 20 });
+            if (entries.length === 0) {
+              return `No tracking data for ${entityType}/${entityId}`;
+            }
+
+            const lines = [`Tracking: ${entityType}/${entityId}`, ''];
+            const byColumn = new Map<string, unknown>();
+            for (const entry of entries) {
+              if (!byColumn.has(entry.column)) {
+                byColumn.set(entry.column, entry.value);
+              }
+            }
+
+            for (const [col, val] of byColumn) {
+              lines.push(`  ${col}: ${JSON.stringify(val)}`);
+            }
+
+            return lines.join('\n');
+          }
+
+          case 'summary': {
+            const column = rest[0];
+            if (!column) {
+              return 'Usage: /track summary <column>';
+            }
+
+            const summary = trading.tracking.getSummary(column);
+
+            const lines = [`Summary: ${column}`, ''];
+            lines.push(`  Count: ${summary.count}`);
+            if (summary.sum !== null) lines.push(`  Sum: ${summary.sum?.toFixed(2)}`);
+            if (summary.avg !== null) lines.push(`  Avg: ${summary.avg?.toFixed(2)}`);
+            if (summary.min !== null) lines.push(`  Min: ${summary.min?.toFixed(2)}`);
+            if (summary.max !== null) lines.push(`  Max: ${summary.max?.toFixed(2)}`);
+            if (summary.latest !== undefined) lines.push(`  Latest: ${JSON.stringify(summary.latest)}`);
+
+            return lines.join('\n');
+          }
+
+          case 'export': {
+            const csv = trading.tracking.exportCsv({ limit: 100 });
+            return `Exported ${csv.split('\n').length - 1} rows:\n\n${csv.slice(0, 1000)}${csv.length > 1000 ? '\n...' : ''}`;
+          }
+
+          default:
+            return [
+              'Usage: /track [command]',
+              '',
+              'Commands:',
+              '  columns [category]         - List tracking columns',
+              '  add <name> [type] [cat]    - Add custom column',
+              '  remove <name>              - Remove column',
+              '  set <type> <id> <col> <v>  - Track a value',
+              '  get <type> <id> [col]      - Get tracked values',
+              '  summary <column>           - Get column stats',
+              '  export                     - Export to CSV',
+            ].join('\n');
+        }
+      },
+    },
+    {
       name: 'safety',
       description: 'Trading safety controls and circuit breakers',
       usage: '/safety [status|limits|kill|resume|alerts]',

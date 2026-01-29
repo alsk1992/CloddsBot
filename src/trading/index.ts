@@ -44,6 +44,7 @@ export * from './safety';
 export * from './resilience';
 export * from './secrets';
 export * from './backtest';
+export * from './tracking';
 
 import {
   createTradeLogger,
