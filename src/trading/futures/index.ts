@@ -1099,6 +1099,474 @@ class BinanceFuturesClient {
   async deleteListenKey(): Promise<void> {
     await this.request('DELETE', '/fapi/v1/listenKey', {}, true);
   }
+
+  // =========== ADDITIONAL MARKET DATA & ANALYTICS ===========
+
+  async getServerTime(): Promise<number> {
+    const data = await this.request('GET', '/fapi/v1/time') as { serverTime: number };
+    return data.serverTime;
+  }
+
+  async ping(): Promise<boolean> {
+    await this.request('GET', '/fapi/v1/ping');
+    return true;
+  }
+
+  async getExchangeInfo(): Promise<{
+    symbols: Array<{
+      symbol: string;
+      status: string;
+      baseAsset: string;
+      quoteAsset: string;
+      pricePrecision: number;
+      quantityPrecision: number;
+      contractType: string;
+    }>;
+  }> {
+    return this.request('GET', '/fapi/v1/exchangeInfo') as Promise<{
+      symbols: Array<{
+        symbol: string;
+        status: string;
+        baseAsset: string;
+        quoteAsset: string;
+        pricePrecision: number;
+        quantityPrecision: number;
+        contractType: string;
+      }>;
+    }>;
+  }
+
+  async getRecentTrades(symbol: string, limit = 500): Promise<Array<{
+    id: number;
+    price: number;
+    qty: number;
+    quoteQty: number;
+    time: number;
+    isBuyerMaker: boolean;
+  }>> {
+    const data = await this.request('GET', '/fapi/v1/trades', { symbol, limit }) as Array<{
+      id: number;
+      price: string;
+      qty: string;
+      quoteQty: string;
+      time: number;
+      isBuyerMaker: boolean;
+    }>;
+    return data.map(t => ({
+      id: t.id,
+      price: parseFloat(t.price),
+      qty: parseFloat(t.qty),
+      quoteQty: parseFloat(t.quoteQty),
+      time: t.time,
+      isBuyerMaker: t.isBuyerMaker,
+    }));
+  }
+
+  async getAggTrades(symbol: string, limit = 500): Promise<Array<{
+    aggTradeId: number;
+    price: number;
+    quantity: number;
+    firstTradeId: number;
+    lastTradeId: number;
+    timestamp: number;
+    isBuyerMaker: boolean;
+  }>> {
+    const data = await this.request('GET', '/fapi/v1/aggTrades', { symbol, limit }) as Array<{
+      a: number;
+      p: string;
+      q: string;
+      f: number;
+      l: number;
+      T: number;
+      m: boolean;
+    }>;
+    return data.map(t => ({
+      aggTradeId: t.a,
+      price: parseFloat(t.p),
+      quantity: parseFloat(t.q),
+      firstTradeId: t.f,
+      lastTradeId: t.l,
+      timestamp: t.T,
+      isBuyerMaker: t.m,
+    }));
+  }
+
+  async getContinuousKlines(pair: string, contractType: 'PERPETUAL' | 'CURRENT_QUARTER' | 'NEXT_QUARTER', interval: KlineInterval, limit = 500): Promise<FuturesKline[]> {
+    const data = await this.request('GET', '/fapi/v1/continuousKlines', { pair, contractType, interval, limit }) as Array<[
+      number, string, string, string, string, string, number, string, number, string, string, string
+    ]>;
+    return data.map(k => ({
+      openTime: k[0],
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+      volume: parseFloat(k[5]),
+      closeTime: k[6],
+      quoteVolume: parseFloat(k[7]),
+      trades: k[8],
+      takerBuyVolume: parseFloat(k[9]),
+      takerBuyQuoteVolume: parseFloat(k[10]),
+    }));
+  }
+
+  async getIndexPriceKlines(pair: string, interval: KlineInterval, limit = 500): Promise<FuturesKline[]> {
+    const data = await this.request('GET', '/fapi/v1/indexPriceKlines', { pair, interval, limit }) as Array<[
+      number, string, string, string, string, string, number
+    ]>;
+    return data.map(k => ({
+      openTime: k[0],
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+      volume: 0,
+      closeTime: k[6],
+      quoteVolume: 0,
+      trades: 0,
+      takerBuyVolume: 0,
+      takerBuyQuoteVolume: 0,
+    }));
+  }
+
+  async getMarkPriceKlines(symbol: string, interval: KlineInterval, limit = 500): Promise<FuturesKline[]> {
+    const data = await this.request('GET', '/fapi/v1/markPriceKlines', { symbol, interval, limit }) as Array<[
+      number, string, string, string, string, string, number
+    ]>;
+    return data.map(k => ({
+      openTime: k[0],
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+      volume: 0,
+      closeTime: k[6],
+      quoteVolume: 0,
+      trades: 0,
+      takerBuyVolume: 0,
+      takerBuyQuoteVolume: 0,
+    }));
+  }
+
+  async get24hrTicker(symbol?: string): Promise<Array<{
+    symbol: string;
+    priceChange: number;
+    priceChangePercent: number;
+    weightedAvgPrice: number;
+    lastPrice: number;
+    lastQty: number;
+    openPrice: number;
+    highPrice: number;
+    lowPrice: number;
+    volume: number;
+    quoteVolume: number;
+    openTime: number;
+    closeTime: number;
+    count: number;
+  }>> {
+    const params: Record<string, string> = {};
+    if (symbol) params.symbol = symbol;
+    const data = await this.request('GET', '/fapi/v1/ticker/24hr', params) as Array<{
+      symbol: string;
+      priceChange: string;
+      priceChangePercent: string;
+      weightedAvgPrice: string;
+      lastPrice: string;
+      lastQty: string;
+      openPrice: string;
+      highPrice: string;
+      lowPrice: string;
+      volume: string;
+      quoteVolume: string;
+      openTime: number;
+      closeTime: number;
+      count: number;
+    }> | {
+      symbol: string;
+      priceChange: string;
+      priceChangePercent: string;
+      weightedAvgPrice: string;
+      lastPrice: string;
+      lastQty: string;
+      openPrice: string;
+      highPrice: string;
+      lowPrice: string;
+      volume: string;
+      quoteVolume: string;
+      openTime: number;
+      closeTime: number;
+      count: number;
+    };
+    const tickers = Array.isArray(data) ? data : [data];
+    return tickers.map(t => ({
+      symbol: t.symbol,
+      priceChange: parseFloat(t.priceChange),
+      priceChangePercent: parseFloat(t.priceChangePercent),
+      weightedAvgPrice: parseFloat(t.weightedAvgPrice),
+      lastPrice: parseFloat(t.lastPrice),
+      lastQty: parseFloat(t.lastQty),
+      openPrice: parseFloat(t.openPrice),
+      highPrice: parseFloat(t.highPrice),
+      lowPrice: parseFloat(t.lowPrice),
+      volume: parseFloat(t.volume),
+      quoteVolume: parseFloat(t.quoteVolume),
+      openTime: t.openTime,
+      closeTime: t.closeTime,
+      count: t.count,
+    }));
+  }
+
+  async getBookTicker(symbol?: string): Promise<Array<{
+    symbol: string;
+    bidPrice: number;
+    bidQty: number;
+    askPrice: number;
+    askQty: number;
+    time: number;
+  }>> {
+    const params: Record<string, string> = {};
+    if (symbol) params.symbol = symbol;
+    const data = await this.request('GET', '/fapi/v1/ticker/bookTicker', params) as Array<{
+      symbol: string;
+      bidPrice: string;
+      bidQty: string;
+      askPrice: string;
+      askQty: string;
+      time: number;
+    }> | { symbol: string; bidPrice: string; bidQty: string; askPrice: string; askQty: string; time: number };
+    const tickers = Array.isArray(data) ? data : [data];
+    return tickers.map(t => ({
+      symbol: t.symbol,
+      bidPrice: parseFloat(t.bidPrice),
+      bidQty: parseFloat(t.bidQty),
+      askPrice: parseFloat(t.askPrice),
+      askQty: parseFloat(t.askQty),
+      time: t.time,
+    }));
+  }
+
+  async getOpenInterest(symbol: string): Promise<{ symbol: string; openInterest: number; time: number }> {
+    const data = await this.request('GET', '/fapi/v1/openInterest', { symbol }) as {
+      symbol: string;
+      openInterest: string;
+      time: number;
+    };
+    return {
+      symbol: data.symbol,
+      openInterest: parseFloat(data.openInterest),
+      time: data.time,
+    };
+  }
+
+  async getOpenInterestHistory(symbol: string, period: '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '6h' | '12h' | '1d', limit = 30): Promise<Array<{
+    symbol: string;
+    sumOpenInterest: number;
+    sumOpenInterestValue: number;
+    timestamp: number;
+  }>> {
+    const data = await this.request('GET', '/futures/data/openInterestHist', { symbol, period, limit }) as Array<{
+      symbol: string;
+      sumOpenInterest: string;
+      sumOpenInterestValue: string;
+      timestamp: number;
+    }>;
+    return data.map(d => ({
+      symbol: d.symbol,
+      sumOpenInterest: parseFloat(d.sumOpenInterest),
+      sumOpenInterestValue: parseFloat(d.sumOpenInterestValue),
+      timestamp: d.timestamp,
+    }));
+  }
+
+  async getTopTraderLongShortRatio(symbol: string, period: '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '6h' | '12h' | '1d', limit = 30): Promise<Array<{
+    symbol: string;
+    longShortRatio: number;
+    longAccount: number;
+    shortAccount: number;
+    timestamp: number;
+  }>> {
+    const data = await this.request('GET', '/futures/data/topLongShortAccountRatio', { symbol, period, limit }) as Array<{
+      symbol: string;
+      longShortRatio: string;
+      longAccount: string;
+      shortAccount: string;
+      timestamp: number;
+    }>;
+    return data.map(d => ({
+      symbol: d.symbol,
+      longShortRatio: parseFloat(d.longShortRatio),
+      longAccount: parseFloat(d.longAccount),
+      shortAccount: parseFloat(d.shortAccount),
+      timestamp: d.timestamp,
+    }));
+  }
+
+  async getGlobalLongShortRatio(symbol: string, period: '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '6h' | '12h' | '1d', limit = 30): Promise<Array<{
+    symbol: string;
+    longShortRatio: number;
+    longAccount: number;
+    shortAccount: number;
+    timestamp: number;
+  }>> {
+    const data = await this.request('GET', '/futures/data/globalLongShortAccountRatio', { symbol, period, limit }) as Array<{
+      symbol: string;
+      longShortRatio: string;
+      longAccount: string;
+      shortAccount: string;
+      timestamp: number;
+    }>;
+    return data.map(d => ({
+      symbol: d.symbol,
+      longShortRatio: parseFloat(d.longShortRatio),
+      longAccount: parseFloat(d.longAccount),
+      shortAccount: parseFloat(d.shortAccount),
+      timestamp: d.timestamp,
+    }));
+  }
+
+  async getTakerBuySellVolume(symbol: string, period: '5m' | '15m' | '30m' | '1h' | '2h' | '4h' | '6h' | '12h' | '1d', limit = 30): Promise<Array<{
+    buySellRatio: number;
+    buyVol: number;
+    sellVol: number;
+    timestamp: number;
+  }>> {
+    const data = await this.request('GET', '/futures/data/takerlongshortRatio', { symbol, period, limit }) as Array<{
+      buySellRatio: string;
+      buyVol: string;
+      sellVol: string;
+      timestamp: number;
+    }>;
+    return data.map(d => ({
+      buySellRatio: parseFloat(d.buySellRatio),
+      buyVol: parseFloat(d.buyVol),
+      sellVol: parseFloat(d.sellVol),
+      timestamp: d.timestamp,
+    }));
+  }
+
+  async getFundingInfo(): Promise<Array<{
+    symbol: string;
+    adjustedFundingRateCap: number;
+    adjustedFundingRateFloor: number;
+    fundingIntervalHours: number;
+  }>> {
+    const data = await this.request('GET', '/fapi/v1/fundingInfo') as Array<{
+      symbol: string;
+      adjustedFundingRateCap: string;
+      adjustedFundingRateFloor: string;
+      fundingIntervalHours: number;
+    }>;
+    return data.map(f => ({
+      symbol: f.symbol,
+      adjustedFundingRateCap: parseFloat(f.adjustedFundingRateCap),
+      adjustedFundingRateFloor: parseFloat(f.adjustedFundingRateFloor),
+      fundingIntervalHours: f.fundingIntervalHours,
+    }));
+  }
+
+  async getADLQuantile(symbol?: string): Promise<Array<{
+    symbol: string;
+    adlQuantile: { LONG: number; SHORT: number; BOTH: number };
+  }>> {
+    const params: Record<string, string> = {};
+    if (symbol) params.symbol = symbol;
+    const data = await this.request('GET', '/fapi/v1/adlQuantile', params, true) as Array<{
+      symbol: string;
+      adlQuantile: { LONG: number; SHORT: number; BOTH: number };
+    }>;
+    return data;
+  }
+
+  async setMultiAssetsMode(multiAssetsMargin: boolean): Promise<void> {
+    await this.request('POST', '/fapi/v1/multiAssetsMargin', { multiAssetsMargin: String(multiAssetsMargin) }, true);
+  }
+
+  async getMultiAssetsMode(): Promise<boolean> {
+    const data = await this.request('GET', '/fapi/v1/multiAssetsMargin', {}, true) as { multiAssetsMargin: boolean };
+    return data.multiAssetsMargin;
+  }
+
+  async testOrder(order: FuturesOrderRequest): Promise<void> {
+    const params: Record<string, string | number> = {
+      symbol: order.symbol,
+      side: order.side,
+      type: order.type,
+      quantity: order.size,
+    };
+    if (order.price) params.price = order.price;
+    if (order.stopPrice) params.stopPrice = order.stopPrice;
+    await this.request('POST', '/fapi/v1/order/test', params, true);
+  }
+
+  async setAutoCancel(symbol: string, countdownTime: number): Promise<{ symbol: string; countdownTime: number }> {
+    const data = await this.request('POST', '/fapi/v1/countdownCancelAll', { symbol, countdownTime }, true) as {
+      symbol: string;
+      countdownTime: string;
+    };
+    return { symbol: data.symbol, countdownTime: parseInt(data.countdownTime) };
+  }
+
+  async getOrderModifyHistory(symbol: string, orderId?: string, limit = 50): Promise<Array<{
+    symbol: string;
+    orderId: number;
+    amendmentId: number;
+    time: number;
+    amendment: { price: { before: number; after: number }; origQty: { before: number; after: number } };
+  }>> {
+    const params: Record<string, string | number> = { symbol, limit };
+    if (orderId) params.orderId = orderId;
+    const data = await this.request('GET', '/fapi/v1/orderAmendment', params, true) as Array<{
+      symbol: string;
+      orderId: number;
+      amendmentId: number;
+      time: number;
+      amendment: { price: { before: string; after: string }; origQty: { before: string; after: string } };
+    }>;
+    return data.map(d => ({
+      symbol: d.symbol,
+      orderId: d.orderId,
+      amendmentId: d.amendmentId,
+      time: d.time,
+      amendment: {
+        price: { before: parseFloat(d.amendment.price.before), after: parseFloat(d.amendment.price.after) },
+        origQty: { before: parseFloat(d.amendment.origQty.before), after: parseFloat(d.amendment.origQty.after) },
+      },
+    }));
+  }
+
+  async getSymbolConfig(symbol?: string): Promise<Array<{
+    symbol: string;
+    marginType: string;
+    isAutoAddMargin: boolean;
+    leverage: number;
+    maxNotionalValue: number;
+  }>> {
+    const params: Record<string, string> = {};
+    if (symbol) params.symbol = symbol;
+    const data = await this.request('GET', '/fapi/v1/symbolConfig', params, true) as Array<{
+      symbol: string;
+      marginType: string;
+      isAutoAddMargin: boolean;
+      leverage: number;
+      maxNotionalValue: string;
+    }>;
+    return data.map(c => ({
+      symbol: c.symbol,
+      marginType: c.marginType,
+      isAutoAddMargin: c.isAutoAddMargin,
+      leverage: c.leverage,
+      maxNotionalValue: parseFloat(c.maxNotionalValue),
+    }));
+  }
+
+  async getOrderRateLimit(): Promise<Array<{ rateLimitType: string; interval: string; intervalNum: number; limit: number }>> {
+    return this.request('GET', '/fapi/v1/rateLimit/order', {}, true) as Promise<Array<{
+      rateLimitType: string;
+      interval: string;
+      intervalNum: number;
+      limit: number;
+    }>>;
+  }
 }
 
 // =============================================================================
@@ -1828,6 +2296,345 @@ class BybitFuturesClient {
   async getServerTime(): Promise<number> {
     const data = await this.request('GET', '/v5/market/time', {}) as { timeSecond: string; timeNano: string };
     return parseInt(data.timeSecond) * 1000;
+  }
+
+  // =========== ADDITIONAL BYBIT METHODS ===========
+
+  async batchAmendOrders(orders: Array<{ symbol: string; orderId: string; qty?: number; price?: number }>): Promise<Array<{ orderId: string; success: boolean }>> {
+    const request = orders.map(o => ({
+      symbol: o.symbol,
+      orderId: o.orderId,
+      qty: o.qty ? String(o.qty) : undefined,
+      price: o.price ? String(o.price) : undefined,
+    }));
+
+    const result = await this.request('POST', '/v5/order/amend-batch', { category: 'linear', request }) as {
+      list: Array<{ orderId: string; code: string }>;
+    };
+
+    return result.list.map(r => ({ orderId: r.orderId, success: r.code === '0' }));
+  }
+
+  async batchCancelOrders(orders: Array<{ symbol: string; orderId: string }>): Promise<Array<{ orderId: string; success: boolean }>> {
+    const request = orders.map(o => ({ symbol: o.symbol, orderId: o.orderId }));
+
+    const result = await this.request('POST', '/v5/order/cancel-batch', { category: 'linear', request }) as {
+      list: Array<{ orderId: string; code: string }>;
+    };
+
+    return result.list.map(r => ({ orderId: r.orderId, success: r.code === '0' }));
+  }
+
+  async setDisconnectProtection(expiryTime: number): Promise<void> {
+    // DCP: Disconnect Cancel Protection - auto-cancel orders if disconnected
+    await this.request('POST', '/v5/order/disconnected-cancel-all', {
+      timeWindow: expiryTime,
+    });
+  }
+
+  async getSpotBorrowQuota(symbol: string, side: 'Buy' | 'Sell'): Promise<{
+    symbol: string;
+    maxTradeQty: number;
+    side: string;
+    borrowCoin: string;
+  }> {
+    const data = await this.request('GET', '/v5/order/spot-borrow-check', {
+      category: 'spot',
+      symbol,
+      side,
+    }) as { symbol: string; maxTradeQty: string; side: string; borrowCoin: string };
+    return {
+      symbol: data.symbol,
+      maxTradeQty: parseFloat(data.maxTradeQty),
+      side: data.side,
+      borrowCoin: data.borrowCoin,
+    };
+  }
+
+  async getOpenInterest(symbol: string, interval: '5min' | '15min' | '30min' | '1h' | '4h' | '1d', limit = 50): Promise<Array<{
+    openInterest: number;
+    timestamp: number;
+  }>> {
+    const data = await this.request('GET', '/v5/market/open-interest', {
+      category: 'linear',
+      symbol,
+      intervalTime: interval,
+      limit,
+    }) as { list: Array<{ openInterest: string; timestamp: string }> };
+
+    return data.list.map(d => ({
+      openInterest: parseFloat(d.openInterest),
+      timestamp: parseInt(d.timestamp),
+    }));
+  }
+
+  async getLongShortRatio(symbol: string, period: '5min' | '15min' | '30min' | '1h' | '4h' | '1d', limit = 50): Promise<Array<{
+    buyRatio: number;
+    sellRatio: number;
+    timestamp: number;
+  }>> {
+    const data = await this.request('GET', '/v5/market/account-ratio', {
+      category: 'linear',
+      symbol,
+      period,
+      limit,
+    }) as { list: Array<{ buyRatio: string; sellRatio: string; timestamp: string }> };
+
+    return data.list.map(d => ({
+      buyRatio: parseFloat(d.buyRatio),
+      sellRatio: parseFloat(d.sellRatio),
+      timestamp: parseInt(d.timestamp),
+    }));
+  }
+
+  async getInsurance(coin?: string): Promise<Array<{
+    coin: string;
+    balance: number;
+    value: number;
+  }>> {
+    const params: Record<string, string> = {};
+    if (coin) params.coin = coin;
+
+    const data = await this.request('GET', '/v5/market/insurance', params) as {
+      list: Array<{ coin: string; balance: string; value: string }>;
+    };
+
+    return data.list.map(d => ({
+      coin: d.coin,
+      balance: parseFloat(d.balance),
+      value: parseFloat(d.value),
+    }));
+  }
+
+  async getVolatility(category: 'option', baseCoin?: string, period?: number): Promise<Array<{
+    period: number;
+    value: number;
+    time: number;
+  }>> {
+    const params: Record<string, unknown> = { category };
+    if (baseCoin) params.baseCoin = baseCoin;
+    if (period) params.period = period;
+
+    const data = await this.request('GET', '/v5/market/historical-volatility', params) as Array<{
+      period: number;
+      value: string;
+      time: string;
+    }>;
+
+    return data.map(d => ({
+      period: d.period,
+      value: parseFloat(d.value),
+      time: parseInt(d.time),
+    }));
+  }
+
+  async getDeliveryPrice(symbol: string, limit = 50): Promise<Array<{
+    symbol: string;
+    deliveryPrice: number;
+    deliveryTime: number;
+  }>> {
+    const data = await this.request('GET', '/v5/market/delivery-price', {
+      category: 'linear',
+      symbol,
+      limit,
+    }) as { list: Array<{ symbol: string; deliveryPrice: string; deliveryTime: string }> };
+
+    return data.list.map(d => ({
+      symbol: d.symbol,
+      deliveryPrice: parseFloat(d.deliveryPrice),
+      deliveryTime: parseInt(d.deliveryTime),
+    }));
+  }
+
+  async getPreListingInfo(symbol?: string): Promise<Array<{
+    symbol: string;
+    auctionPhaseType: string;
+    auctionFeeInfo: { auctionFeeRate: number; takerFeeRate: number; makerFeeRate: number };
+  }>> {
+    const params: Record<string, string> = { category: 'linear' };
+    if (symbol) params.symbol = symbol;
+
+    const data = await this.request('GET', '/v5/market/prelisting-info', params) as {
+      list: Array<{
+        symbol: string;
+        auctionPhaseType: string;
+        auctionFeeInfo: { auctionFeeRate: string; takerFeeRate: string; makerFeeRate: string };
+      }>;
+    };
+
+    return data.list.map(d => ({
+      symbol: d.symbol,
+      auctionPhaseType: d.auctionPhaseType,
+      auctionFeeInfo: {
+        auctionFeeRate: parseFloat(d.auctionFeeInfo.auctionFeeRate),
+        takerFeeRate: parseFloat(d.auctionFeeInfo.takerFeeRate),
+        makerFeeRate: parseFloat(d.auctionFeeInfo.makerFeeRate),
+      },
+    }));
+  }
+
+  async setTradingStop(
+    symbol: string,
+    takeProfit?: number,
+    stopLoss?: number,
+    trailingStop?: number,
+    positionIdx?: 0 | 1 | 2
+  ): Promise<void> {
+    const params: Record<string, unknown> = { category: 'linear', symbol };
+    if (takeProfit !== undefined) params.takeProfit = String(takeProfit);
+    if (stopLoss !== undefined) params.stopLoss = String(stopLoss);
+    if (trailingStop !== undefined) params.trailingStop = String(trailingStop);
+    if (positionIdx !== undefined) params.positionIdx = positionIdx;
+
+    await this.request('POST', '/v5/position/trading-stop', params);
+  }
+
+  async getClosedPnL(symbol?: string, limit = 50): Promise<Array<{
+    symbol: string;
+    orderId: string;
+    side: string;
+    qty: number;
+    orderPrice: number;
+    closedPnl: number;
+    createdTime: number;
+  }>> {
+    const params: Record<string, unknown> = { category: 'linear', limit };
+    if (symbol) params.symbol = symbol;
+
+    const data = await this.request('GET', '/v5/position/closed-pnl', params) as {
+      list: Array<{
+        symbol: string;
+        orderId: string;
+        side: string;
+        qty: string;
+        orderPrice: string;
+        closedPnl: string;
+        createdTime: string;
+      }>;
+    };
+
+    return data.list.map(d => ({
+      symbol: d.symbol,
+      orderId: d.orderId,
+      side: d.side,
+      qty: parseFloat(d.qty),
+      orderPrice: parseFloat(d.orderPrice),
+      closedPnl: parseFloat(d.closedPnl),
+      createdTime: parseInt(d.createdTime),
+    }));
+  }
+
+  async movePosition(
+    fromUid: string,
+    toUid: string,
+    symbol: string,
+    side: 'Buy' | 'Sell',
+    price: number,
+    qty: number
+  ): Promise<{ blockTradeId: string; status: string }> {
+    const data = await this.request('POST', '/v5/position/move-positions', {
+      category: 'linear',
+      fromUid,
+      toUid,
+      list: [{ symbol, side, price: String(price), qty: String(qty) }],
+    }) as { list: Array<{ blockTradeId: string; status: string }> };
+
+    return data.list[0];
+  }
+
+  async confirmNewRiskLimit(symbol: string): Promise<void> {
+    await this.request('POST', '/v5/position/confirm-pending-mmr', {
+      category: 'linear',
+      symbol,
+    });
+  }
+
+  async getFeeRate(symbol?: string): Promise<Array<{
+    symbol: string;
+    takerFeeRate: number;
+    makerFeeRate: number;
+  }>> {
+    const params: Record<string, string> = { category: 'linear' };
+    if (symbol) params.symbol = symbol;
+
+    const data = await this.request('GET', '/v5/account/fee-rate', params) as {
+      list: Array<{ symbol: string; takerFeeRate: string; makerFeeRate: string }>;
+    };
+
+    return data.list.map(d => ({
+      symbol: d.symbol,
+      takerFeeRate: parseFloat(d.takerFeeRate),
+      makerFeeRate: parseFloat(d.makerFeeRate),
+    }));
+  }
+
+  async getAccountInfo2(): Promise<{
+    unifiedMarginStatus: number;
+    marginMode: string;
+    dcpStatus: string;
+    timeWindow: number;
+    smpGroup: number;
+  }> {
+    const data = await this.request('GET', '/v5/account/info', {}) as {
+      unifiedMarginStatus: number;
+      marginMode: string;
+      dcpStatus: string;
+      timeWindow: number;
+      smpGroup: number;
+    };
+    return data;
+  }
+
+  async getTransactionLog(
+    accountType?: 'UNIFIED' | 'CONTRACT',
+    category?: 'linear' | 'spot',
+    currency?: string,
+    limit?: number
+  ): Promise<Array<{
+    symbol: string;
+    side: string;
+    funding: number;
+    orderLinkId: string;
+    orderId: string;
+    fee: number;
+    change: number;
+    cashFlow: number;
+    transactionTime: number;
+    type: string;
+  }>> {
+    const params: Record<string, unknown> = {};
+    if (accountType) params.accountType = accountType;
+    if (category) params.category = category;
+    if (currency) params.currency = currency;
+    if (limit) params.limit = limit;
+
+    const data = await this.request('GET', '/v5/account/transaction-log', params) as {
+      list: Array<{
+        symbol: string;
+        side: string;
+        funding: string;
+        orderLinkId: string;
+        orderId: string;
+        fee: string;
+        change: string;
+        cashFlow: string;
+        transactionTime: string;
+        type: string;
+      }>;
+    };
+
+    return data.list.map(d => ({
+      symbol: d.symbol,
+      side: d.side,
+      funding: parseFloat(d.funding),
+      orderLinkId: d.orderLinkId,
+      orderId: d.orderId,
+      fee: parseFloat(d.fee),
+      change: parseFloat(d.change),
+      cashFlow: parseFloat(d.cashFlow),
+      transactionTime: parseInt(d.transactionTime),
+      type: d.type,
+    }));
   }
 }
 
@@ -2602,6 +3409,436 @@ class HyperliquidClient {
     return this.request('/info', { type: 'meta' }) as Promise<{
       universe: Array<{ name: string; szDecimals: number; maxLeverage: number }>;
     }>;
+  }
+
+  // =========== ADDITIONAL HYPERLIQUID METHODS ===========
+
+  async scheduleCancel(time: number | null): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'scheduleCancel', time };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async sendUsd(destination: string, amount: number): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'usdSend', destination, amount: String(amount) };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async sendSpot(destination: string, token: string, amount: number): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'spotSend', destination, token, amount: String(amount) };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async withdraw(destination: string, amount: number): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'withdraw3', destination, amount: String(amount) };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async transferBetweenSpotAndPerp(amount: number, toPerp: boolean): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'usdClassTransfer', amount: String(amount), toPerp };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async vaultTransfer(vaultAddress: string, amount: number, isDeposit: boolean): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'vaultTransfer', vaultAddress, usd: String(amount), isDeposit };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async approveAgent(agentAddress: string, agentName?: string): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'approveAgent', agentAddress, agentName: agentName || null };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async approveBuilderFee(builder: string, maxFeeRate: number): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'approveBuilderFee', builder, maxFeeRate: String(maxFeeRate) };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async setReferrer(code: string): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'setReferrer', code };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async stakeDeposit(amount: number): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'cDeposit', amount: String(amount) };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async stakeWithdraw(amount: number): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'cWithdraw', amount: String(amount) };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  async delegateTokens(validator: string, amount: number, undelegate: boolean): Promise<void> {
+    const nonce = Date.now();
+    const action = { type: 'tokenDelegate', validator, amount: String(amount), undelegate };
+    const signature = this.signL1Action(action, nonce);
+    await this.request('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+  }
+
+  // Additional info queries
+
+  async getVaultDetails(vaultAddress: string): Promise<{
+    name: string;
+    vaultAddress: string;
+    leader: string;
+    tvl: number;
+    totalPnl: number;
+  }> {
+    const data = await this.request('/info', { type: 'vaultDetails', vaultAddress }) as {
+      name: string;
+      vaultAddress: string;
+      leader: string;
+      portfolio: Array<Array<unknown>>;
+      apr: string;
+    };
+    return {
+      name: data.name,
+      vaultAddress: data.vaultAddress,
+      leader: data.leader,
+      tvl: 0,
+      totalPnl: 0,
+    };
+  }
+
+  async getUserVaultEquities(): Promise<Array<{
+    vaultAddress: string;
+    equity: number;
+  }>> {
+    const data = await this.request('/info', {
+      type: 'userVaultEquities',
+      user: this.walletAddress,
+    }) as Array<{ vaultAddress: string; equity: string }>;
+    return data.map(v => ({ vaultAddress: v.vaultAddress, equity: parseFloat(v.equity) }));
+  }
+
+  async getUserRole(): Promise<{ role: string }> {
+    return this.request('/info', { type: 'userRole', user: this.walletAddress }) as Promise<{ role: string }>;
+  }
+
+  async getPortfolio(): Promise<Array<{
+    name: string;
+    allTimePnl: number;
+    dailyPnl: number;
+    monthlyPnl: number;
+  }>> {
+    const data = await this.request('/info', { type: 'portfolio', user: this.walletAddress }) as Array<{
+      name: string;
+      allTimePnl: string;
+      dailyPnl: string;
+      monthlyPnl: string;
+    }>;
+    return data.map(p => ({
+      name: p.name,
+      allTimePnl: parseFloat(p.allTimePnl),
+      dailyPnl: parseFloat(p.dailyPnl),
+      monthlyPnl: parseFloat(p.monthlyPnl),
+    }));
+  }
+
+  async getReferralInfo(): Promise<{
+    referredBy?: string;
+    cumVlm: number;
+    unclaimedRewards: number;
+    claimedRewards: number;
+  }> {
+    const data = await this.request('/info', { type: 'referral', user: this.walletAddress }) as {
+      referredBy?: string;
+      cumVlm: string;
+      unclaimedRewards: string;
+      claimedRewards: string;
+    };
+    return {
+      referredBy: data.referredBy,
+      cumVlm: parseFloat(data.cumVlm),
+      unclaimedRewards: parseFloat(data.unclaimedRewards),
+      claimedRewards: parseFloat(data.claimedRewards),
+    };
+  }
+
+  async getStakingDelegations(): Promise<Array<{
+    validator: string;
+    amount: number;
+    lockedUntil?: number;
+  }>> {
+    const data = await this.request('/info', { type: 'delegations', user: this.walletAddress }) as Array<{
+      validator: string;
+      amount: string;
+      lockedUntil?: number;
+    }>;
+    return data.map(d => ({
+      validator: d.validator,
+      amount: parseFloat(d.amount),
+      lockedUntil: d.lockedUntil,
+    }));
+  }
+
+  async getStakingSummary(): Promise<{
+    delegated: number;
+    undelegating: number;
+    claimable: number;
+    totalRewards: number;
+  }> {
+    const data = await this.request('/info', { type: 'delegatorSummary', user: this.walletAddress }) as {
+      delegated: string;
+      undelegating: string;
+      claimable: string;
+      totalRewards: string;
+    };
+    return {
+      delegated: parseFloat(data.delegated),
+      undelegating: parseFloat(data.undelegating),
+      claimable: parseFloat(data.claimable),
+      totalRewards: parseFloat(data.totalRewards),
+    };
+  }
+
+  async getStakingRewards(limit = 100): Promise<Array<{
+    validator: string;
+    amount: number;
+    timestamp: number;
+  }>> {
+    const data = await this.request('/info', { type: 'delegatorRewards', user: this.walletAddress }) as Array<{
+      validator: string;
+      amount: string;
+      time: number;
+    }>;
+    return data.slice(0, limit).map(r => ({
+      validator: r.validator,
+      amount: parseFloat(r.amount),
+      timestamp: r.time,
+    }));
+  }
+
+  async getBorrowLendState(): Promise<{
+    borrowed: number;
+    lent: number;
+    borrowApy: number;
+    lendApy: number;
+  }> {
+    const data = await this.request('/info', { type: 'borrowLendUserState', user: this.walletAddress }) as {
+      borrowed: string;
+      lent: string;
+      borrowApy: string;
+      lendApy: string;
+    };
+    return {
+      borrowed: parseFloat(data.borrowed),
+      lent: parseFloat(data.lent),
+      borrowApy: parseFloat(data.borrowApy),
+      lendApy: parseFloat(data.lendApy),
+    };
+  }
+
+  async getAllBorrowLendReserves(): Promise<Array<{
+    coin: string;
+    totalBorrowed: number;
+    totalLent: number;
+    borrowApy: number;
+    lendApy: number;
+  }>> {
+    const data = await this.request('/info', { type: 'allBorrowLendReserveStates' }) as Array<{
+      coin: string;
+      totalBorrowed: string;
+      totalLent: string;
+      borrowApy: string;
+      lendApy: string;
+    }>;
+    return data.map(r => ({
+      coin: r.coin,
+      totalBorrowed: parseFloat(r.totalBorrowed),
+      totalLent: parseFloat(r.totalLent),
+      borrowApy: parseFloat(r.borrowApy),
+      lendApy: parseFloat(r.lendApy),
+    }));
+  }
+
+  async getFrontendOpenOrders(): Promise<Array<{
+    coin: string;
+    oid: number;
+    side: string;
+    limitPx: number;
+    sz: number;
+    timestamp: number;
+    triggerCondition?: string;
+    isTrigger: boolean;
+    reduceOnly: boolean;
+  }>> {
+    const data = await this.request('/info', {
+      type: 'frontendOpenOrders',
+      user: this.walletAddress,
+    }) as Array<{
+      coin: string;
+      oid: number;
+      side: string;
+      limitPx: string;
+      sz: string;
+      timestamp: number;
+      triggerCondition?: string;
+      isTrigger: boolean;
+      reduceOnly: boolean;
+    }>;
+    return data.map(o => ({
+      coin: o.coin,
+      oid: o.oid,
+      side: o.side,
+      limitPx: parseFloat(o.limitPx),
+      sz: parseFloat(o.sz),
+      timestamp: o.timestamp,
+      triggerCondition: o.triggerCondition,
+      isTrigger: o.isTrigger,
+      reduceOnly: o.reduceOnly,
+    }));
+  }
+
+  async getTwapSliceFills(): Promise<Array<{
+    coin: string;
+    px: number;
+    sz: number;
+    side: string;
+    time: number;
+    fee: number;
+    twapId: number;
+  }>> {
+    const data = await this.request('/info', {
+      type: 'userTwapSliceFills',
+      user: this.walletAddress,
+    }) as Array<{
+      coin: string;
+      px: string;
+      sz: string;
+      side: string;
+      time: number;
+      fee: string;
+      twapId: number;
+    }>;
+    return data.map(f => ({
+      coin: f.coin,
+      px: parseFloat(f.px),
+      sz: parseFloat(f.sz),
+      side: f.side,
+      time: f.time,
+      fee: parseFloat(f.fee),
+      twapId: f.twapId,
+    }));
+  }
+
+  async getMaxBuilderFee(builder: string): Promise<{ maxFeeRate: number }> {
+    const data = await this.request('/info', {
+      type: 'maxBuilderFee',
+      user: this.walletAddress,
+      builder,
+    }) as { maxFeeRate: string };
+    return { maxFeeRate: parseFloat(data.maxFeeRate) };
+  }
+
+  async getSpotMeta(): Promise<{
+    tokens: Array<{ name: string; szDecimals: number; weiDecimals: number; index: number }>;
+    universe: Array<{ name: string; tokens: number[]; index: number }>;
+  }> {
+    return this.request('/info', { type: 'spotMeta' }) as Promise<{
+      tokens: Array<{ name: string; szDecimals: number; weiDecimals: number; index: number }>;
+      universe: Array<{ name: string; tokens: number[]; index: number }>;
+    }>;
+  }
+
+  async getSpotClearinghouseState(): Promise<{
+    balances: Array<{ coin: string; hold: number; total: number }>;
+  }> {
+    const data = await this.request('/info', {
+      type: 'spotClearinghouseState',
+      user: this.walletAddress,
+    }) as {
+      balances: Array<{ coin: string; hold: string; total: string }>;
+    };
+    return {
+      balances: data.balances.map(b => ({
+        coin: b.coin,
+        hold: parseFloat(b.hold),
+        total: parseFloat(b.total),
+      })),
+    };
   }
 }
 
