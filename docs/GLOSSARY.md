@@ -201,6 +201,22 @@ Comprehensive glossary of terms used throughout the Clodds platform for predicti
 | **Sizing Mode** | How copied trades scale: fixed ($), proportional (%), or portfolio-based. |
 | **Trade Delay** | Intentional delay before copying to avoid detection. |
 | **Followed Wallet** | Wallet whose trades you're copying. |
+| **Verified Trader** | Trader with on-chain ERC-8004 identity (see Agent Identity below). |
+
+---
+
+## Agent Identity (ERC-8004)
+
+| Term | Definition |
+|------|------------|
+| **ERC-8004** | Ethereum standard for trustless agent identity. Uses NFTs for identity, on-chain reputation, and validation. |
+| **Identity Registry** | Contract storing agent identities as ERC-721 NFTs. Address: `0x7177...Dd09A`. |
+| **Reputation Registry** | Contract storing feedback/ratings for agents. Score 0-100. |
+| **Validation Registry** | Contract for task verification using staking or cryptographic proofs. |
+| **Agent Card** | Off-chain JSON metadata describing agent capabilities, endpoints, and trust mechanisms. |
+| **Agent ID** | Unique on-chain identifier (NFT token ID) for a registered agent. |
+| **Verified Identity** | Agent with registered ERC-8004 identity - proves ownership and builds reputation. |
+| **Prompt Injection** | Attack where malicious input manipulates an AI agent. ERC-8004 helps verify authentic agents. |
 
 ---
 

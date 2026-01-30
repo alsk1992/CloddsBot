@@ -632,13 +632,41 @@ const copier = createCopyTradingService(whaleTracker, execution, {
   // Stop-loss / Take-profit
   stopLossPct: 10,      // Exit at 10% loss
   takeProfitPct: 20,    // Exit at 20% profit
+  // ERC-8004 Identity Verification (recommended)
+  requireVerifiedIdentity: true,  // Only copy verified traders
+  minReputationScore: 50,         // Minimum reputation (0-100)
+  identityNetwork: 'base-sepolia',
 });
 
 copier.on('tradeCopied', (trade) => console.log('Copied:', trade.id));
+copier.on('tradeSkipped', (trade, reason) => {
+  if (reason === 'unverified_identity') {
+    console.log('Skipped unverified trader:', trade.maker);
+  }
+});
 copier.on('positionClosed', (trade, reason) => {
   console.log(`Closed ${trade.id}: ${reason} at ${trade.exitPrice}`);
 });
 copier.start();
+```
+
+**ERC-8004 Identity Verification:**
+
+Prevents impersonation attacks where malicious actors pose as successful traders.
+
+```typescript
+import { verifyAgent, hasIdentity } from './identity/erc8004';
+
+// Check if trader has verified identity before following
+const isVerified = await hasIdentity('0x742d35Cc...');
+if (!isVerified) {
+  console.warn('WARNING: Trader has no verified identity');
+}
+
+// Get full verification details
+const result = await verifyAgent(1234);  // by agent ID
+console.log(`Name: ${result.name}`);
+console.log(`Reputation: ${result.reputation?.averageScore}/100`);
 ```
 
 **SL/TP Monitoring:**
