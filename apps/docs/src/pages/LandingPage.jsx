@@ -64,7 +64,8 @@ npm run build && npm start
 # Chat at http://localhost:18789/webchat`;
 
 const workerCodeExample = `# Cloudflare Workers (no server needed)
-cd apps/clodds-worker && npm install
+git clone -b clodds-worker-only https://github.com/alsk1992/CloddsBot.git
+cd CloddsBot && npm install
 npx wrangler d1 create clodds
 npx wrangler secret put ANTHROPIC_API_KEY
 npx wrangler deploy
