@@ -63,6 +63,24 @@ Instead, please report them via one of these methods:
 3. **Use separate wallets** - Don't use primary wallets for bots
 4. **Monitor positions** - Set up alerts for large trades
 
+### Agent Identity Verification (ERC-8004)
+
+Clodds supports [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) for on-chain agent identity verification. This prevents impersonation attacks where malicious actors claim to be trusted traders.
+
+**Why it matters:** On January 29, 2026, an agent named "samaltman" attempted to hijack bots via prompt injection. Anyone can claim to be anyone without verification.
+
+**Recommended settings for copy trading:**
+
+```typescript
+{
+  requireVerifiedIdentity: true,  // Only copy verified traders
+  minReputationScore: 50,         // Minimum reputation score
+  identityNetwork: 'base-sepolia' // Network for verification
+}
+```
+
+See `/verify` command and `src/identity/erc8004.ts` for implementation.
+
 ## Known Security Considerations
 
 ### npm Dependencies

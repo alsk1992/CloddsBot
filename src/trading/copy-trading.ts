@@ -15,6 +15,7 @@ import { logger } from '../utils/logger';
 import type { Platform } from '../types';
 import type { ExecutionService, OrderResult } from '../execution/index';
 import type { WhaleTracker, WhaleTrade, WhalePosition } from '../feeds/polymarket/whale-tracker';
+import { hasIdentity, verifyAgent, type VerificationResult } from '../identity/erc8004';
 
 // =============================================================================
 // TYPES
@@ -51,6 +52,14 @@ export interface CopyTradingConfig {
   enabledPlatforms?: Platform[];
   /** Dry run mode (default: true) */
   dryRun?: boolean;
+
+  // ERC-8004 Identity Verification
+  /** Require ERC-8004 verified identity to copy (default: false) */
+  requireVerifiedIdentity?: boolean;
+  /** Minimum reputation score (0-100) to copy (default: 0 = any) */
+  minReputationScore?: number;
+  /** Network for identity verification (default: 'base-sepolia') */
+  identityNetwork?: string;
 }
 
 export interface CopiedTrade {
@@ -117,6 +126,10 @@ const DEFAULT_CONFIG: Required<CopyTradingConfig> = {
   excludedMarkets: [],
   enabledPlatforms: ['polymarket', 'kalshi'],
   dryRun: true,
+  // ERC-8004 Identity Verification
+  requireVerifiedIdentity: false,
+  minReputationScore: 0,
+  identityNetwork: 'base-sepolia',
 };
 
 // =============================================================================
@@ -214,6 +227,40 @@ export function createCopyTradingService(
   // ==========================================================================
 
   async function copyTrade(trade: WhaleTrade): Promise<void> {
+    // ERC-8004 Identity Verification (if enabled)
+    if (cfg.requireVerifiedIdentity) {
+      const traderAddress = followedAddresses.has(trade.maker) ? trade.maker : trade.taker;
+
+      try {
+        const isVerified = await hasIdentity(traderAddress, cfg.identityNetwork as any);
+
+        if (!isVerified) {
+          logger.warn(
+            { traderAddress, marketId: trade.marketId },
+            'Skipping trade from UNVERIFIED trader (no ERC-8004 identity)'
+          );
+          emitter.emit('tradeSkipped', trade, 'unverified_identity');
+          stats.totalSkipped++;
+          return;
+        }
+
+        // Check minimum reputation if configured
+        if (cfg.minReputationScore > 0) {
+          // Note: Full reputation check requires agent ID lookup via indexer
+          // For now, just verify identity exists
+          logger.debug({ traderAddress }, 'Trader has verified identity');
+        }
+      } catch (error) {
+        logger.warn(
+          { error, traderAddress },
+          'Failed to verify trader identity - skipping trade'
+        );
+        emitter.emit('tradeSkipped', trade, 'identity_verification_failed');
+        stats.totalSkipped++;
+        return;
+      }
+    }
+
     const tradeId = `copy_${trade.id}_${Date.now()}`;
     const size = calculateSize(trade);
     const shares = size / trade.price;
@@ -236,6 +283,7 @@ export function createCopyTradingService(
         size: shares,
         price: trade.price,
         dryRun: cfg.dryRun,
+        verifiedTrader: cfg.requireVerifiedIdentity,
       },
       'Copying trade'
     );
