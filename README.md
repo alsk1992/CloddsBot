@@ -149,7 +149,7 @@ clodds version                  # Show version
 |----------|-----------------|
 | **Messaging** | 22 platforms (Telegram, Discord, WhatsApp, Slack, Teams, Signal, Matrix, iMessage, LINE, Nostr, and more) |
 | **Prediction Markets** | 9 platforms (Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt) |
-| **Perpetual Futures** | 4 exchanges (Binance, Bybit, Hyperliquid, dYdX) with up to 125x leverage |
+| **Perpetual Futures** | 4 exchanges (Binance, Bybit, Hyperliquid, MEXC) with up to 200x leverage, database tracking, A/B testing |
 | **Trading** | Order execution on 5 platforms, portfolio tracking, P&L, trade logging |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
 | **AI** | 6 LLM providers, 4 specialized agents, semantic memory, 21 tools |
@@ -293,24 +293,42 @@ Machine-to-machine crypto payments:
 
 ## Perpetual Futures Trading
 
-Trade perpetual futures with leverage across centralized and decentralized exchanges.
+Trade perpetual futures with leverage across centralized and decentralized exchanges. Full PostgreSQL database integration for trade tracking, custom strategy support, and A/B testing.
 
 ### Supported Exchanges
 
-| Exchange | Type | Max Leverage | Features |
-|----------|------|--------------|----------|
-| **Binance Futures** | CEX | 125x | USDT-M perpetuals, highest liquidity |
-| **Bybit** | CEX | 100x | USDT perpetuals, unified account |
-| **Hyperliquid** | DEX | 50x | On-chain (Arbitrum), no KYC |
-| **dYdX v4** | DEX | 20x | Cosmos-based, decentralized orderbook |
+| Exchange | Type | Max Leverage | KYC Required | Features |
+|----------|------|--------------|--------------|----------|
+| **Binance Futures** | CEX | 125x | Yes | USDT-M perpetuals, highest liquidity, 55+ API methods |
+| **Bybit** | CEX | 100x | Yes | USDT perpetuals, unified account, 50+ API methods |
+| **Hyperliquid** | DEX | 50x | No | On-chain (Arbitrum), fully decentralized, 60+ API methods |
+| **MEXC** | CEX | 200x | No (small amounts) | No-KYC exchange, 35+ API methods |
 
-### Features
+### Core Features
 - **Long & Short** — Open leveraged positions in either direction
 - **Cross & Isolated Margin** — Choose margin mode per position
 - **Take-Profit / Stop-Loss** — Automatic exit orders on entry
 - **Liquidation Monitoring** — Real-time alerts at 5%/3%/2% proximity
 - **Position Management** — View all positions, close individually or all
 - **Funding Rate Tracking** — Monitor funding costs
+- **Database Integration** — PostgreSQL trade logging with `futures_trades` table
+- **Custom Strategies** — Build your own with `FuturesStrategy` interface
+- **A/B Testing** — Test strategy variants with `futures_strategy_variants` table
+
+### Easy Setup
+```typescript
+import { setupFromEnv } from 'clodds/trading/futures';
+
+// Auto-configure from environment variables
+const { clients, database, strategyEngine } = await setupFromEnv();
+
+// Environment variables:
+// BINANCE_API_KEY, BINANCE_API_SECRET
+// BYBIT_API_KEY, BYBIT_API_SECRET
+// HYPERLIQUID_PRIVATE_KEY, HYPERLIQUID_WALLET_ADDRESS
+// MEXC_API_KEY, MEXC_API_SECRET
+// DATABASE_URL (for trade tracking)
+```
 
 ### Chat Commands
 ```
@@ -318,38 +336,60 @@ Trade perpetual futures with leverage across centralized and decentralized excha
 /futures positions                 # View all open positions
 /futures long BTCUSDT 0.1 10x      # Open 0.1 BTC long at 10x
 /futures short ETHUSDT 1 20x       # Open 1 ETH short at 20x
+/futures tp BTCUSDT 105000         # Set take-profit
+/futures sl BTCUSDT 95000          # Set stop-loss
 /futures close BTCUSDT             # Close BTC position
 /futures close-all binance         # Close all positions on Binance
 /futures markets binance           # List available markets
+/futures funding BTCUSDT           # Check funding rate
+/futures leverage BTCUSDT 10       # Set leverage
+/futures stats                     # View trade statistics from database
 ```
+
+### Comprehensive API Coverage (200+ Methods)
+
+**Binance (55+ methods):** Market data, trading, account, risk management, staking, convert, portfolio margin
+**Bybit (50+ methods):** Linear/inverse perpetuals, unified account, copy trading, lending, earn products
+**Hyperliquid (60+ methods):** Perp trading, spot, vaults, staking, delegations, referrals, leaderboards
+**MEXC (35+ methods):** Futures trading, account management, batch orders, TP/SL
 
 ### Programmatic Usage
 ```typescript
-import { createFuturesService } from 'clodds/trading/futures';
+import { BinanceFuturesClient, FuturesDatabase, StrategyEngine } from 'clodds/trading/futures';
 
-const futures = createFuturesService([
-  {
-    exchange: 'binance',
-    credentials: { apiKey: '...', apiSecret: '...' },
-    maxLeverage: 20,  // Safety limit
-    dryRun: false,
-  },
-]);
-
-// Open a 10x long on BTC with TP/SL
-await futures.openLong('binance', 'BTCUSDT', 0.01, 10, {
-  takeProfit: 105000,
-  stopLoss: 95000,
+// Initialize exchange client
+const binance = new BinanceFuturesClient({
+  apiKey: process.env.BINANCE_API_KEY!,
+  apiSecret: process.env.BINANCE_API_SECRET!,
 });
 
-// Monitor for liquidation risk
-futures.on('liquidationWarning', ({ level, position, proximityPct }) => {
-  console.log(`${level}: ${position.symbol} at ${proximityPct}% from liquidation`);
-});
-futures.startPositionMonitor();
+// Database tracking
+const db = new FuturesDatabase(process.env.DATABASE_URL!);
+await db.initialize();
 
-// Close position
-await futures.closePosition('binance', 'BTCUSDT');
+// Open a position
+const order = await binance.placeOrder({
+  symbol: 'BTCUSDT',
+  side: 'BUY',
+  type: 'MARKET',
+  quantity: 0.01,
+});
+
+// Log to database
+await db.logTrade({
+  exchange: 'binance',
+  symbol: 'BTCUSDT',
+  orderId: order.orderId,
+  side: 'BUY',
+  price: order.avgPrice,
+  quantity: order.executedQty,
+});
+
+// Custom strategy with A/B testing
+const engine = new StrategyEngine(db);
+engine.registerStrategy(new MomentumStrategy({ lookbackPeriod: 14 }));
+engine.registerVariant('momentum', 'aggressive', { threshold: 0.02 });
+engine.registerVariant('momentum', 'conservative', { threshold: 0.05 });
 ```
 
 ---
@@ -615,8 +655,131 @@ These commands work inside any chat interface (Telegram, Discord, WebChat, etc.)
 /buy <platform> <market> <side> <size> @ <price>
 /sell <platform> <market> <side> <size> @ <price>
 /portfolio                       Show positions and P&L
+/positions                       List all positions
+/pnl                             Show P&L summary
+/portfolio sync                  Sync from platforms
 /trades stats                    Trade statistics
 /trades recent                   Recent history
+```
+
+### Perpetual Futures
+```
+/futures balance binance         Check margin balance
+/futures positions               View all open positions
+/futures long BTCUSDT 0.1 10x    Open long at 10x leverage
+/futures short ETHUSDT 1 20x     Open short at 20x leverage
+/futures tp BTCUSDT 105000       Set take-profit
+/futures sl BTCUSDT 95000        Set stop-loss
+/futures close BTCUSDT           Close position
+/futures close-all               Close all positions
+/futures stats                   Trade statistics from DB
+```
+
+### Solana DEX
+```
+/swap sol 1 SOL to USDC          Swap on Solana (Jupiter)
+/swap sol 100 USDC to JUP        Swap USDC to JUP
+/quote sol 1 SOL to USDC         Get quote without executing
+/pools sol SOL                   List liquidity pools
+/balance sol                     Check Solana balances
+```
+
+### EVM DEX (5 chains)
+```
+/swap eth 1 ETH to USDC          Swap on Ethereum
+/swap arb 100 USDC to ARB        Swap on Arbitrum
+/swap base 0.5 ETH to DEGEN      Swap on Base
+/swap op 10 USDC to OP           Swap on Optimism
+/swap matic 10 MATIC to USDC     Swap on Polygon
+/compare eth 1 ETH to USDC       Compare Uniswap vs 1inch
+```
+
+### Copy Trading
+```
+/copy follow 0x1234...           Follow wallet
+/copy follow 0x1234... --size 100 Fixed $100 per trade
+/copy unfollow 0x1234...         Stop following
+/copy list                       List followed wallets
+/copy top 10                     Top 10 traders to copy
+/copy status                     Copy trading status
+```
+
+### Whale Tracking
+```
+/whale start                     Start whale monitoring
+/whale track 0x1234...           Track specific wallet
+/whale top 10                    Top 10 traders by volume
+/whale activity "trump"          Whale activity for market
+/crypto-whale start              Start crypto whale tracking
+/crypto-whale watch solana ABC   Watch Solana wallet
+/crypto-whale top eth 10         Top ETH whales
+```
+
+### Price Alerts
+```
+/alert "Trump 2028" above 0.50   Alert when price goes above
+/alert "Fed rate" below 0.30     Alert when price drops below
+/alert "BTC" change 5%           Alert on 5% move
+/alerts                          List all alerts
+/alert delete <id>               Delete alert
+```
+
+### Trigger Orders (Auto-Execute)
+```
+/trigger buy poly "Trump" YES below 0.40 size 100   Buy when drops
+/trigger sell poly "Trump" YES above 0.55 size all  Sell when rises
+/trigger long binance BTCUSDT below 95000 0.1 10x   Futures entry
+/trigger short binance ETHUSDT above 4000 1 20x     Short on breakout
+/triggers                        List active triggers
+/trigger cancel <id>             Cancel trigger
+/sl poly "Trump" at 0.35         Stop-loss on position
+/tp poly "Trump" at 0.65         Take-profit on position
+```
+
+### Edge Detection
+```
+/edge                            Scan all markets for edge
+/edge politics                   Scan political markets
+/edge fed                        Scan Fed/economic markets
+/compare "Trump" 538 betting     Compare to external models
+/kelly 0.45 0.55 1000            Kelly calculator
+```
+
+### Execution
+```
+/execute buy poly <market> YES 100 @ 0.52   Place limit order
+/execute market-buy poly <market> YES 100   Market order
+/execute maker-buy poly <market> YES 100    Post-only (rebate)
+/orders open                     View open orders
+/orders cancel <id>              Cancel order
+/estimate-slippage poly <mkt> buy 1000      Check slippage
+```
+
+### Arbitrage
+```
+/arb start                       Start arbitrage monitoring
+/arb check                       One-time scan
+/arb opportunities               View current spreads
+/arb compare <mkt-a> <mkt-b>     Compare two markets
+/arb link <mkt-a> <mkt-b>        Manually link markets
+/arb stats                       Arbitrage statistics
+```
+
+### Market Feeds
+```
+/feed search "trump"             Search all platforms
+/feed price poly <market>        Get current price
+/feed orderbook poly <market>    View orderbook
+/feed subscribe poly <market>    Real-time updates
+/feed kelly poly <mkt> --prob 0.55  Calculate Kelly
+```
+
+### Trade History
+```
+/history fetch                   Sync trades from APIs
+/history stats                   Performance metrics
+/history daily-pnl               Daily P&L breakdown
+/history export                  Export to CSV
 ```
 
 ### Bots & Automation
@@ -624,22 +787,341 @@ These commands work inside any chat interface (Telegram, Discord, WebChat, etc.)
 /bot list                        List trading bots
 /bot start <id>                  Start a bot
 /bot stop <id>                   Stop a bot
+/bot register <name> <strategy>  Create new bot
+/cron list                       View scheduled jobs
+/cron add "0 9 * * *" "task"     Schedule job
 /safety status                   View safety controls
 /safety kill                     Emergency stop all
+```
+
+### Bridge (Cross-Chain)
+```
+/bridge quote 100 USDC sol to eth   Quote transfer
+/bridge send 100 USDC sol to eth    Execute transfer
+/bridge redeem <tx-hash>            Claim tokens
+/bridge status <tx-hash>            Check status
+```
+
+### Monitoring
+```
+/monitor start                   Start system monitoring
+/monitor health                  Run health check
+/monitor alerts                  View recent alerts
+/monitor providers               Check LLM status
+```
+
+### Market Index
+```
+/index search "election"         Search indexed markets
+/index categories                List categories
+/index trending                  Trending markets
+/index new --last 24h            New markets
 ```
 
 ### Market Research
 ```
 /markets <query>                 Search all markets
+/price <market-id>               Get current price
+/orderbook <market-id>           View bid/ask spread
 /compare <query>                 Compare prices across platforms
 /news <topic>                    Get relevant news
 ```
 
 ### Memory & Preferences
 ```
-/remember <type> <key>=<value>   Store preference/fact/note
+/remember preference risk=low    Store preference
+/remember fact "BTC halves 2028" Store a fact
+/remember note "Check ETH"       Store a note
 /memory                          View stored memories
+/memory search "bitcoin"         Search memories
 /forget <key>                    Delete memory
+```
+
+### Voice & TTS
+```
+/voice start                     Start voice listening
+/voice stop                      Stop voice listening
+/voice wake "hey clodds"         Set wake word
+/speak "Order filled"            Speak text aloud
+/voices                          List available voices
+```
+
+### Credentials
+```
+/creds add polymarket            Add platform credentials
+/creds list                      List configured platforms
+/creds test binance              Test API connection
+/creds remove kalshi             Remove credentials
+/auth status                     Check auth status
+```
+
+### Usage & Costs
+```
+/usage                           Current session usage
+/usage today                     Today's usage
+/usage cost month                Monthly cost estimate
+/usage by-model                  Usage breakdown by model
+```
+
+### Sessions
+```
+/new                             Start new conversation
+/reset                           Reset current session
+/checkpoint save "before test"   Save checkpoint
+/checkpoint restore <id>         Restore checkpoint
+/history export                  Export conversation
+```
+
+### User Pairing
+```
+/pair                            Request pairing (get code)
+/pair-code ABC123                Enter pairing code
+/pairing list                    List pending requests
+/pairing approve <code>          Approve request (admin)
+/trust <user> owner              Grant owner trust
+```
+
+### Agent Routing
+```
+/agents                          List available agents
+/agent trading                   Switch to trading agent
+/bind research                   Bind channel to agent
+/tools policy trading            View agent's tools
+```
+
+### MCP Servers
+```
+/mcp list                        List configured servers
+/mcp status                      Check server connections
+/mcp add <name> <command>        Add new MCP server
+/mcp tools                       List available MCP tools
+/mcp call <server> <tool>        Call an MCP tool
+```
+
+### Permissions
+```
+/permissions                     View current permissions
+/permissions allow "npm *"       Allow command pattern
+/permissions block "rm -rf"      Block dangerous command
+/approve                         Approve pending command
+/reject                          Reject pending command
+```
+
+### System Health
+```
+/doctor                          Run all diagnostics
+/doctor quick                    Quick health check
+/doctor api                      Check API keys
+/doctor network                  Test connectivity
+/health                          Quick health status
+```
+
+### Data Integrations
+```
+/integrations                    List data sources
+/integrations enable fedwatch    Enable CME FedWatch
+/integrations add webhook "sigs" Add custom webhook source
+/integrations add rest "api" <u> Add REST API source
+/integrations test <source>      Test connection
+```
+
+### Incoming Webhooks
+```
+/webhook create trading-signals  Create webhook endpoint
+/webhook url <name>              Get webhook URL
+/webhook test <name>             Send test payload
+/webhook logs <name>             View recent payloads
+```
+
+### Auto-Reply Rules
+```
+/auto-reply                      List all rules
+/auto-reply add "hi" "Hello!"    Add keyword rule
+/auto-reply test "hello world"   Test which rules match
+/auto-reply enable <id>          Enable/disable rule
+```
+
+### Plugins
+```
+/plugins                         List installed plugins
+/plugins install <name>          Install from registry
+/plugins enable <id>             Enable plugin
+/plugins config <id>             View settings
+```
+
+### Background Jobs
+```
+/job spawn "npm run backtest"    Start background job
+/jobs                            List running jobs
+/job output <id>                 View job output
+/job stop <id>                   Stop job
+```
+
+### Embeddings
+```
+/embeddings                      Show config
+/embeddings provider openai      Set provider
+/embeddings cache stats          Cache statistics
+/embeddings test "sample text"   Generate test embedding
+```
+
+### Identity & Devices
+```
+/identity                        Show your identity
+/identity link google            Connect OAuth provider
+/identity devices                List devices
+/identity device revoke <id>     Revoke device access
+```
+
+### Presence
+```
+/presence                        Show status
+/presence away                   Set away status
+/presence status "Trading"       Custom status message
+```
+
+### Remote Access
+```
+/remote tunnel ngrok 3000        Expose via ngrok
+/remote tunnel cloudflare 3000   Expose via Cloudflare
+/remote list                     List active tunnels
+/remote close <id>               Close tunnel
+```
+
+### Search Config
+```
+/search-config                   Show search config
+/search-config rebuild           Rebuild indexes
+/search-config stats             Search statistics
+```
+
+### Streaming
+```
+/streaming                       Show settings
+/streaming enable                Enable streaming
+/streaming chunk-size 100        Set chunk size
+/streaming typing on             Enable typing indicators
+```
+
+### Sandbox (Safe Code Execution)
+```
+/run python "print('Hello')"     Run Python code
+/run node "console.log('Hi')"    Run JavaScript
+/run bash "ls -la"               Run shell command
+/sandbox status                  Container status
+```
+
+### Tailscale (VPN Sharing)
+```
+/tailscale serve 3000            Share port on tailnet
+/tailscale funnel 3000           Expose to public internet
+/tailscale status                Network status
+/tailscale peers                 List connected peers
+```
+
+### Backtesting
+```
+/backtest <strategy> --period 30d        Backtest strategy
+/backtest "buy dips" --from 2024-01-01   Custom period
+/backtest <strategy> --monte-carlo 1000  Monte Carlo simulation
+/backtest compare momentum mean-rev      Compare strategies
+/backtest optimize <strategy>            Optimize parameters
+/backtest report <id>                    Generate report
+```
+
+### Position Sizing
+```
+/kelly 0.55 2.0                  Calculate Kelly for odds/edge
+/sizing portfolio                Show portfolio sizing
+/sizing calculate 10000 0.55 2   Size for bankroll/prob/odds
+/sizing mode half-kelly          Set default sizing mode
+/sizing limits max 5%            Set max position limit
+```
+
+### Risk Management
+```
+/risk                            Show risk status
+/risk circuit-breaker status     Circuit breaker status
+/risk pause                      Pause all trading
+/risk resume                     Resume trading
+/risk daily-limit 500            Set daily loss limit
+/risk max-drawdown 20%           Set max drawdown
+/risk consecutive-loss 5         Set consecutive loss limit
+```
+
+### Position Management (SL/TP)
+```
+/positions                       List all positions
+/position <id>                   Position details
+/sl <position-id> at 0.35        Set stop-loss price
+/sl <position-id> -10%           Stop-loss 10% below entry
+/tp <position-id> at 0.65        Set take-profit price
+/tp <position-id> +20%           Take-profit 20% above entry
+/trailing <position-id> 5%       Trailing stop 5% from high
+```
+
+### Analytics & Attribution
+```
+/analytics                       Performance summary
+/analytics today                 Today's performance
+/analytics attribution           P&L by edge source
+/analytics by-platform           P&L by platform
+/analytics best-times            Best trading hours
+/analytics edge-decay            How edge decays over time
+/analytics export csv            Export to CSV
+```
+
+### Strategy Builder
+```
+/strategy create "Buy when..."   Create from natural language
+/strategies                      List all strategies
+/strategy <name>                 View strategy details
+/strategy activate <name>        Start running strategy
+/strategy deactivate <name>      Stop strategy
+/strategy backtest <name>        Run backtest
+/strategy from-template momentum Use template
+```
+
+### Smart Routing
+```
+/route "Trump" YES 1000          Find best route for order
+/route compare "Trump" YES 1000  Compare all platforms
+/route fees "Trump"              Compare fee structures
+/route liquidity "Trump"         Compare orderbook depth
+/route execute <route-id>        Execute routed order
+/route split "Trump" YES 5000    Split across platforms
+```
+
+### MEV Protection
+```
+/mev                             Show current protection
+/mev enable                      Enable protection
+/mev disable                     Disable protection
+/mev level aggressive            Maximum protection
+/mev level standard              Balanced protection
+/mev check <tx-hash>             Check if tx was attacked
+/mev simulate <order>            Simulate MEV risk
+```
+
+### Slippage Analysis
+```
+/slippage estimate "Trump" 5000  Estimate slippage
+/slippage depth "Trump"          Show orderbook depth
+/slippage impact 10000           Price impact for size
+/slippage optimize "Trump" 10000 Find best execution
+/slippage max 1%                 Set max tolerance
+/slippage protect on             Enable protection
+```
+
+### System Metrics
+```
+/metrics                         Show current metrics
+/metrics system                  CPU, memory, latency
+/metrics api                     API performance stats
+/metrics trades                  Trade execution stats
+/metrics latency                 Order latency stats
+/metrics alert <name> > 100      Set metric alert
+/metrics export csv              Export metrics
 ```
 
 ### General
@@ -691,18 +1173,100 @@ These commands work inside any chat interface (Telegram, Discord, WebChat, etc.)
 
 ## Skills System
 
-### Bundled Skills (13)
-- `alerts` — Price and event alerts
-- `edge` — Edge detection and analysis
-- `markets` — Market search and discovery
-- `news` — News aggregation
-- `portfolio` — Portfolio management
-- `portfolio-sync` — Multi-platform sync
-- `research` — Market research automation
+### Bundled Skills (61)
+
+**Trading & Markets**
+- `trading-polymarket` — Polymarket trading
 - `trading-kalshi` — Kalshi trading
 - `trading-manifold` — Manifold trading
-- `trading-polymarket` — Polymarket trading
-- And more...
+- `trading-futures` — Perpetual futures (4 exchanges)
+- `trading-solana` — Solana DEX (Jupiter/Raydium/Orca)
+- `trading-evm` — EVM DEX trading (Uniswap/1inch)
+- `trading-system` — Unified trading with bots
+- `execution` — Order execution with slippage protection
+- `portfolio` — Portfolio management
+- `portfolio-sync` — Multi-platform sync
+
+**Data & Feeds**
+- `feeds` — Real-time market data feeds
+- `integrations` — External data sources & custom connectors
+- `webhooks` — Incoming webhooks for custom signals
+- `market-index` — Market search and discovery
+- `markets` — Market browsing
+- `news` — News aggregation
+
+**Analysis & Opportunities**
+- `arbitrage` — Cross-platform arbitrage detection
+- `opportunity` — Arbitrage opportunity scanner
+- `edge` — Edge detection and analysis
+- `qmd` — Quantitative market data
+- `research` — Market research automation
+- `history` — Trade history and analytics
+
+**Smart Trading**
+- `whale-tracking` — Multi-chain whale monitoring
+- `copy-trading` — Mirror whale trades
+- `alerts` — Price and event alerts
+
+**Automation**
+- `automation` — Cron jobs, scheduling
+- `auto-reply` — Automatic response rules
+- `processes` — Background jobs management
+- `plugins` — Plugin management
+
+**AI & Memory**
+- `memory` — Persistent memory (preferences, facts, notes)
+- `embeddings` — Vector embeddings configuration
+- `search-config` — Search indexing configuration
+- `routing` — Multi-agent routing and tool policies
+
+**Infrastructure**
+- `mcp` — MCP server management
+- `streaming` — Response streaming configuration
+- `remote` — SSH tunnels and remote access
+- `monitoring` — System health and alerts
+- `doctor` — System diagnostics
+
+**User Management**
+- `credentials` — Secure credential management
+- `pairing` — User pairing and trust management
+- `identity` — OAuth and device management
+- `permissions` — Command approvals and security
+- `sessions` — Session management and checkpoints
+- `presence` — Online status and activity
+- `usage` — Token usage and cost tracking
+
+**Voice & Media**
+- `voice` — Voice recognition and commands
+- `tts` — Text-to-speech (ElevenLabs)
+
+**Conditional Trading**
+- `triggers` — Auto-execute when price thresholds met
+
+**Strategy & Backtesting**
+- `backtest` — Strategy validation with Monte Carlo simulation
+- `strategy` — Build custom strategies from natural language
+- `sizing` — Kelly criterion position sizing
+- `risk` — Circuit breaker and loss limits
+
+**Position Management**
+- `positions` — Stop-loss, take-profit, trailing stops
+
+**Analytics & Optimization**
+- `analytics` — Performance attribution by edge source
+- `slippage` — Slippage estimation and protection
+- `metrics` — System telemetry and monitoring
+
+**Order Routing**
+- `router` — Smart order routing across platforms
+- `mev` — MEV protection (Flashbots, Jito)
+
+**Execution & Networking**
+- `sandbox` — Safe code execution in Docker containers
+- `tailscale` — VPN sharing, Serve, and Funnel
+
+**Cross-Chain**
+- `bridge` — Wormhole/CCTP cross-chain transfers
 
 ### Extensibility
 - Install custom skills
@@ -746,7 +1310,7 @@ These commands work inside any chat interface (Telegram, Discord, WebChat, etc.)
 │ Slack         │         │ Alerts        │         │ Manifold      │
 │ Teams         │         │               │         │ Crypto (10)   │
 │ Matrix        │         │ Tools (21)    │         │               │
-│ Signal        │         │ Skills (13)   │         │ Arbitrage     │
+│ Signal        │         │ Skills (61)   │         │ Arbitrage     │
 │ +15 more      │         │ Memory        │         │ Detector      │
 └───────────────┘         └───────────────┘         └───────────────┘
         │                         │                         │
@@ -892,7 +1456,7 @@ docker compose up --build
 | Messaging Channels | **22** |
 | Prediction Markets | **9** |
 | AI Tools | **21** |
-| Skills | **13** |
+| Skills | **61** |
 | LLM Providers | **6** |
 | Solana DEX Protocols | **5** |
 | Trading Strategies | **3** |

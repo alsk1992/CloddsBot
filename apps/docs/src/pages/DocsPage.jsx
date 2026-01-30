@@ -44,6 +44,16 @@ const navigation = [
     ],
   },
   {
+    title: 'Perpetual Futures',
+    items: [
+      { id: 'futures-overview', name: 'Overview (4 Exchanges)' },
+      { id: 'futures-setup', name: 'Easy Setup' },
+      { id: 'futures-database', name: 'Database Tracking' },
+      { id: 'futures-strategies', name: 'Custom Strategies' },
+      { id: 'futures-ab-testing', name: 'A/B Testing' },
+    ],
+  },
+  {
     title: 'Advanced Trading',
     items: [
       { id: 'whale-tracking', name: 'Whale Tracking' },
@@ -60,7 +70,7 @@ const navigation = [
       { id: 'ai-providers', name: 'LLM Providers (6)' },
       { id: 'ai-agents', name: 'Agents (4)' },
       { id: 'ai-tools', name: 'Tools (21)' },
-      { id: 'ai-skills', name: 'Skills (13)' },
+      { id: 'ai-skills', name: 'Skills (61)' },
       { id: 'ai-memory', name: 'Memory System' },
     ],
   },
@@ -111,6 +121,7 @@ const navigation = [
       { id: 'architecture', name: 'Architecture' },
       { id: 'database', name: 'Database Schema' },
       { id: 'env-vars', name: 'Environment Vars' },
+      { id: 'glossary', name: 'Glossary (170+ terms)' },
     ],
   },
 ];
@@ -290,7 +301,7 @@ export default function DocsPage() {
               <Badge color="cyan">22 Channels</Badge>
               <Badge color="green">9 Markets</Badge>
               <Badge color="purple">21 Tools</Badge>
-              <Badge color="yellow">13 Skills</Badge>
+              <Badge color="yellow">61 Skills</Badge>
               <Badge color="orange">10 Chains</Badge>
               <Badge color="pink">x402 Payments</Badge>
             </div>
@@ -982,6 +993,307 @@ Example Mispricing:
             </Subsection>
           </Section>
 
+          {/* Perpetual Futures Overview */}
+          <Section id="futures-overview" title="Perpetual Futures Trading">
+            <p className="text-slate-400 mb-4">
+              Trade perpetual futures with leverage across centralized and decentralized exchanges.
+              Full PostgreSQL database integration, custom strategies, and A/B testing.
+            </p>
+
+            <Subsection title="Supported Exchanges (4)">
+              <Table
+                headers={['Exchange', 'Type', 'Max Leverage', 'KYC', 'API Methods']}
+                rows={[
+                  ['Binance Futures', 'CEX', '125x', 'Yes', '55+'],
+                  ['Bybit', 'CEX', '100x', 'Yes', '50+'],
+                  ['MEXC', 'CEX', '200x', 'No (small)', '35+'],
+                  ['Hyperliquid', 'DEX', '50x', 'No', '60+'],
+                ]}
+              />
+              <Alert type="info">MEXC and Hyperliquid allow trading without KYC for smaller amounts.</Alert>
+            </Subsection>
+
+            <Subsection title="Core Features">
+              <ul className="list-disc list-inside text-slate-400 space-y-1">
+                <li><strong>Long & Short:</strong> Open leveraged positions in either direction</li>
+                <li><strong>Cross & Isolated Margin:</strong> Choose margin mode per position</li>
+                <li><strong>Take-Profit / Stop-Loss:</strong> Automatic exit orders on entry</li>
+                <li><strong>Liquidation Monitoring:</strong> Real-time alerts at 5%/3%/2% proximity</li>
+                <li><strong>Position Management:</strong> View all positions, close individually or all</li>
+                <li><strong>Funding Rate Tracking:</strong> Monitor funding costs</li>
+                <li><strong>Database Integration:</strong> PostgreSQL trade logging</li>
+                <li><strong>Custom Strategies:</strong> Build your own with FuturesStrategy interface</li>
+                <li><strong>A/B Testing:</strong> Test strategy variants simultaneously</li>
+              </ul>
+            </Subsection>
+          </Section>
+
+          {/* Futures Setup */}
+          <Section id="futures-setup" title="Easy Setup">
+            <Subsection title="Environment Variables">
+              <CodeBlock title=".env">
+{`# Binance Futures
+BINANCE_API_KEY=your_api_key
+BINANCE_API_SECRET=your_api_secret
+
+# Bybit
+BYBIT_API_KEY=your_api_key
+BYBIT_API_SECRET=your_api_secret
+
+# MEXC (No KYC for small amounts)
+MEXC_API_KEY=your_api_key
+MEXC_API_SECRET=your_api_secret
+
+# Hyperliquid (Fully decentralized, No KYC)
+HYPERLIQUID_PRIVATE_KEY=your_private_key
+HYPERLIQUID_WALLET_ADDRESS=0x...
+
+# Database for trade tracking
+DATABASE_URL=postgres://user:pass@localhost:5432/clodds`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="Quick Start">
+              <CodeBlock title="TypeScript">
+{`import { setupFromEnv } from 'clodds/trading/futures';
+
+// Auto-configure from environment variables
+const { clients, database, strategyEngine } = await setupFromEnv();
+
+// clients.binance, clients.bybit, clients.mexc, clients.hyperliquid
+// database: FuturesDatabase instance
+// strategyEngine: StrategyEngine instance`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="Chat Commands">
+              <CodeBlock>
+{`/futures balance binance           # Check margin balance
+/futures positions                 # View all open positions
+/futures long BTCUSDT 0.1 10x      # Open 0.1 BTC long at 10x
+/futures short ETHUSDT 1 20x       # Open 1 ETH short at 20x
+/futures close BTCUSDT             # Close BTC position
+/futures close-all binance         # Close all positions on Binance
+/futures markets binance           # List available markets
+/futures funding BTCUSDT           # Check funding rate
+/futures stats                     # View trade statistics`}
+              </CodeBlock>
+            </Subsection>
+          </Section>
+
+          {/* Futures Database */}
+          <Section id="futures-database" title="Database Tracking">
+            <p className="text-slate-400 mb-4">All trades automatically logged to PostgreSQL for analysis.</p>
+
+            <Subsection title="Tables Created">
+              <CodeBlock title="SQL">
+{`-- futures_trades: All executed trades
+CREATE TABLE futures_trades (
+  id SERIAL PRIMARY KEY,
+  exchange VARCHAR(50),
+  symbol VARCHAR(50),
+  order_id VARCHAR(100),
+  side VARCHAR(10),
+  price DECIMAL,
+  quantity DECIMAL,
+  realized_pnl DECIMAL,
+  commission DECIMAL,
+  commission_asset VARCHAR(20),
+  timestamp BIGINT,
+  is_maker BOOLEAN,
+  strategy VARCHAR(100),
+  variant VARCHAR(100)
+);
+
+-- futures_strategy_variants: A/B test configurations
+CREATE TABLE futures_strategy_variants (
+  id SERIAL PRIMARY KEY,
+  strategy VARCHAR(100),
+  variant VARCHAR(100),
+  config JSONB,
+  created_at TIMESTAMP DEFAULT NOW()
+);`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="Query Your Performance">
+              <CodeBlock title="SQL">
+{`-- Performance by exchange
+SELECT
+  exchange,
+  COUNT(*) as trades,
+  SUM(realized_pnl) as total_pnl,
+  AVG(realized_pnl) as avg_pnl,
+  SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END)::float / COUNT(*) as win_rate
+FROM futures_trades
+GROUP BY exchange;
+
+-- Best performing symbols
+SELECT symbol, SUM(realized_pnl) as pnl
+FROM futures_trades
+GROUP BY symbol
+ORDER BY pnl DESC
+LIMIT 10;`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="Programmatic Usage">
+              <CodeBlock title="TypeScript">
+{`import { FuturesDatabase } from 'clodds/trading/futures';
+
+const db = new FuturesDatabase(process.env.DATABASE_URL!);
+await db.initialize();
+
+// Log a trade
+await db.logTrade({
+  exchange: 'binance',
+  symbol: 'BTCUSDT',
+  orderId: '12345',
+  side: 'BUY',
+  price: 95000,
+  quantity: 0.01,
+  realizedPnl: 50.25,
+  commission: 0.95,
+  timestamp: Date.now(),
+  strategy: 'momentum',
+  variant: 'aggressive',
+});
+
+// Query trades
+const trades = await db.getTrades({ exchange: 'binance', symbol: 'BTCUSDT' });
+const stats = await db.getTradeStats('binance');`}
+              </CodeBlock>
+            </Subsection>
+          </Section>
+
+          {/* Futures Strategies */}
+          <Section id="futures-strategies" title="Custom Strategies">
+            <p className="text-slate-400 mb-4">Build your own trading strategies with the FuturesStrategy interface.</p>
+
+            <Subsection title="Strategy Interface">
+              <CodeBlock title="TypeScript">
+{`interface FuturesStrategy {
+  name: string;
+  analyze(data: MarketData): Promise<StrategySignal | null>;
+}
+
+interface StrategySignal {
+  action: 'BUY' | 'SELL' | 'CLOSE';
+  symbol: string;
+  confidence: number;  // 0-1
+  reason: string;
+  metadata?: Record<string, unknown>;
+}`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="Example Custom Strategy">
+              <CodeBlock title="TypeScript">
+{`import { FuturesStrategy, StrategySignal } from 'clodds/trading/futures';
+
+class MomentumStrategy implements FuturesStrategy {
+  name = 'momentum';
+
+  constructor(private config: { lookbackPeriod: number; threshold: number }) {}
+
+  async analyze(data: MarketData): Promise<StrategySignal | null> {
+    const priceChange = (data.close - data.open) / data.open;
+
+    if (priceChange > this.config.threshold) {
+      return {
+        action: 'BUY',
+        symbol: data.symbol,
+        confidence: Math.min(priceChange / this.config.threshold, 1),
+        reason: 'Strong upward momentum detected',
+        metadata: { priceChange, period: this.config.lookbackPeriod },
+      };
+    }
+
+    if (priceChange < -this.config.threshold) {
+      return {
+        action: 'SELL',
+        symbol: data.symbol,
+        confidence: Math.min(Math.abs(priceChange) / this.config.threshold, 1),
+        reason: 'Strong downward momentum detected',
+        metadata: { priceChange, period: this.config.lookbackPeriod },
+      };
+    }
+
+    return null;
+  }
+}`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="Built-in Strategies">
+              <Table
+                headers={['Strategy', 'Logic', 'Config Options']}
+                rows={[
+                  ['MomentumStrategy', 'Follow price trends', 'lookbackPeriod, threshold'],
+                  ['MeanReversionStrategy', 'Buy dips, sell rallies', 'maPeriod, deviationMultiplier'],
+                  ['GridStrategy', 'Place orders at intervals', 'gridSize, levels, spacing'],
+                ]}
+              />
+            </Subsection>
+          </Section>
+
+          {/* Futures A/B Testing */}
+          <Section id="futures-ab-testing" title="A/B Testing">
+            <p className="text-slate-400 mb-4">Test multiple strategy variants simultaneously to find optimal parameters.</p>
+
+            <Subsection title="Register Variants">
+              <CodeBlock title="TypeScript">
+{`import { StrategyEngine, MomentumStrategy } from 'clodds/trading/futures';
+
+const engine = new StrategyEngine(db);
+
+// Register base strategy
+engine.registerStrategy(new MomentumStrategy({ lookbackPeriod: 14, threshold: 0.03 }));
+
+// Register A/B test variants
+engine.registerVariant('momentum', 'aggressive', { threshold: 0.02, leverage: 10 });
+engine.registerVariant('momentum', 'conservative', { threshold: 0.05, leverage: 3 });
+engine.registerVariant('momentum', 'control', { threshold: 0.03, leverage: 5 });`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="Analyze Results">
+              <CodeBlock title="SQL">
+{`-- Compare variant performance
+SELECT
+  strategy,
+  variant,
+  COUNT(*) as trades,
+  SUM(realized_pnl) as total_pnl,
+  AVG(realized_pnl) as avg_pnl,
+  SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END)::float / COUNT(*) as win_rate
+FROM futures_trades
+WHERE strategy = 'momentum'
+GROUP BY strategy, variant
+ORDER BY total_pnl DESC;`}
+              </CodeBlock>
+            </Subsection>
+
+            <Subsection title="Programmatic Query">
+              <CodeBlock title="TypeScript">
+{`// Get variant performance from database
+const results = await db.getVariantPerformance('momentum');
+
+// Results:
+// {
+//   aggressive: { trades: 45, pnl: 1250, winRate: 0.62 },
+//   conservative: { trades: 23, pnl: 890, winRate: 0.74 },
+//   control: { trades: 34, pnl: 720, winRate: 0.65 }
+// }
+
+// Promote winning variant
+const bestVariant = Object.entries(results)
+  .sort((a, b) => b[1].pnl - a[1].pnl)[0];
+console.log(\`Best variant: \${bestVariant[0]} with $\${bestVariant[1].pnl} PnL\`);`}
+              </CodeBlock>
+            </Subsection>
+          </Section>
+
           {/* Whale Tracking */}
           <Section id="whale-tracking" title="Whale Tracking">
             <p className="text-slate-400 mb-4">Monitor large trades and positions on Polymarket to identify market-moving activity.</p>
@@ -1335,25 +1647,149 @@ console.log(\`Half Kelly: $\${kelly.halfKelly}\`);`}
           </Section>
 
           {/* Skills */}
-          <Section id="ai-skills" title="Skills (13)">
-            <p className="text-slate-400 mb-4">Bundled skills provide specialized functionality. Install more via <code className="text-cyan-400">clodds skills install</code>.</p>
+          <Section id="ai-skills" title="Skills (61)">
+            <p className="text-slate-400 mb-4">61 bundled skills provide specialized functionality. Install more via <code className="text-cyan-400">clodds skills install</code>.</p>
 
-            <Table
-              headers={['Skill', 'Description', 'Commands']}
-              rows={[
-                ['alerts', 'Price and event alerts', '/alerts add, /alerts list'],
-                ['edge', 'Edge detection vs fair value', '/edge scan'],
-                ['markets', 'Market search and discovery', '/markets, /market'],
-                ['news', 'News aggregation', '/news'],
-                ['portfolio', 'Portfolio management', '/portfolio'],
-                ['portfolio-sync', 'Multi-platform sync', '/sync'],
-                ['research', 'Market research automation', '/research'],
-                ['trading-polymarket', 'Polymarket trading', '/buy polymarket, /sell'],
-                ['trading-kalshi', 'Kalshi trading', '/buy kalshi'],
-                ['trading-manifold', 'Manifold trading', '/buy manifold'],
-                ['qmd', 'Quart markdown documents', '/qmd'],
-              ]}
-            />
+            <Subsection title="Trading & Markets">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['trading-polymarket', 'Polymarket trading', '/buy poly, /sell poly'],
+                  ['trading-kalshi', 'Kalshi trading', '/buy kalshi'],
+                  ['trading-manifold', 'Manifold trading', '/buy manifold'],
+                  ['trading-futures', 'Perpetual futures (4 exchanges)', '/futures long, /futures short'],
+                  ['trading-solana', 'Solana DEX (Jupiter/Raydium)', '/swap sol'],
+                  ['trading-evm', 'EVM DEX (Uniswap/1inch)', '/swap eth, /swap arb'],
+                  ['trading-system', 'Unified trading with bots', '/bot start, /bot stop'],
+                  ['execution', 'Order execution', '/execute, /orders'],
+                  ['portfolio', 'Portfolio management', '/portfolio, /pnl'],
+                  ['portfolio-sync', 'Multi-platform sync', '/sync'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Data & Feeds">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['feeds', 'Real-time market data', '/feed price, /feed orderbook'],
+                  ['integrations', 'External data sources', '/integrations add, /integrations test'],
+                  ['webhooks', 'Incoming webhooks', '/webhook create, /webhook url'],
+                  ['market-index', 'Market search', '/index search, /index trending'],
+                  ['markets', 'Market browsing', '/markets, /market'],
+                  ['news', 'News aggregation', '/news'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Analysis & Opportunities">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['arbitrage', 'Cross-platform arbitrage', '/arb check, /arb compare'],
+                  ['opportunity', 'Opportunity scanner', '/opportunity scan, /opportunity stats'],
+                  ['edge', 'Edge detection', '/edge scan, /kelly'],
+                  ['qmd', 'Quantitative data', '/qmd'],
+                  ['research', 'Market research', '/research'],
+                  ['history', 'Trade history', '/history stats, /history export'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Strategy & Backtesting">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['backtest', 'Strategy validation', '/backtest, /backtest --monte-carlo'],
+                  ['strategy', 'Strategy builder', '/strategy create, /strategies'],
+                  ['sizing', 'Kelly criterion sizing', '/kelly, /sizing calculate'],
+                  ['risk', 'Circuit breaker & limits', '/risk, /risk pause'],
+                  ['positions', 'SL/TP/trailing stops', '/sl, /tp, /trailing'],
+                  ['analytics', 'Performance attribution', '/analytics, /analytics attribution'],
+                  ['slippage', 'Slippage protection', '/slippage estimate, /slippage protect'],
+                  ['metrics', 'System telemetry', '/metrics, /metrics api'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Smart Trading">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['whale-tracking', 'Multi-chain whale monitoring', '/whale start, /whale track'],
+                  ['copy-trading', 'Mirror whale trades', '/copy follow, /copy list'],
+                  ['alerts', 'Price and event alerts', '/alert, /alerts'],
+                  ['triggers', 'Auto-execute on threshold', '/trigger buy, /triggers'],
+                  ['router', 'Smart order routing', '/route, /route compare'],
+                  ['mev', 'MEV protection', '/mev enable, /mev check'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Automation">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['automation', 'Cron jobs, scheduling', '/cron list, /cron add'],
+                  ['auto-reply', 'Automatic responses', '/auto-reply add'],
+                  ['processes', 'Background jobs', '/job spawn, /jobs'],
+                  ['plugins', 'Plugin management', '/plugins, /plugins install'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="AI & Memory">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['memory', 'Persistent memory', '/remember, /memory'],
+                  ['embeddings', 'Vector embeddings', '/embeddings provider'],
+                  ['search-config', 'Search indexing', '/search-config rebuild'],
+                  ['routing', 'Agent routing', '/agents, /bind'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Infrastructure">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['mcp', 'MCP server management', '/mcp list, /mcp add'],
+                  ['streaming', 'Response streaming', '/streaming enable'],
+                  ['remote', 'SSH tunnels', '/remote tunnel'],
+                  ['monitoring', 'System health', '/monitor health'],
+                  ['doctor', 'Diagnostics', '/doctor'],
+                  ['sandbox', 'Safe code execution', '/run python, /sandbox'],
+                  ['tailscale', 'VPN sharing', '/tailscale serve'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="User Management">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['credentials', 'Credential management', '/creds add, /creds test'],
+                  ['pairing', 'User pairing', '/pair, /pairing approve'],
+                  ['identity', 'OAuth & devices', '/identity link, /identity devices'],
+                  ['permissions', 'Command approvals', '/permissions, /approve'],
+                  ['sessions', 'Session management', '/new, /checkpoint'],
+                  ['presence', 'Online status', '/presence, /presence away'],
+                  ['usage', 'Token tracking', '/usage, /usage cost'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Voice, Media & Cross-Chain">
+              <Table
+                headers={['Skill', 'Description', 'Key Commands']}
+                rows={[
+                  ['voice', 'Voice recognition', '/voice start, /voice wake'],
+                  ['tts', 'Text-to-speech', '/speak, /voices'],
+                  ['bridge', 'Wormhole bridging', '/bridge quote, /bridge send'],
+                ]}
+              />
+            </Subsection>
           </Section>
 
           {/* Memory System */}
@@ -2193,7 +2629,7 @@ CLODDS_MEMORY_EXTRACT_MODEL=claude-3-5-haiku-20241022`}
                 ['Messaging Channels', '22'],
                 ['Prediction Markets', '9'],
                 ['AI Tools', '21'],
-                ['Bundled Skills', '13'],
+                ['Bundled Skills', '61'],
                 ['LLM Providers', '6'],
                 ['Solana DEX Protocols', '5'],
                 ['EVM Chains', '5'],
@@ -2204,6 +2640,281 @@ CLODDS_MEMORY_EXTRACT_MODEL=claude-3-5-haiku-20241022`}
                 ['x402 Networks', '4'],
               ]}
             />
+          </Section>
+
+          {/* Glossary */}
+          <Section id="glossary" title="Glossary (150+ Terms)">
+            <p className="text-slate-400 mb-6">Comprehensive glossary of trading, DeFi, and platform terminology used throughout Clodds.</p>
+
+            <Subsection title="Trading & Orders">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Limit Order', 'Order to buy/sell at a specific price or better'],
+                  ['Market Order', 'Order that executes immediately at best available price'],
+                  ['Maker Order', 'Order that adds liquidity. Polymarket makers get -0.5% rebate'],
+                  ['Taker Order', 'Order that removes liquidity by crossing spread. Pays fees'],
+                  ['Post-Only', 'Order rejected if would take liquidity instead of making'],
+                  ['GTC', 'Good-Till-Cancelled. Remains open until filled or cancelled'],
+                  ['FOK', 'Fill-Or-Kill. Must execute fully immediately or cancel'],
+                  ['FAK / IOC', 'Fill-And-Kill. Fills available, cancels remainder'],
+                  ['Fill', 'Execution of an order. Fill price = execution price'],
+                  ['Orderbook', 'List of all open buy (bid) and sell (ask) orders'],
+                  ['Bid', 'Highest price a buyer will pay'],
+                  ['Ask', 'Lowest price a seller will accept'],
+                  ['Spread', 'Difference between best bid and best ask'],
+                  ['Mid Price', 'Average of bid and ask: (bid + ask) / 2'],
+                  ['Tick Size', 'Minimum price increment (e.g., 0.01)'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Slippage & Execution">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Slippage', 'Difference between expected and actual fill price'],
+                  ['Price Impact', 'Price change from large order consuming multiple levels'],
+                  ['Orderbook Depth', 'Liquidity available at different price levels'],
+                  ['Liquidity', 'Volume of orders at competitive prices. Thin = high slippage'],
+                  ['TWAP', 'Time-Weighted Average Price. Splits orders across time'],
+                  ['Order Splitting', 'Breaking large order into pieces to reduce slippage'],
+                  ['Fill Rate', 'Percentage of orders that execute completely'],
+                  ['Smart Routing', 'Auto-routing to best platform for price/liquidity/fees'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Arbitrage">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Arbitrage', 'Exploiting price differences for guaranteed profit'],
+                  ['Cross-Platform', 'Buy low on one platform, sell high on another'],
+                  ['Internal Arb', 'Exploit YES + NO = $1 when total < $1'],
+                  ['Combinatorial', 'Exploit logical violations (P(Trump) ≤ P(Republican))'],
+                  ['Edge', 'Mathematical advantage: Estimated Prob - Market Price'],
+                  ['Fair Value', 'Correct price based on models or arbitrage-free pricing'],
+                  ['Semantic Matching', 'AI finding equivalent markets across platforms'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Risk Management">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Kelly Criterion', 'Optimal sizing: f* = (p × b - q) / b'],
+                  ['Fractional Kelly', 'Using 1/2 or 1/4 Kelly for safer growth'],
+                  ['Bankroll', 'Total capital available for trading'],
+                  ['Drawdown', 'Peak-to-trough portfolio decline'],
+                  ['Circuit Breaker', 'Auto halt when risk limits exceeded'],
+                  ['Stop-Loss', 'Exit price below entry to limit losses'],
+                  ['Take-Profit', 'Exit price above entry to lock gains'],
+                  ['Trailing Stop', 'Stop that moves up with price'],
+                  ['Sharpe Ratio', 'Risk-adjusted return: (Return - RF) / Volatility'],
+                  ['Profit Factor', 'Gross profit / gross loss. >1.5 is good'],
+                  ['Win Rate', 'Percentage of profitable trades'],
+                  ['Expectancy', '(Win% × Avg Win) - (Loss% × Avg Loss)'],
+                  ['VaR', 'Value at Risk. Max expected loss at confidence level'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Prediction Markets">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['YES/NO Shares', 'Tokens paying $1 if outcome occurs, $0 if not'],
+                  ['Outcome Token', 'Token representing specific market outcome'],
+                  ['Resolution', 'Official determination of market outcome'],
+                  ['CLOB', 'Central Limit Order Book (vs AMM)'],
+                  ['Implied Probability', 'Probability from price. 0.55 = 55%'],
+                  ['Negative Risk', 'Short bets without doubling capital'],
+                  ['Heartbeat', 'Keepalive signal. Polymarket: every 10s'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Perpetual Futures">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Perpetual', 'Futures contract that never expires'],
+                  ['Long', 'Betting price goes up'],
+                  ['Short', 'Betting price goes down'],
+                  ['Leverage', 'Position/capital ratio. 10x = $100 controls $1000'],
+                  ['Margin', 'Capital required for leveraged position'],
+                  ['Cross Margin', 'All positions share margin pool'],
+                  ['Isolated Margin', 'Each position has own margin'],
+                  ['Funding Rate', 'Payment between longs/shorts'],
+                  ['Liquidation', 'Forced closure when margin insufficient'],
+                  ['Mark Price', 'Price for P&L and liquidation calc'],
+                  ['Index Price', 'Reference price from spot markets'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="DeFi & Crypto">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['AMM', 'Automated Market Maker using pools vs orderbooks'],
+                  ['Liquidity Pool', 'Smart contract with paired tokens for trading'],
+                  ['LP', 'Liquidity Provider. Deposits tokens, earns fees'],
+                  ['Swap', 'Trading one token for another on DEX'],
+                  ['Yield Farming', 'Earning yield from fees and incentives'],
+                  ['Gas', 'Transaction cost on blockchain'],
+                  ['Whale', 'Large wallet that can move markets'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="MEV (Maximal Extractable Value)">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['MEV', 'Profit from reordering/inserting transactions'],
+                  ['Sandwich Attack', 'Frontrun + backrun user tx for profit'],
+                  ['Front-Running', 'Placing tx ahead of pending tx'],
+                  ['Backrunning', 'Placing tx after pending tx'],
+                  ['Private Mempool', 'Hiding pending txs from public'],
+                  ['Flashbots', 'Ethereum MEV protection via private relay'],
+                  ['MEV Blocker', 'CoW Protocol returning captured value'],
+                  ['Jito', 'Solana MEV protection with bundles'],
+                  ['Bundle', 'Grouped txs submitted atomically'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Blockchain & Tokens">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['ERC-20', 'Standard fungible token (USDC, etc.)'],
+                  ['ERC-1155', 'Multi-token for YES/NO outcome tokens'],
+                  ['EOA', 'Externally Owned Account. Standard wallet'],
+                  ['Proxy Wallet', 'Smart contract wallet (Gnosis Safe)'],
+                  ['Wormhole', 'Cross-chain bridge protocol'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Strategy & Backtesting">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Strategy', 'Rule-based plan with entry/exit/risk conditions'],
+                  ['Signal', 'Condition triggering trade action'],
+                  ['Backtest', 'Simulating strategy on historical data'],
+                  ['Walk-Forward', 'Train on one period, test on next'],
+                  ['Overfitting', 'Works on history, fails live'],
+                  ['Monte Carlo', '1000s of randomized simulations'],
+                  ['Momentum', 'Trading following price trends'],
+                  ['Mean Reversion', 'Trading towards the average'],
+                  ['CAGR', 'Compound Annual Growth Rate'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Copy Trading & Whales">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Copy Trading', 'Auto-mirroring trades from wallets'],
+                  ['Whale Tracking', 'Monitoring large trades from key wallets'],
+                  ['Sizing Mode', 'How copies scale: fixed, proportional, portfolio'],
+                  ['Trade Delay', 'Delay before copying to avoid detection'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Portfolio & Performance">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Portfolio', 'All open positions and trades'],
+                  ['Position', 'An open trade/exposure'],
+                  ['Cost Basis', 'Average entry price'],
+                  ['Exposure', 'Total capital deployed'],
+                  ['Correlation', 'Statistical relationship between assets'],
+                  ['Attribution', 'Breaking down P&L by source'],
+                  ['P&L', 'Profit & Loss'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Technical & Platform">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['WebSocket', 'Real-time bidirectional data protocol'],
+                  ['REST API', 'HTTP-based API for requests'],
+                  ['API Key', 'Authentication credential'],
+                  ['MCP', 'Model Context Protocol for Claude tools'],
+                  ['Webhook', 'HTTP callback on events'],
+                  ['Rate Limiting', 'Max API requests per time period'],
+                  ['Basis Points', '0.01%. 100 bps = 1%'],
+                  ['Rebate', 'Payment for making. Polymarket: -0.5%'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Additional Order Types">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['OCO', 'One-Cancels-Other. Two linked orders, filling one cancels other'],
+                  ['DCA', 'Dollar Cost Averaging. Fixed amounts at regular intervals'],
+                  ['Grid Trading', 'Orders at intervals above/below price for range profits'],
+                  ['Iceberg', 'Large order split into visible and hidden portions'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Additional DeFi Terms">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['Impermanent Loss', 'LP loss when prices diverge from deposit ratio'],
+                  ['TVL', 'Total Value Locked in a DeFi protocol'],
+                  ['APY', 'Annual Percentage Yield (with compounding)'],
+                  ['APR', 'Annual Percentage Rate (without compounding)'],
+                  ['Bonding Curve', 'Math curve setting price by supply (Pump.fun)'],
+                  ['Airdrop', 'Free token distribution to wallet holders'],
+                  ['Staking', 'Locking tokens to earn rewards'],
+                  ['Vesting', 'Gradual token unlock schedule'],
+                  ['Rug Pull', 'Creators abandon project and steal funds'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Payment & Bridge Terms">
+              <Table
+                headers={['Term', 'Definition']}
+                rows={[
+                  ['x402', 'HTTP 402 protocol for machine-to-machine USDC payments'],
+                  ['Facilitator', 'x402 intermediary enabling fee-free payments'],
+                  ['CCTP', 'Circle Cross-Chain Transfer Protocol for USDC'],
+                  ['VAA', 'Verified Action Approval. Wormhole cross-chain proof'],
+                  ['Guardian', 'Wormhole validator signing cross-chain messages'],
+                ]}
+              />
+            </Subsection>
+
+            <Subsection title="Key Formulas">
+              <Table
+                headers={['Formula', 'Calculation']}
+                rows={[
+                  ['Kelly Criterion', 'f* = (p × b - q) / b'],
+                  ['Sharpe Ratio', '(Return - Risk-Free) / Volatility'],
+                  ['Profit Factor', 'Gross Profit / Gross Loss'],
+                  ['Expectancy', '(Win% × AvgWin) - (Loss% × AvgLoss)'],
+                  ['Edge', 'Estimated Probability - Market Price'],
+                  ['Spread', '(Ask - Bid) / Mid Price'],
+                ]}
+              />
+            </Subsection>
           </Section>
 
           {/* Footer */}
