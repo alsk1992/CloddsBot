@@ -207,12 +207,14 @@ Comprehensive glossary of terms used throughout the Clodds platform for predicti
 
 ## Agent Identity (ERC-8004)
 
+Mainnet launched **January 29, 2026**. Live on Ethereum, Base, Optimism, Arbitrum, Polygon. 19,000+ agents registered.
+
 | Term | Definition |
 |------|------------|
 | **ERC-8004** | Ethereum standard for trustless agent identity. Uses NFTs for identity, on-chain reputation, and validation. |
-| **Identity Registry** | Contract storing agent identities as ERC-721 NFTs. Address: `0x7177...Dd09A`. |
-| **Reputation Registry** | Contract storing feedback/ratings for agents. Score 0-100. |
-| **Validation Registry** | Contract for task verification using staking or cryptographic proofs. |
+| **Identity Registry** | Contract storing agent identities as ERC-721 NFTs. Address: `0x7177...Dd09A` (same on all chains). |
+| **Reputation Registry** | Contract storing feedback/ratings for agents. Score 0-100. Address: `0xB504...e322`. |
+| **Validation Registry** | Contract for task verification using staking or cryptographic proofs. Address: `0x662b...6d8`. |
 | **Agent Card** | Off-chain JSON metadata describing agent capabilities, endpoints, and trust mechanisms. |
 | **Agent ID** | Unique on-chain identifier (NFT token ID) for a registered agent. |
 | **Verified Identity** | Agent with registered ERC-8004 identity - proves ownership and builds reputation. |

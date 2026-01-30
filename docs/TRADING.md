@@ -635,7 +635,7 @@ const copier = createCopyTradingService(whaleTracker, execution, {
   // ERC-8004 Identity Verification (recommended)
   requireVerifiedIdentity: true,  // Only copy verified traders
   minReputationScore: 50,         // Minimum reputation (0-100)
-  identityNetwork: 'base-sepolia',
+  identityNetwork: 'base',        // Mainnet (live Jan 29, 2026)
 });
 
 copier.on('tradeCopied', (trade) => console.log('Copied:', trade.id));

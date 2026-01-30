@@ -75,9 +75,11 @@ Clodds supports [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) for on-chain
 {
   requireVerifiedIdentity: true,  // Only copy verified traders
   minReputationScore: 50,         // Minimum reputation score
-  identityNetwork: 'base-sepolia' // Network for verification
+  identityNetwork: 'base'         // Mainnet (live Jan 29, 2026)
 }
 ```
+
+**Live networks:** Ethereum, Base, Optimism, Arbitrum, Polygon (19,000+ agents registered)
 
 See `/verify` command and `src/identity/erc8004.ts` for implementation.
 
