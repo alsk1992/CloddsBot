@@ -18,5 +18,24 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Security audit
+        run: npm audit --audit-level=high
       - name: Typecheck, test, build
         run: npm run ci
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: npm audit
+        run: npm audit --audit-level=moderate
+      - name: Check for vulnerabilities
+        run: npx --yes audit-ci --moderate
