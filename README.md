@@ -170,11 +170,11 @@ npx wrangler tail
 
 ## Limitations (vs Full Clodds)
 
-- No trading execution (read-only market data)
-- No WebSocket real-time feeds
+- **No trading execution** — CLOB APIs (Polymarket, Kalshi) require persistent WebSocket connections and complex signing that exceed Workers' 30s CPU limit. Use full Clodds for trading.
+- No WebSocket real-time feeds (REST polling only)
 - No browser/shell tools
 - No whale tracking or copy trading
-- Limited to webhook-based channels
+- Limited to webhook-based channels (no Socket Mode)
 
 ## License
 
