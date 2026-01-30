@@ -632,23 +632,34 @@ function escapeString(str: string): string {
 
 /** Open URL in default browser */
 export async function openUrl(url: string): Promise<void> {
+  // Validate URL to prevent command injection
+  if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('file://')) {
+    throw new Error('Invalid URL: must start with http://, https://, or file://');
+  }
+
+  const { execFile } = require('child_process');
+  const execFileAsync = promisify(execFile);
+
   if (isMacOS()) {
-    await execAsync(`open "${url}"`);
+    await execFileAsync('open', [url]);
+  } else if (platform() === 'win32') {
+    await execFileAsync('cmd', ['/c', 'start', '', url]);
   } else {
-    const { execSync } = require('child_process');
-    const cmd = platform() === 'win32' ? 'start' : 'xdg-open';
-    execSync(`${cmd} "${url}"`);
+    await execFileAsync('xdg-open', [url]);
   }
 }
 
 /** Open file with default application */
-export async function openFile(path: string, app?: string): Promise<void> {
+export async function openFile(filePath: string, app?: string): Promise<void> {
   assertMacOS();
 
+  const { execFile } = require('child_process');
+  const execFileAsync = promisify(execFile);
+
   if (app) {
-    await execAsync(`open -a "${app}" "${path}"`);
+    await execFileAsync('open', ['-a', app, filePath]);
   } else {
-    await execAsync(`open "${path}"`);
+    await execFileAsync('open', [filePath]);
   }
 }
 

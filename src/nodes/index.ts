@@ -9,7 +9,7 @@
  * - System commands (macOS: osascript AppleScript)
  */
 
-import { execSync, exec, spawn, ChildProcess } from 'child_process';
+import { execSync, execFileSync, exec, spawn, ChildProcess } from 'child_process';
 import { existsSync, mkdirSync, unlinkSync, readFileSync, writeFileSync } from 'fs';
 import { homedir, platform } from 'os';
 import { join } from 'path';
@@ -364,7 +364,8 @@ function createNotificationService(): NotificationService {
           }
           execSync(`osascript -e '${script}'`, { timeout: 5000 });
         } else if (os === 'linux' && hasNotifySend) {
-          execSync(`notify-send "${title}" "${body}"`, { timeout: 5000 });
+          // Use execFileSync with array args to prevent command injection
+          execFileSync('notify-send', [title, body], { timeout: 5000 });
         } else {
           throw new Error('Notifications not available');
         }
@@ -419,10 +420,11 @@ function createSystemService(): SystemService {
 
     async say(text, voice) {
       if (os === 'darwin') {
-        const voiceArg = voice ? `-v "${voice}"` : '';
-        execSync(`say ${voiceArg} "${text.replace(/"/g, '\\"')}"`, { timeout: 60000 });
+        // Use execFileSync with array args to prevent command injection
+        const args = voice ? ['-v', voice, text] : [text];
+        execFileSync('say', args, { timeout: 60000 });
       } else if (os === 'linux' && commandExists('espeak')) {
-        execSync(`espeak "${text.replace(/"/g, '\\"')}"`, { timeout: 60000 });
+        execFileSync('espeak', [text], { timeout: 60000 });
       } else {
         throw new Error('Text-to-speech not available');
       }
@@ -430,10 +432,14 @@ function createSystemService(): SystemService {
     },
 
     async open(target) {
+      // Validate target to prevent command injection
+      if (!isValidPath(target) && !target.startsWith('http://') && !target.startsWith('https://')) {
+        throw new Error('Invalid target path');
+      }
       if (os === 'darwin') {
-        execSync(`open "${target}"`, { timeout: 5000 });
+        execFileSync('open', [target], { timeout: 5000 });
       } else if (os === 'linux') {
-        execSync(`xdg-open "${target}"`, { timeout: 5000 });
+        execFileSync('xdg-open', [target], { timeout: 5000 });
       } else {
         throw new Error('Open not available');
       }
@@ -503,4 +509,17 @@ function commandExists(cmd: string): boolean {
 
 function escapeAppleScript(str: string): string {
   return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+/** Escape string for shell arguments - prevents command injection */
+function escapeShellArg(str: string): string {
+  // Replace single quotes with escaped version and wrap in single quotes
+  return `'${str.replace(/'/g, "'\\''")}'`;
+}
+
+/** Validate that a string is safe for use as a path (no shell metacharacters) */
+function isValidPath(str: string): boolean {
+  // Reject strings with shell metacharacters
+  const dangerous = /[;&|`$(){}[\]<>!#*?~\n\r]/;
+  return !dangerous.test(str);
 }

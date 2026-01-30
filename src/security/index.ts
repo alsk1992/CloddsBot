@@ -530,16 +530,36 @@ export interface SandboxOptions {
   memoryLimit?: number;
 }
 
-/** Create a sandboxed execution context (limited implementation) */
+/**
+ * Create a sandboxed execution context (LIMITED IMPLEMENTATION)
+ *
+ * ⚠️  SECURITY WARNING: This sandbox is NOT secure against malicious code!
+ * It only provides basic isolation and can be escaped.
+ *
+ * For production use with untrusted code, use:
+ * - `isolated-vm` package (V8 isolates)
+ * - `vm2` package (more secure VM)
+ * - Docker containers
+ *
+ * This implementation is suitable for:
+ * - Running trusted code with limited scope
+ * - Development/testing environments
+ * - Code that has already been validated
+ */
 export function createSandbox(options: SandboxOptions = {}): {
   eval: (code: string) => unknown;
   require: (module: string) => unknown;
 } {
   const allowedModules = new Set(options.allowedModules || []);
 
+  // Log warning if used in production
+  if (process.env.NODE_ENV === 'production') {
+    logger.warn('createSandbox: Using basic sandbox in production - NOT secure against malicious code');
+  }
+
   return {
     eval(code: string): unknown {
-      // Very basic sandboxing - in production, use vm2 or isolated-vm
+      // ⚠️ SECURITY: This is NOT a secure sandbox - new Function can be escaped
       const sandbox = {
         console: {
           log: (...args: unknown[]) => logger.info({ sandbox: true }, String(args)),
