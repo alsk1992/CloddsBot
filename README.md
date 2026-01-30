@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>The AI-powered prediction market platform you run yourself</strong>
+  <strong>AI-powered trading terminal for prediction markets, crypto & futures</strong>
   <br>
   <sub>Claude + Odds = Clodds</sub>
 </p>
@@ -28,7 +28,7 @@
 
 ---
 
-**Clodds** is a personal AI assistant for prediction market trading. Run it on your own machine, chat via any of **22 messaging platforms**, find arbitrage across **9 prediction markets**, execute trades, and manage your portfolio — all through natural conversation.
+**Clodds** is a personal AI trading terminal for prediction markets, crypto spot, and **perpetual futures with leverage**. Run it on your own machine, chat via any of **22 messaging platforms**, trade across **9 prediction markets + 5 futures exchanges**, and manage your portfolio — all through natural conversation.
 
 Built on Claude with cross-platform arbitrage detection based on [arXiv:2508.03474](https://arxiv.org/abs/2508.03474) which found **$40M+ in realized arbitrage** on Polymarket.
 
@@ -149,6 +149,7 @@ clodds version                  # Show version
 |----------|-----------------|
 | **Messaging** | 22 platforms (Telegram, Discord, WhatsApp, Slack, Teams, Signal, Matrix, iMessage, LINE, Nostr, and more) |
 | **Prediction Markets** | 9 platforms (Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt) |
+| **Perpetual Futures** | 4 exchanges (Binance, Bybit, Hyperliquid, dYdX) with up to 125x leverage |
 | **Trading** | Order execution on 5 platforms, portfolio tracking, P&L, trade logging |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
 | **AI** | 6 LLM providers, 4 specialized agents, semantic memory, 21 tools |
@@ -287,6 +288,69 @@ Machine-to-machine crypto payments:
 - Proper ECDSA secp256k1 signing for EVM
 - Solana ATA derivation via PDA algorithm
 - Real blockchain balance queries
+
+---
+
+## Perpetual Futures Trading
+
+Trade perpetual futures with leverage across centralized and decentralized exchanges.
+
+### Supported Exchanges
+
+| Exchange | Type | Max Leverage | Features |
+|----------|------|--------------|----------|
+| **Binance Futures** | CEX | 125x | USDT-M perpetuals, highest liquidity |
+| **Bybit** | CEX | 100x | USDT perpetuals, unified account |
+| **Hyperliquid** | DEX | 50x | On-chain (Arbitrum), no KYC |
+| **dYdX v4** | DEX | 20x | Cosmos-based, decentralized orderbook |
+
+### Features
+- **Long & Short** — Open leveraged positions in either direction
+- **Cross & Isolated Margin** — Choose margin mode per position
+- **Take-Profit / Stop-Loss** — Automatic exit orders on entry
+- **Liquidation Monitoring** — Real-time alerts at 5%/3%/2% proximity
+- **Position Management** — View all positions, close individually or all
+- **Funding Rate Tracking** — Monitor funding costs
+
+### Chat Commands
+```
+/futures balance binance           # Check margin balance
+/futures positions                 # View all open positions
+/futures long BTCUSDT 0.1 10x      # Open 0.1 BTC long at 10x
+/futures short ETHUSDT 1 20x       # Open 1 ETH short at 20x
+/futures close BTCUSDT             # Close BTC position
+/futures close-all binance         # Close all positions on Binance
+/futures markets binance           # List available markets
+```
+
+### Programmatic Usage
+```typescript
+import { createFuturesService } from 'clodds/trading/futures';
+
+const futures = createFuturesService([
+  {
+    exchange: 'binance',
+    credentials: { apiKey: '...', apiSecret: '...' },
+    maxLeverage: 20,  // Safety limit
+    dryRun: false,
+  },
+]);
+
+// Open a 10x long on BTC with TP/SL
+await futures.openLong('binance', 'BTCUSDT', 0.01, 10, {
+  takeProfit: 105000,
+  stopLoss: 95000,
+});
+
+// Monitor for liquidation risk
+futures.on('liquidationWarning', ({ level, position, proximityPct }) => {
+  console.log(`${level}: ${position.symbol} at ${proximityPct}% from liquidation`);
+});
+futures.startPositionMonitor();
+
+// Close position
+await futures.closePosition('binance', 'BTCUSDT');
+```
 
 ---
 

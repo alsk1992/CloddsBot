@@ -808,6 +808,120 @@ console.log(`Total filled: ${estimate.totalFilled}`);
 
 The system fetches live orderbook data and simulates walking the book to calculate realistic fill prices.
 
+### Perpetual Futures Trading
+
+Trade leveraged perpetual futures across centralized and decentralized exchanges.
+
+**Supported Exchanges:**
+
+| Exchange | Type | Max Leverage | Settlement |
+|----------|------|--------------|------------|
+| Binance Futures | CEX | 125x | USDT |
+| Bybit | CEX | 100x | USDT |
+| Hyperliquid | DEX | 50x | USDC (on Arbitrum) |
+| dYdX v4 | DEX | 20x | USDC (Cosmos) |
+
+```typescript
+import { createFuturesService } from './trading/futures';
+
+const futures = createFuturesService([
+  {
+    exchange: 'binance',
+    credentials: {
+      apiKey: process.env.BINANCE_API_KEY!,
+      apiSecret: process.env.BINANCE_API_SECRET!,
+    },
+    maxLeverage: 20,  // Safety limit
+    dryRun: false,
+  },
+  {
+    exchange: 'bybit',
+    credentials: {
+      apiKey: process.env.BYBIT_API_KEY!,
+      apiSecret: process.env.BYBIT_API_SECRET!,
+    },
+  },
+]);
+
+// Check balances
+const balance = await futures.getBalance('binance');
+console.log(`Available: $${balance.available}`);
+
+// Open a long position with TP/SL
+const order = await futures.openLong('binance', 'BTCUSDT', 0.01, 10, {
+  takeProfit: 105000,
+  stopLoss: 95000,
+});
+
+// Open a short position
+await futures.openShort('bybit', 'ETHUSDT', 0.5, 5);
+
+// View all positions
+const positions = await futures.getAllPositions();
+for (const pos of positions) {
+  console.log(`${pos.exchange} ${pos.symbol}: ${pos.side} ${pos.size} @ ${pos.entryPrice}`);
+  console.log(`  P&L: $${pos.unrealizedPnl.toFixed(2)} (${pos.unrealizedPnlPct.toFixed(2)}%)`);
+  console.log(`  Liquidation: $${pos.liquidationPrice}`);
+}
+
+// Monitor for liquidation risk
+futures.on('liquidationWarning', ({ level, position, proximityPct }) => {
+  if (level === 'critical') {
+    console.log(`CRITICAL: ${position.symbol} ${proximityPct.toFixed(1)}% from liquidation!`);
+  }
+});
+futures.startPositionMonitor(5000); // Check every 5s
+
+// Close a position
+await futures.closePosition('binance', 'BTCUSDT');
+
+// Close all positions on an exchange
+await futures.closeAllPositions('binance');
+```
+
+**Chat Commands:**
+
+```
+/futures balance binance           # Check margin balance
+/futures positions                 # View all open positions
+/futures long BTCUSDT 0.1 10x      # Open 0.1 BTC long at 10x leverage
+/futures short ETHUSDT 1 20x       # Open 1 ETH short at 20x leverage
+/futures tp BTCUSDT 105000         # Set take-profit for BTC
+/futures sl BTCUSDT 95000          # Set stop-loss for BTC
+/futures close BTCUSDT             # Close BTC position
+/futures close-all                 # Close all positions
+/futures markets binance           # List available markets
+/futures funding BTCUSDT           # Check funding rate
+```
+
+**Configuration:**
+
+```json
+{
+  "futures": {
+    "exchanges": {
+      "binance": {
+        "enabled": true,
+        "testnet": false,
+        "maxLeverage": 20,
+        "defaultMarginType": "ISOLATED"
+      },
+      "bybit": {
+        "enabled": true
+      },
+      "hyperliquid": {
+        "enabled": true
+      }
+    },
+    "riskManagement": {
+      "maxPositionSize": 10000,
+      "maxTotalExposure": 50000,
+      "liquidationAlertThreshold": 5
+    }
+  }
+}
+```
+
 ## API Reference
 
 See individual module docs:

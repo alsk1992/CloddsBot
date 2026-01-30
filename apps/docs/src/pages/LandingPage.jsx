@@ -76,6 +76,11 @@ const features = [
     description: 'Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt.',
   },
   {
+    color: 'emerald',
+    title: 'Perpetual Futures',
+    description: 'Binance, Bybit, Hyperliquid, dYdX with up to 125x leverage. Long/short with TP/SL.',
+  },
+  {
     color: 'purple',
     title: 'Arbitrage Detection',
     description: 'Cross-platform, internal, and combinatorial arbitrage scanning.',
@@ -109,9 +114,9 @@ const features = [
 
 const stats = [
   { value: '22', label: 'Channels', icon: MessageCircle },
-  { value: '9', label: 'Platforms', icon: Building2 },
+  { value: '9+4', label: 'Markets', icon: Building2 },
+  { value: '125x', label: 'Leverage', icon: TrendingUp },
   { value: '10', label: 'Chains', icon: Link },
-  { value: '50+', label: 'Tools', icon: Wrench },
   { value: '∞', label: 'Markets', icon: Infinity },
   { icon: Github, label: 'Open Source' },
   { icon: Server, label: 'Self-Hosted' },
@@ -547,7 +552,7 @@ export default function LandingPage() {
 
       {/* Demo */}
       <section className="py-16 px-6">
-        <div className="max-w-4xl mx-auto text-center">
+        <div className="max-w-3xl mx-auto text-center">
           <h2
             className="text-3xl md:text-4xl font-bold mb-4"
             style={{
@@ -562,13 +567,40 @@ export default function LandingPage() {
           <p className="text-slate-400 mb-8">
             Chat naturally, get market data, find arbitrage, execute trades.
           </p>
-          <div className="rounded-xl overflow-hidden border border-slate-700 shadow-2xl">
-            <img
-              src="/demo.gif"
-              alt="Clodds Demo"
-              className="w-full"
-            />
+          {/* Browser-style frame */}
+          <div
+            className="rounded-xl overflow-hidden border border-slate-600 shadow-2xl"
+            style={{
+              boxShadow: '0 0 60px rgba(34, 211, 238, 0.15), 0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+            }}
+          >
+            {/* Browser chrome */}
+            <div className="bg-slate-800 px-4 py-3 flex items-center gap-3 border-b border-slate-700">
+              <div className="flex gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+              </div>
+              <div className="flex-1 flex justify-center">
+                <div className="bg-slate-700/50 rounded-md px-4 py-1.5 flex items-center gap-2 text-xs text-slate-400 max-w-xs">
+                  <Lock size={12} />
+                  <span>localhost:18789/webchat</span>
+                </div>
+              </div>
+              <div className="w-16"></div>
+            </div>
+            {/* Demo content */}
+            <div className="bg-white">
+              <img
+                src="/demo.gif"
+                alt="Clodds Demo"
+                className="w-full h-auto"
+              />
+            </div>
           </div>
+          <p className="text-slate-500 text-sm mt-4">
+            Arbitrage scanning, trade execution, DeFi swaps, whale tracking, copy trading
+          </p>
         </div>
       </section>
 
