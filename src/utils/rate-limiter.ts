@@ -149,7 +149,8 @@ export function createRateLimiter(
     if (!state) {
       // Find matching config from defaults
       const defaultLimit = DEFAULT_RATE_LIMITS[endpoint] || DEFAULT_RATE_LIMITS['default'];
-      const config = { ...baseConfig, ...defaultLimit };
+      // User config (baseConfig) takes precedence over defaults
+      const config = { ...defaultLimit, ...baseConfig };
 
       state = {
         requests: [],

@@ -218,12 +218,12 @@ describe('Rate Limiter', () => {
     limiter.recordRequest('/a');
     limiter.recordRequest('/b');
 
-    const statusA = limiter.getStatus('/a');
-    const statusB = limiter.getStatus('/b');
+    const statsA = limiter.getStats('/a');
+    const statsB = limiter.getStats('/b');
 
-    // Each should have their own count
-    assert.strictEqual(statusA.currentCount, 1);
-    assert.strictEqual(statusB.currentCount, 1);
+    // Each should have their own count (windowRequests = requests in current window)
+    assert.strictEqual(statsA.windowRequests, 1);
+    assert.strictEqual(statsB.windowRequests, 1);
   });
 
   it('should block when limit exceeded', () => {
