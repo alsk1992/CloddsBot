@@ -23,6 +23,7 @@ import { runDoctor } from './commands/doctor';
 import { createSkillsCommands } from './commands/skills';
 import { addAllCommands } from './commands/index';
 import { startRepl } from './commands/repl';
+import { runSecure } from './secure';
 
 const program = new Command();
 installHttpClient();
@@ -443,6 +444,17 @@ skills
   .description('Check for available updates')
   .action(async () => {
     await skillsCommands.checkUpdates();
+  });
+
+// Security hardening command
+program
+  .command('secure')
+  .description('Harden server security (SSH, firewall, fail2ban, etc.)')
+  .allowUnknownOption()
+  .action(async (_options, cmd) => {
+    // Pass raw args after "secure" to the secure module
+    const args = process.argv.slice(process.argv.indexOf('secure') + 1);
+    await runSecure(args);
   });
 
 // Add all additional commands
