@@ -36,22 +36,20 @@ jobs:
           echo "=== Security Summary ==="
           npm audit --json | jq '.metadata.vulnerabilities'
 
-  codeql:
-    name: CodeQL Analysis
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+  # CodeQL Analysis - Enable when repo is public or GitHub Advanced Security is enabled
+  # codeql:
+  #   name: CodeQL Analysis
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     security-events: write
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #     - name: Initialize CodeQL
+  #       uses: github/codeql-action/init@v3
+  #       with:
+  #         languages: javascript-typescript
+  #     - name: Autobuild
+  #       uses: github/codeql-action/autobuild@v3
+  #     - name: Perform CodeQL Analysis
+  #       uses: github/codeql-action/analyze@v3
