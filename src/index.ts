@@ -1,51 +1,84 @@
 /**
- * Clodds - AI Assistant for Prediction Markets
- * Claude + Odds
+ * Clodds Worker - Main Entry Point
  *
- * Entry point - starts the gateway and all services
+ * Handles:
+ * - Webhook routes for Telegram, Discord, Slack
+ * - REST API endpoints for markets/arbitrage
+ * - Cron trigger for arbitrage scanning
  */
 
-import 'dotenv/config';
-import { createGateway } from './gateway/index';
-import { loadConfig } from './utils/config';
-import { logger } from './utils/logger';
-import { installHttpClient, configureHttpClient } from './utils/http';
+import type { Env } from './config';
+import { handleTelegramWebhook } from './channels/telegram';
+import { handleDiscordInteraction } from './channels/discord';
+import { handleSlackEvent } from './channels/slack';
+import { handleMarketsApi } from './api/markets';
+import { handleArbitrageApi } from './api/arbitrage';
+import { handleHealthCheck } from './api/health';
+import { scanArbitrage } from './cron/arbitrage';
 
-async function main() {
-  logger.info('Starting Clodds...');
-  installHttpClient();
+export { SessionDO } from './durable/session';
 
-  process.on('unhandledRejection', (reason) => {
-    logger.error({ reason }, 'Unhandled promise rejection');
-  });
-  process.on('uncaughtException', (error) => {
-    logger.error({ error }, 'Uncaught exception');
-    process.exit(1);
-  });
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
 
-  // Load configuration
-  const config = await loadConfig();
-  configureHttpClient(config.http);
-  logger.info({ port: config.gateway.port }, 'Config loaded');
+    try {
+      // Health check
+      if (path === '/api/health' || path === '/health') {
+        return handleHealthCheck(env);
+      }
 
-  // Create and start gateway
-  const gateway = await createGateway(config);
-  await gateway.start();
+      // Webhook handlers
+      if (path === '/webhook/telegram' && request.method === 'POST') {
+        return handleTelegramWebhook(request, env, ctx);
+      }
 
-  logger.info('Clodds is running!');
+      if (path === '/webhook/discord' && request.method === 'POST') {
+        return handleDiscordInteraction(request, env, ctx);
+      }
 
-  // Handle shutdown
-  const shutdown = async () => {
-    logger.info('Shutting down...');
-    await gateway.stop();
-    process.exit(0);
-  };
+      if (path === '/webhook/slack' && request.method === 'POST') {
+        return handleSlackEvent(request, env, ctx);
+      }
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-}
+      // REST API
+      if (path.startsWith('/api/markets')) {
+        return handleMarketsApi(request, env, path);
+      }
 
-main().catch((err) => {
-  logger.error({ err }, 'Fatal error');
-  process.exit(1);
-});
+      if (path.startsWith('/api/arbitrage')) {
+        return handleArbitrageApi(request, env, path);
+      }
+
+      // Root path
+      if (path === '/') {
+        return new Response(JSON.stringify({
+          name: 'clodds-worker',
+          version: '0.1.0',
+          endpoints: {
+            health: '/api/health',
+            markets: '/api/markets/*',
+            arbitrage: '/api/arbitrage/*',
+            webhooks: ['/webhook/telegram', '/webhook/discord', '/webhook/slack'],
+          },
+        }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      return new Response('Not Found', { status: 404 });
+    } catch (error) {
+      console.error('Request error:', error);
+      return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  },
+
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Run arbitrage scan every 5 minutes
+    ctx.waitUntil(scanArbitrage(env));
+  },
+};

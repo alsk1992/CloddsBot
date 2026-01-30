@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+.wrangler/
 
 # Environment
 .env
@@ -33,6 +34,5 @@ coverage/
 # TypeScript cache
 *.tsbuildinfo
 
-# Local config (user's personal settings)
-# Note: clodds.json is the main config, don't commit with secrets
-workspace/pm-indexer
+# Vercel
+.vercel/
