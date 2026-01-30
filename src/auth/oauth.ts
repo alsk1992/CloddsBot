@@ -471,7 +471,7 @@ export class OAuthClient {
       return null;
     }
 
-    return response.json();
+    return response.json() as Promise<Record<string, unknown>>;
   }
 }
 

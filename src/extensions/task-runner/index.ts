@@ -191,15 +191,14 @@ builtInExecutors.set('llm', {
     const systemPrompt = task.input?.system as string;
     const model = (task.input?.model as string) || 'claude-3-5-sonnet-20241022';
 
-    const messages: Array<{ role: string; content: string }> = [];
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
     messages.push({ role: 'user', content: prompt });
 
-    const response = await context.provider.complete({
+    const response = await context.provider.complete(messages, {
       model,
-      messages,
       maxTokens: task.input?.maxTokens as number,
     });
 
@@ -319,17 +318,17 @@ Rules:
       ? `Goal: ${goal}\n\nContext: ${context}`
       : `Goal: ${goal}`;
 
-    const response = await this.provider.complete({
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      { role: 'user' as const, content: userPrompt },
+    ];
+    const response = await this.provider.complete(messages, {
       model: planningModel,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
       maxTokens: 4096,
     });
 
     // Extract JSON from response
-    const jsonMatch = response.text.match(/\[[\s\S]*\]/);
+    const jsonMatch = response.content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       throw new Error('Failed to parse task plan from LLM response');
     }
