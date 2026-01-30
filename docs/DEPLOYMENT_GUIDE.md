@@ -142,3 +142,70 @@ docker compose up -d --build
 The SQLite DB is stored at `$CLODDS_STATE_DIR/clodds.db` (defaults to
 `~/.clodds/clodds.db`). Backups are written to
 `$CLODDS_STATE_DIR/backups` (see `CLODDS_DB_BACKUP_*` in `.env.example`).
+
+## Server Security Hardening
+
+Clodds includes a built-in server hardening CLI for production Linux servers.
+
+### Quick Start
+
+```bash
+# Preview what will be changed (safe)
+clodds secure --dry-run
+
+# Apply all hardening interactively
+sudo clodds secure
+
+# Non-interactive mode
+sudo clodds secure --yes
+```
+
+### What it does
+
+| Component | Hardening Applied |
+|-----------|-------------------|
+| **SSH** | Disable password auth, disable root login, limit auth attempts |
+| **Firewall** | Configure ufw with minimal open ports (SSH + your app) |
+| **fail2ban** | Protect against brute-force attacks |
+| **Auto-updates** | Enable automatic security patches (unattended-upgrades) |
+| **Kernel** | Apply sysctl security settings |
+
+### Security Audit
+
+Run an audit without making changes:
+
+```bash
+clodds secure audit
+```
+
+This checks:
+- SSH password authentication status
+- SSH root login status
+- Firewall status
+- fail2ban status
+- Auto-update configuration
+- Open ports
+
+### Options
+
+```
+--dry-run, -n      Preview changes without applying
+--yes, -y          Skip confirmation prompts
+--ssh-port=PORT    Set SSH port (default: 22)
+--skip-firewall    Skip firewall setup
+--skip-fail2ban    Skip fail2ban setup
+--skip-ssh         Skip SSH hardening
+--skip-updates     Skip auto-updates setup
+--skip-kernel      Skip kernel hardening
+```
+
+### Important Notes
+
+1. **Test SSH access** - Open a new terminal and verify you can connect before closing your current session
+2. **Backup SSH keys** - Ensure you have SSH key access before disabling password auth
+3. **Custom ports** - If using a custom SSH port, update your connection commands:
+   ```bash
+   ssh -p 2222 user@server
+   ```
+
+See [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) for full security documentation.

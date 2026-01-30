@@ -89,6 +89,11 @@ clodds doctor                   # Run system diagnostics
 clodds status                   # Show system status
 clodds endpoints                # Show webhook endpoints
 
+# Security
+clodds secure                   # Harden server security
+clodds secure --dry-run         # Preview changes
+clodds secure audit             # Run security audit only
+
 # User Management
 clodds pairing list <channel>   # List pending pairing requests
 clodds pairing approve <ch> <c> # Approve a pairing request
@@ -1428,6 +1433,8 @@ Built-in at `http://localhost:18789/webchat` — no setup needed.
 | [Trading System](./docs/TRADING.md) | Execution, bots, safety |
 | [API Reference](./docs/API.md) | HTTP endpoints |
 | [Deployment](./docs/DEPLOYMENT_GUIDE.md) | Production setup |
+| [Security](./docs/SECURITY_AUDIT.md) | Security audit, server hardening |
+| [Glossary](./docs/GLOSSARY.md) | 185+ trading & security terms |
 | [Worker Deployment](./apps/clodds-worker/README.md) | Cloudflare Workers setup |
 
 ---

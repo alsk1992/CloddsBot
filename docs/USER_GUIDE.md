@@ -631,8 +631,42 @@ Configure in `clodds.json`:
 }
 ```
 
+## Server Security Hardening
+
+For production Linux deployments, use the built-in security hardening CLI:
+
+```bash
+# Preview changes (safe, no modifications)
+clodds secure --dry-run
+
+# Apply all hardening
+sudo clodds secure
+
+# Run security audit only
+clodds secure audit
+```
+
+### What gets hardened
+
+| Component | Changes |
+|-----------|---------|
+| SSH | Disable password auth, root login, limit attempts |
+| Firewall | Configure ufw with minimal ports |
+| fail2ban | Block brute-force attempts |
+| Auto-updates | Enable security patches |
+| Kernel | Apply sysctl hardening |
+
+### Important
+
+1. **Always test SSH** in a new terminal before closing your session
+2. **Backup SSH keys** before disabling password auth
+3. **Check firewall rules** don't block your app ports
+
+See [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) for detailed security documentation.
+
 ## Tips
 
 - Keep the gateway on loopback unless you add auth and a reverse proxy.
 - Use WebChat for fast local testing before wiring up a messaging platform.
 - For production, use Docker or a process manager and enable monitoring.
+- Run `clodds secure` on production servers for security hardening.

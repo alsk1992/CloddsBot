@@ -164,3 +164,67 @@ Do NOT create public issues for security vulnerabilities.
 *Security audit completed on 2026-01-30*
 *All 34 npm vulnerabilities fixed*
 *Ready for npm publish*
+
+---
+
+## 8. Server Hardening CLI
+
+Clodds includes a built-in server hardening command for production deployments.
+
+### Usage
+
+```bash
+# Apply all hardening with interactive prompts
+clodds secure
+
+# Preview changes without modifying
+clodds secure --dry-run
+
+# Run security audit only
+clodds secure audit
+
+# Non-interactive mode (skip prompts)
+clodds secure --yes
+
+# Custom SSH port
+clodds secure --ssh-port=2222
+
+# Skip specific components
+clodds secure --skip-firewall --skip-fail2ban
+```
+
+### What it hardens
+
+| Component | Changes Applied |
+|-----------|-----------------|
+| **SSH** | Disable password auth, root login, MaxAuthTries=3 |
+| **Firewall (ufw)** | Allow SSH + custom ports, deny incoming by default |
+| **fail2ban** | Protect against brute force (5 failures = 1hr ban) |
+| **Auto-updates** | Enable unattended-upgrades for security patches |
+| **Kernel** | sysctl hardening (SYN cookies, ICMP redirects, etc.) |
+
+### Security Audit Output
+
+```
+$ clodds secure audit
+
+🔒 Clodds Server Security Hardening
+
+ℹ === Security Audit ===
+
+✔ SSH Password Auth: Disabled
+✔ SSH Root Login: Disabled
+⚠ SSH Port: Port 22 (consider changing from default)
+✔ Firewall (ufw): Active
+✔ fail2ban: Active (1 jail)
+✔ Auto-updates: Configured
+
+5 passed, 1 warnings, 0 failed
+```
+
+### Post-Hardening Checklist
+
+1. **Test SSH access** in a new terminal before closing current session
+2. **Verify firewall rules** don't block required ports
+3. **Monitor fail2ban** logs for legitimate users being blocked
+4. **Keep SSH key** backed up securely

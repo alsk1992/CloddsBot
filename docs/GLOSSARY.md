@@ -312,4 +312,27 @@ Comprehensive glossary of terms used throughout the Clodds platform for predicti
 
 ---
 
-*This glossary covers 170+ terms used across the Clodds platform.*
+---
+
+## Server Security
+
+| Term | Definition |
+|------|------------|
+| **SSH Hardening** | Disabling password auth, root login, and limiting auth attempts to prevent unauthorized access. |
+| **ufw** | Uncomplicated Firewall. Linux firewall frontend for iptables. Clodds uses it to restrict incoming connections. |
+| **fail2ban** | Intrusion prevention software that bans IPs after repeated failed login attempts. |
+| **sysctl** | Linux kernel parameter configuration. Used for hardening network stack and preventing attacks. |
+| **Unattended Upgrades** | Automatic security patch installation on Debian/Ubuntu systems. |
+| **MaxAuthTries** | SSH config limiting login attempts per connection (default hardened: 3). |
+| **PasswordAuthentication** | SSH config for password login. Should be disabled in favor of key-based auth. |
+| **PermitRootLogin** | SSH config allowing direct root login. Should be disabled on production servers. |
+| **SYN Cookies** | Kernel protection against SYN flood DoS attacks. |
+| **ICMP Redirects** | Network messages that can be abused for MITM attacks. Disabled in hardened configs. |
+| **IP Spoofing** | Forging source IP addresses. Prevented via reverse path filtering (rp_filter). |
+| **Brute Force Attack** | Automated password guessing. Mitigated by fail2ban and rate limiting. |
+| **Command Injection** | Security vulnerability where attacker injects shell commands. Fixed by using execFileSync with array args. |
+| **npm Overrides** | package.json feature to force specific versions of transitive dependencies for security fixes. |
+
+---
+
+*This glossary covers 185+ terms used across the Clodds platform.*

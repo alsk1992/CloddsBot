@@ -100,6 +100,30 @@ src/
 - Use descriptive variable names
 - Keep functions small and focused
 
+## Security Guidelines
+
+When contributing code that involves command execution:
+
+1. **Never use string interpolation** with `execSync()`:
+   ```typescript
+   // BAD - vulnerable to command injection
+   execSync(`which ${cmd}`);
+
+   // GOOD - safe with array arguments
+   execFileSync('which', [cmd]);
+   ```
+
+2. **Use `execFileSync` with array arguments** for all shell commands
+3. **Validate and sanitize** user-provided paths and inputs
+4. **Report vulnerabilities** via GitHub Security Advisories, not public issues
+5. **Run security checks** before submitting:
+   ```bash
+   npm audit
+   npm run typecheck
+   ```
+
+See [docs/SECURITY_AUDIT.md](./docs/SECURITY_AUDIT.md) for our security practices.
+
 ## Reporting Issues
 
 Please include:
