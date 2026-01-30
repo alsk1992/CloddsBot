@@ -40,6 +40,7 @@ import { createOpportunityFinder, type OpportunityFinder } from '../opportunity'
 import { createWhaleTracker, type WhaleTracker } from '../feeds/polymarket/whale-tracker';
 import { createCopyTradingService, type CopyTradingService } from '../trading/copy-trading';
 import { createSmartRouter, type SmartRouter } from '../execution/smart-router';
+import { createExecutionService, type ExecutionService } from '../execution';
 import { createRealtimeAlertsService, connectWhaleTracker, connectOpportunityFinder, type RealtimeAlertsService } from '../alerts';
 import { createOpportunityExecutor, type OpportunityExecutor } from '../opportunity/executor';
 import chokidar, { FSWatcher } from 'chokidar';
@@ -469,12 +470,44 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       })
     : null;
 
+  // Create execution service for real trading
+  let executionService: ExecutionService | null = null;
+  if (config.trading?.enabled) {
+    const poly = config.trading.polymarket;
+    const kalshi = config.trading.kalshi;
+    const hasPolymarketCreds = poly?.address && poly?.apiKey && poly?.apiSecret && poly?.apiPassphrase;
+    const hasKalshiCreds = kalshi?.apiKeyId && kalshi?.privateKeyPem;
+
+    if (hasPolymarketCreds || hasKalshiCreds) {
+      executionService = createExecutionService({
+        polymarket: hasPolymarketCreds ? {
+          address: poly!.address,
+          apiKey: poly!.apiKey,
+          apiSecret: poly!.apiSecret,
+          apiPassphrase: poly!.apiPassphrase,
+          privateKey: poly!.privateKey,
+        } : undefined,
+        kalshi: hasKalshiCreds ? {
+          apiKeyId: kalshi!.apiKeyId,
+          privateKeyPem: kalshi!.privateKeyPem,
+        } : undefined,
+        maxOrderSize: config.trading.maxOrderSize ?? 1000,
+        dryRun: config.trading.dryRun ?? false,
+      });
+      logger.info({
+        dryRun: config.trading.dryRun ?? false,
+        polymarket: !!hasPolymarketCreds,
+        kalshi: !!hasKalshiCreds,
+      }, 'Execution service initialized');
+    } else {
+      logger.warn('Trading enabled but no platform credentials configured');
+    }
+  }
+
   // Create copy trading service
   let copyTrading: CopyTradingService | null = null;
   if (config.copyTrading?.enabled && whaleTracker) {
-    // Note: execution service would need to be passed here for real trading
-    // For now we create with null execution (dry run only)
-    copyTrading = createCopyTradingService(whaleTracker, null as any, {
+    copyTrading = createCopyTradingService(whaleTracker, executionService, {
       followedAddresses: config.copyTrading?.followedAddresses ?? [],
       sizingMode: config.copyTrading?.sizingMode ?? 'fixed',
       fixedSize: config.copyTrading?.fixedSize ?? 100,
@@ -482,7 +515,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       portfolioPercentage: config.copyTrading?.portfolioPercentage ?? 1,
       maxPositionSize: config.copyTrading?.maxPositionSize ?? 500,
       copyDelayMs: config.copyTrading?.copyDelayMs ?? 5000,
-      dryRun: config.copyTrading?.dryRun ?? true,
+      dryRun: executionService ? (config.copyTrading?.dryRun ?? false) : true,
     });
   }
 
@@ -575,14 +608,15 @@ export async function createGateway(config: Config): Promise<AppGateway> {
 
   // Initialize auto-arbitrage executor if enabled
   if (config.arbitrageExecution?.enabled && opportunityFinder) {
-    // Note: Execution service is not wired yet - executor runs in dry-run mode only
-    // To enable real execution, wire up ExecutionService and pass it here
-    const isDryRun = config.arbitrageExecution?.dryRun ?? true;
-    if (!isDryRun) {
+    const wantsDryRun = config.arbitrageExecution?.dryRun ?? false;
+    const effectiveDryRun = executionService ? wantsDryRun : true;
+
+    if (!executionService && !wantsDryRun) {
       logger.warn('arbitrageExecution.dryRun=false but no execution service available - forcing dry run');
     }
-    arbitrageExecutor = createOpportunityExecutor(opportunityFinder, null as any, {
-      dryRun: true, // Always dry run until execution service is wired
+
+    arbitrageExecutor = createOpportunityExecutor(opportunityFinder, executionService, {
+      dryRun: effectiveDryRun,
       minEdge: config.arbitrageExecution?.minEdge ?? 1.0,
       minLiquidity: config.arbitrageExecution?.minLiquidity ?? 500,
       maxPositionSize: config.arbitrageExecution?.maxPositionSize ?? 100,
@@ -593,7 +627,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       confirmationDelayMs: config.arbitrageExecution?.confirmationDelayMs ?? 0,
     });
 
-    logger.info({ dryRun: config.arbitrageExecution?.dryRun ?? true }, 'Arbitrage executor initialized');
+    logger.info({ dryRun: effectiveDryRun, hasExecutionService: !!executionService }, 'Arbitrage executor initialized');
   }
 
   const startMonitoring = () => {

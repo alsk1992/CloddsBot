@@ -134,7 +134,7 @@ const DEFAULT_CONFIG: Required<OpportunityExecutorConfig> = {
 
 export function createOpportunityExecutor(
   finder: OpportunityFinder,
-  execution: ExecutionService,
+  execution: ExecutionService | null,
   config: OpportunityExecutorConfig = {}
 ): OpportunityExecutor {
   const emitter = new EventEmitter() as OpportunityExecutor;
@@ -247,7 +247,7 @@ export function createOpportunityExecutor(
             avgFillPrice: step.price,
           };
           logger.info({ step, dryRun: true }, 'Dry run order');
-        } else {
+        } else if (execution) {
           // Real execution
           if (step.action === 'buy') {
             orderResult = await execution.buyLimit({
@@ -272,6 +272,13 @@ export function createOpportunityExecutor(
               postOnly,
             });
           }
+        } else {
+          // No execution service available but dryRun=false - treat as error
+          logger.error({ step }, 'Cannot execute: no execution service configured');
+          orderResult = {
+            success: false,
+            error: 'No execution service configured',
+          };
         }
 
         const stepResult: StepResult = {

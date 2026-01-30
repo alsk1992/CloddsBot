@@ -138,7 +138,7 @@ const DEFAULT_CONFIG: Required<CopyTradingConfig> = {
 
 export function createCopyTradingService(
   whaleTracker: WhaleTracker,
-  execution: ExecutionService,
+  execution: ExecutionService | null,
   config: CopyTradingConfig
 ): CopyTradingService {
   const emitter = new EventEmitter() as CopyTradingService;
@@ -298,7 +298,7 @@ export function createCopyTradingService(
         filledSize: shares,
         avgFillPrice: trade.price,
       };
-    } else {
+    } else if (execution) {
       try {
         // Execute the trade
         let result: OrderResult;
@@ -334,6 +334,13 @@ export function createCopyTradingService(
         emitter.emit('error', error instanceof Error ? error : new Error(String(error)));
         return;
       }
+    } else {
+      // No execution service - cannot execute real trades
+      copiedTrade.status = 'failed';
+      logger.error({ tradeId }, 'Cannot copy trade: no execution service configured');
+      stats.totalSkipped++;
+      emitter.emit('tradeSkipped', trade, 'No execution service configured');
+      return;
     }
 
     copiedTrades.unshift(copiedTrade);
@@ -462,7 +469,7 @@ export function createCopyTradingService(
       // Execute the close order (opposite side)
       const closeSide = position.side === 'BUY' ? 'sell' : 'buy';
 
-      if (!cfg.dryRun) {
+      if (!cfg.dryRun && execution) {
         const result = await execution.protectedSell({
           platform: 'polymarket',
           marketId: position.originalTrade.marketId,
@@ -475,6 +482,9 @@ export function createCopyTradingService(
           logger.error({ tradeId, error: result.error }, 'Failed to close position');
           return;
         }
+      } else if (!cfg.dryRun && !execution) {
+        logger.error({ tradeId }, 'Cannot close position: no execution service configured');
+        return;
       }
 
       // Update position state

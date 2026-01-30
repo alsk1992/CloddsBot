@@ -920,15 +920,19 @@ export interface Config {
     maxDailyLoss: number;
     stopLossCooldownMs?: number;
     polymarket?: {
-      privateKey: string;
-      funderAddress: string;
+      /** Wallet address (used in POLY-ADDRESS header) */
+      address: string;
       apiKey: string;
       apiSecret: string;
       apiPassphrase: string;
+      /** Private key for L1 signing (optional, for advanced operations) */
+      privateKey?: string;
     };
     kalshi?: {
-      email: string;
-      password: string;
+      /** API key ID from Kalshi dashboard */
+      apiKeyId: string;
+      /** RSA private key in PEM format */
+      privateKeyPem: string;
     };
     manifold?: {
       apiKey: string;
