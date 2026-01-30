@@ -423,6 +423,60 @@ Compare market prices to external sources for edge detection:
 | **RealClearPolitics** | Poll | Polling averages |
 | **The Odds API** | Betting | Sports odds |
 
+### Trading Safety
+
+**Circuit Breaker**
+Automatic trading halt when risk thresholds are exceeded:
+- Max loss ($ or %) triggers pause
+- Consecutive loss limit (e.g., 5 losses in a row)
+- Error rate threshold (e.g., >50% failed orders)
+- Auto-reset after configurable cooldown
+
+**Position Management**
+- Stop-loss orders (fixed price or trailing)
+- Take-profit targets
+- Position size limits per market
+- Daily trade limits
+
+**Kelly Criterion Sizing**
+Optimal position sizing with safety margins:
+- Full Kelly, Half Kelly, Quarter Kelly options
+- Multi-outcome Kelly for complex markets
+- Portfolio-level Kelly allocation
+- Confidence-adjusted sizing
+
+### Portfolio Analytics
+
+**Performance Attribution**
+Track where your edge comes from:
+- By edge source (price lag, liquidity gap, information)
+- By time of day and day of week
+- By edge size bucket
+- Execution quality (slippage, fill rate)
+
+**Correlation Tracking**
+Understand portfolio risk:
+- Position correlation matrix
+- Category exposure (politics, crypto, sports, etc.)
+- Concentration risk (HHI score)
+- Hedged position detection
+
+**Semantic Match Verification**
+Prevent false arbitrage on different markets:
+- Entity extraction (dates, thresholds, names)
+- Automatic match rejection on mismatches
+- Confidence scoring with warnings
+- Human review flags for uncertain matches
+
+### Drift (Solana) Integration
+
+**Liquidation Alerts**
+Real-time monitoring for leveraged positions:
+- Health factor tracking
+- Alert levels: Warning → Danger → Critical
+- Position-level liquidation prices
+- Formatted messages with action recommendations
+
 ---
 
 ## Screenshots

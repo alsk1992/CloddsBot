@@ -40,6 +40,10 @@ export interface MarketMatch {
   method: 'semantic' | 'text' | 'manual' | 'slug';
   /** Normalized question */
   normalizedQuestion: string;
+  /** Verification result if semantic/text matching was used */
+  verification?: MatchVerification;
+  /** Whether this match needs human review before arbitrage */
+  needsReview?: boolean;
 }
 
 export interface MarketMatcher {
@@ -65,6 +69,12 @@ export interface MarketMatcher {
 
   /** Clear cache */
   clearCache(): void;
+
+  /** Verify that a semantic match is actually about the same question */
+  verifyMatch(
+    marketA: { platform: Platform; market: Market },
+    marketB: { platform: Platform; market: Market }
+  ): Promise<MatchVerification>;
 }
 
 // =============================================================================
@@ -91,6 +101,34 @@ const STOP_WORDS = new Set([
   'same', 'so', 'than', 'too', 'very', 'just', 'and', 'but', 'if', 'or',
   'because', 'until', 'while', 'this', 'that', 'these', 'those', 'what',
 ]);
+
+// Critical entities that MUST match for verification
+const CRITICAL_ENTITY_TYPES = ['date', 'threshold', 'person', 'team', 'year'] as const;
+
+export interface MatchVerification {
+  /** Whether the match is verified */
+  verified: boolean;
+  /** Confidence score (0-1) */
+  confidence: number;
+  /** Warnings about potential mismatches */
+  warnings: string[];
+  /** Critical entities extracted from both questions */
+  entities: {
+    a: ExtractedEntities;
+    b: ExtractedEntities;
+  };
+  /** Whether human review is recommended */
+  needsReview: boolean;
+}
+
+export interface ExtractedEntities {
+  dates: string[];
+  years: string[];
+  thresholds: string[];
+  persons: string[];
+  teams: string[];
+  numbers: string[];
+}
 
 // Entity normalization patterns
 const ENTITY_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
@@ -201,6 +239,210 @@ export function createMarketMatcher(
   }
 
   // ===========================================================================
+  // ENTITY EXTRACTION FOR VERIFICATION
+  // ===========================================================================
+
+  function extractEntities(question: string): ExtractedEntities {
+    const text = question.toLowerCase();
+    const entities: ExtractedEntities = {
+      dates: [],
+      years: [],
+      thresholds: [],
+      persons: [],
+      teams: [],
+      numbers: [],
+    };
+
+    // Extract years (2020-2030)
+    const yearMatches = text.match(/\b(20[2-3]\d)\b/g);
+    if (yearMatches) entities.years = [...new Set(yearMatches)];
+
+    // Extract month-year combinations
+    const monthYearRegex = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s*(?:\.?\s*)?(20[2-3]\d)?\b/gi;
+    const dateMatches = text.matchAll(monthYearRegex);
+    for (const match of dateMatches) {
+      const month = match[1].toLowerCase().slice(0, 3);
+      const year = match[2] || '';
+      entities.dates.push(`${month}${year}`);
+    }
+
+    // Extract specific dates (e.g., "January 20", "Jan 1st")
+    const specificDateRegex = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/gi;
+    const specificDateMatches = text.matchAll(specificDateRegex);
+    for (const match of specificDateMatches) {
+      entities.dates.push(`${match[1].slice(0, 3)}${match[2]}`);
+    }
+
+    // Extract thresholds/percentages
+    const thresholdRegex = /(\d+(?:\.\d+)?)\s*(%|percent|bp|bps|basis\s*points?)/gi;
+    const thresholdMatches = text.matchAll(thresholdRegex);
+    for (const match of thresholdMatches) {
+      entities.thresholds.push(`${match[1]}${match[2].toLowerCase().replace(/basis\s*points?/, 'bp')}`);
+    }
+
+    // Extract dollar amounts
+    const dollarRegex = /\$(\d+(?:,\d{3})*(?:\.\d+)?)\s*(k|m|b|trillion|billion|million|thousand)?/gi;
+    const dollarMatches = text.matchAll(dollarRegex);
+    for (const match of dollarMatches) {
+      const num = match[1].replace(/,/g, '');
+      const suffix = match[2] ? match[2].toLowerCase()[0] : '';
+      entities.thresholds.push(`$${num}${suffix}`);
+    }
+
+    // Extract numbers generally
+    const numberMatches = text.match(/\b\d+(?:\.\d+)?\b/g);
+    if (numberMatches) {
+      entities.numbers = [...new Set(numberMatches)].slice(0, 10);
+    }
+
+    // Extract common politician/celebrity names (simplified list)
+    const personPatterns = [
+      /\b(trump|biden|harris|obama|desantis|pence|vance|newsom|haley|ramaswamy)\b/gi,
+      /\b(musk|bezos|gates|zuckerberg|altman|powell|yellen)\b/gi,
+      /\b(putin|xi|zelensky|modi|macron|sunak|starmer)\b/gi,
+    ];
+    for (const pattern of personPatterns) {
+      const matches = text.match(pattern);
+      if (matches) {
+        entities.persons.push(...matches.map((m) => m.toLowerCase()));
+      }
+    }
+    entities.persons = [...new Set(entities.persons)];
+
+    // Extract team names (sports)
+    const teamPatterns = [
+      /\b(chiefs|eagles|49ers|ravens|lions|cowboys|packers|bills|dolphins|jets)\b/gi,
+      /\b(lakers|celtics|warriors|bucks|nuggets|suns|heat|76ers|knicks|nets)\b/gi,
+      /\b(yankees|dodgers|braves|astros|phillies|rangers|diamondbacks|cubs)\b/gi,
+    ];
+    for (const pattern of teamPatterns) {
+      const matches = text.match(pattern);
+      if (matches) {
+        entities.teams.push(...matches.map((m) => m.toLowerCase()));
+      }
+    }
+    entities.teams = [...new Set(entities.teams)];
+
+    return entities;
+  }
+
+  function compareEntitySets(a: string[], b: string[]): { match: boolean; missing: string[] } {
+    if (a.length === 0 && b.length === 0) {
+      return { match: true, missing: [] };
+    }
+
+    const setA = new Set(a);
+    const setB = new Set(b);
+
+    // Check if all items in A are in B and vice versa
+    const missingFromB = a.filter((x) => !setB.has(x));
+    const missingFromA = b.filter((x) => !setA.has(x));
+
+    const allMissing = [...missingFromB, ...missingFromA];
+    return {
+      match: allMissing.length === 0,
+      missing: allMissing,
+    };
+  }
+
+  async function verifyMatch(
+    marketA: { platform: Platform; market: Market },
+    marketB: { platform: Platform; market: Market }
+  ): Promise<MatchVerification> {
+    const questionA = marketA.market.question;
+    const questionB = marketB.market.question;
+
+    const entitiesA = extractEntities(questionA);
+    const entitiesB = extractEntities(questionB);
+
+    const warnings: string[] = [];
+    let confidence = 1.0;
+    let needsReview = false;
+
+    // Check year mismatch (critical)
+    const yearComparison = compareEntitySets(entitiesA.years, entitiesB.years);
+    if (!yearComparison.match && (entitiesA.years.length > 0 || entitiesB.years.length > 0)) {
+      warnings.push(`Year mismatch: ${entitiesA.years.join(',')} vs ${entitiesB.years.join(',')}`);
+      confidence -= 0.5; // Major penalty
+      needsReview = true;
+    }
+
+    // Check date mismatch (critical)
+    const dateComparison = compareEntitySets(entitiesA.dates, entitiesB.dates);
+    if (!dateComparison.match && (entitiesA.dates.length > 0 || entitiesB.dates.length > 0)) {
+      warnings.push(`Date mismatch: ${entitiesA.dates.join(',')} vs ${entitiesB.dates.join(',')}`);
+      confidence -= 0.4;
+      needsReview = true;
+    }
+
+    // Check threshold mismatch (critical for price/percentage markets)
+    const thresholdComparison = compareEntitySets(entitiesA.thresholds, entitiesB.thresholds);
+    if (!thresholdComparison.match && (entitiesA.thresholds.length > 0 || entitiesB.thresholds.length > 0)) {
+      warnings.push(`Threshold mismatch: ${entitiesA.thresholds.join(',')} vs ${entitiesB.thresholds.join(',')}`);
+      confidence -= 0.4;
+      needsReview = true;
+    }
+
+    // Check person mismatch
+    const personComparison = compareEntitySets(entitiesA.persons, entitiesB.persons);
+    if (!personComparison.match && (entitiesA.persons.length > 0 || entitiesB.persons.length > 0)) {
+      warnings.push(`Person mismatch: ${entitiesA.persons.join(',')} vs ${entitiesB.persons.join(',')}`);
+      confidence -= 0.3;
+      needsReview = true;
+    }
+
+    // Check team mismatch
+    const teamComparison = compareEntitySets(entitiesA.teams, entitiesB.teams);
+    if (!teamComparison.match && (entitiesA.teams.length > 0 || entitiesB.teams.length > 0)) {
+      warnings.push(`Team mismatch: ${entitiesA.teams.join(',')} vs ${entitiesB.teams.join(',')}`);
+      confidence -= 0.3;
+    }
+
+    // Check for significant number differences
+    const numericDiff = checkNumericDifference(entitiesA.numbers, entitiesB.numbers);
+    if (numericDiff) {
+      warnings.push(numericDiff);
+      confidence -= 0.2;
+    }
+
+    // Clamp confidence
+    confidence = Math.max(0, Math.min(1, confidence));
+
+    // Verified if confidence is high enough
+    const verified = confidence >= 0.7 && warnings.length < 2;
+
+    return {
+      verified,
+      confidence,
+      warnings,
+      entities: { a: entitiesA, b: entitiesB },
+      needsReview,
+    };
+  }
+
+  function checkNumericDifference(numsA: string[], numsB: string[]): string | null {
+    // Look for significant number differences that could indicate different questions
+    const setA = new Set(numsA.map(Number).filter((n) => !isNaN(n)));
+    const setB = new Set(numsB.map(Number).filter((n) => !isNaN(n)));
+
+    // Only flag if there are specific numbers that differ significantly
+    const uniqueToA = [...setA].filter((n) => {
+      // Check if there's a close number in B
+      return ![...setB].some((b) => Math.abs(n - b) / Math.max(n, b) < 0.1);
+    });
+
+    const uniqueToB = [...setB].filter((n) => {
+      return ![...setA].some((a) => Math.abs(n - a) / Math.max(n, a) < 0.1);
+    });
+
+    if (uniqueToA.length > 0 && uniqueToB.length > 0) {
+      return `Different key numbers: ${uniqueToA.join(',')} vs ${uniqueToB.join(',')}`;
+    }
+
+    return null;
+  }
+
+  // ===========================================================================
   // SIMILARITY CALCULATIONS
   // ===========================================================================
 
@@ -269,16 +511,16 @@ export function createMarketMatcher(
   async function areMatching(
     marketA: { platform: Platform; market: Market },
     marketB: { platform: Platform; market: Market }
-  ): Promise<{ matches: boolean; similarity: number; method: string }> {
+  ): Promise<{ matches: boolean; similarity: number; method: string; verification?: MatchVerification }> {
     const keyA = `${marketA.platform}:${marketA.market.id}`;
     const keyB = `${marketB.platform}:${marketB.market.id}`;
 
-    // 1. Check manual links first
+    // 1. Check manual links first (no verification needed - human approved)
     if (manualLinks.get(keyA)?.has(keyB)) {
       return { matches: true, similarity: 1.0, method: 'manual' };
     }
 
-    // 2. Check slug match (exact ID match across platforms)
+    // 2. Check slug match (exact ID match across platforms - trusted)
     if (marketA.market.slug && marketB.market.slug) {
       const slugA = marketA.market.slug.toLowerCase();
       const slugB = marketB.market.slug.toLowerCase();
@@ -290,7 +532,7 @@ export function createMarketMatcher(
     const questionA = marketA.market.question;
     const questionB = marketB.market.question;
 
-    // 3. Try semantic matching
+    // 3. Try semantic matching WITH VERIFICATION
     if (cfg.semanticEnabled && embeddings) {
       const [embA, embB] = await Promise.all([
         getEmbedding(questionA),
@@ -300,18 +542,69 @@ export function createMarketMatcher(
       if (embA && embB) {
         const similarity = calculateCosineSimilarity(embA, embB);
         if (similarity >= cfg.similarityThreshold) {
-          return { matches: true, similarity, method: 'semantic' };
+          // CRITICAL: Verify semantic matches to catch false positives
+          const verification = await verifyMatch(marketA, marketB);
+
+          if (!verification.verified) {
+            logger.warn(
+              {
+                marketA: { platform: marketA.platform, id: marketA.market.id, question: questionA },
+                marketB: { platform: marketB.platform, id: marketB.market.id, question: questionB },
+                similarity,
+                warnings: verification.warnings,
+                confidence: verification.confidence,
+              },
+              'Semantic match REJECTED - failed verification'
+            );
+            // Don't return match - fall through to text matching
+          } else {
+            logger.debug(
+              {
+                similarity,
+                confidence: verification.confidence,
+                method: 'semantic',
+              },
+              'Semantic match verified'
+            );
+            return {
+              matches: true,
+              similarity: similarity * verification.confidence,
+              method: 'semantic',
+              verification,
+            };
+          }
         }
       }
     }
 
-    // 4. Fall back to text matching
+    // 4. Fall back to text matching with verification
     const tokensA = tokenize(questionA);
     const tokensB = tokenize(questionB);
     const similarity = calculateJaccardSimilarity(tokensA, tokensB);
 
     if (similarity >= cfg.minTokenOverlap) {
-      return { matches: true, similarity, method: 'text' };
+      // Also verify text matches
+      const verification = await verifyMatch(marketA, marketB);
+
+      if (!verification.verified && verification.confidence < 0.5) {
+        logger.warn(
+          {
+            marketA: { platform: marketA.platform, id: marketA.market.id },
+            marketB: { platform: marketB.platform, id: marketB.market.id },
+            similarity,
+            warnings: verification.warnings,
+          },
+          'Text match REJECTED - low confidence'
+        );
+        return { matches: false, similarity, method: 'none', verification };
+      }
+
+      return {
+        matches: true,
+        similarity: similarity * verification.confidence,
+        method: 'text',
+        verification,
+      };
     }
 
     return { matches: false, similarity, method: 'none' };
@@ -357,6 +650,8 @@ export function createMarketMatcher(
       const verified: Array<{ platform: Platform; market: Market }> = [];
       let bestSimilarity = 0;
       let method: 'semantic' | 'text' | 'manual' | 'slug' = 'text';
+      let matchVerification: MatchVerification | undefined;
+      let anyNeedsReview = false;
 
       for (let i = 0; i < group.length; i++) {
         if (i === 0) {
@@ -370,6 +665,10 @@ export function createMarketMatcher(
           if (result.similarity > bestSimilarity) {
             bestSimilarity = result.similarity;
             method = result.method as typeof method;
+            matchVerification = result.verification;
+          }
+          if (result.verification?.needsReview) {
+            anyNeedsReview = true;
           }
         }
       }
@@ -381,6 +680,8 @@ export function createMarketMatcher(
           similarity: bestSimilarity || 1.0,
           method,
           normalizedQuestion: normalizeQuestion(group[0].market.question),
+          verification: matchVerification,
+          needsReview: anyNeedsReview,
         });
       }
     }
@@ -459,5 +760,6 @@ export function createMarketMatcher(
     removeManualLink,
     getEmbedding,
     clearCache,
+    verifyMatch,
   };
 }

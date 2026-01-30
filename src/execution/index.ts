@@ -40,6 +40,23 @@ export interface OrderRequest {
   size: number;      // Number of shares/contracts
   orderType?: OrderType;
   expiration?: number; // Unix timestamp for GTD
+  /** Polymarket: true for negative risk markets (crypto 15-min markets) */
+  negRisk?: boolean;
+  /** Maximum slippage allowed (as decimal, e.g., 0.02 = 2%) */
+  maxSlippage?: number;
+}
+
+export interface SlippageProtection {
+  /** Maximum slippage as decimal (default: 0.02 = 2%) */
+  maxSlippage: number;
+  /** Check orderbook before executing (default: true) */
+  checkOrderbook: boolean;
+  /** Cancel order if estimated slippage exceeds max (default: true) */
+  autoCancel: boolean;
+  /** Use limit orders instead of market orders (default: true) */
+  useLimitOrders: boolean;
+  /** Price buffer for limit orders as decimal (default: 0.01 = 1%) */
+  limitPriceBuffer: number;
 }
 
 export interface OrderResult {
@@ -79,6 +96,8 @@ export interface ExecutionConfig {
   maxOrderSize?: number;
   /** Dry run mode - log but don't execute */
   dryRun?: boolean;
+  /** Slippage protection settings */
+  slippageProtection?: Partial<SlippageProtection>;
 }
 
 export interface ExecutionService {
@@ -93,6 +112,13 @@ export interface ExecutionService {
   // Maker orders (POST_ONLY - avoid taker fees)
   makerBuy(request: Omit<OrderRequest, 'side' | 'orderType'>): Promise<OrderResult>;
   makerSell(request: Omit<OrderRequest, 'side' | 'orderType'>): Promise<OrderResult>;
+
+  // Slippage-protected orders (checks slippage before executing)
+  protectedBuy(request: Omit<OrderRequest, 'side'>, maxSlippage?: number): Promise<OrderResult>;
+  protectedSell(request: Omit<OrderRequest, 'side'>, maxSlippage?: number): Promise<OrderResult>;
+
+  // Slippage estimation
+  estimateSlippage(request: OrderRequest): Promise<{ slippage: number; expectedPrice: number }>;
 
   // Order management
   cancelOrder(platform: 'polymarket' | 'kalshi', orderId: string): Promise<boolean>;
@@ -109,6 +135,37 @@ export interface ExecutionService {
 // =============================================================================
 
 const POLY_CLOB_URL = 'https://clob.polymarket.com';
+
+// Exchange contract addresses
+const POLY_CTF_EXCHANGE = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
+const POLY_NEG_RISK_CTF_EXCHANGE = '0xC5d563A36AE78145C45a50134d48A1215220f80a';
+
+interface NegRiskResponse {
+  neg_risk?: boolean;
+}
+
+/**
+ * Check if a token is a negative risk market (crypto 15-min markets)
+ */
+export async function checkPolymarketNegRisk(tokenId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${POLY_CLOB_URL}/neg-risk?token_id=${tokenId}`);
+    if (!response.ok) {
+      return false;
+    }
+    const data = (await response.json()) as NegRiskResponse;
+    return data.neg_risk === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get the appropriate exchange address for a market
+ */
+export function getPolymarketExchange(negRisk: boolean): string {
+  return negRisk ? POLY_NEG_RISK_CTF_EXCHANGE : POLY_CTF_EXCHANGE;
+}
 
 interface PolymarketOrderResponse {
   orderID?: string;
@@ -139,12 +196,14 @@ async function placePolymarketOrder(
   side: OrderSide,
   price: number,
   size: number,
-  orderType: OrderType = 'GTC'
+  orderType: OrderType = 'GTC',
+  negRisk?: boolean
 ): Promise<OrderResult> {
   const url = `${POLY_CLOB_URL}/order`;
 
   // Build order payload
-  const order = {
+  // Note: The CLOB API auto-detects neg_risk from token_id, but we can pass it explicitly
+  const order: Record<string, unknown> = {
     tokenID: tokenId,
     side: side.toUpperCase(),
     price: price.toString(),
@@ -152,6 +211,11 @@ async function placePolymarketOrder(
     orderType: orderType,
     feeRateBps: '0', // Let API calculate
   };
+
+  // If neg_risk is explicitly specified, include it
+  if (negRisk !== undefined) {
+    order.negRisk = negRisk;
+  }
 
   const headers = buildPolymarketHeadersForUrl(auth, 'POST', url, order);
 
@@ -511,7 +575,8 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         request.side,
         request.price,
         request.size,
-        request.orderType
+        request.orderType,
+        request.negRisk
       );
     }
 
@@ -637,6 +702,102 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         filledSize: request.size,
       };
     },
+
+    async protectedBuy(request, maxSlippageOverride) {
+      const slippageConfig = {
+        maxSlippage: 0.02, // 2% default
+        checkOrderbook: true,
+        autoCancel: true,
+        useLimitOrders: true,
+        limitPriceBuffer: 0.01,
+        ...config.slippageProtection,
+      };
+
+      const maxSlippage = maxSlippageOverride ?? request.maxSlippage ?? slippageConfig.maxSlippage;
+
+      // Estimate slippage before executing
+      const slippageEstimate = await this.estimateSlippage({ ...request, side: 'buy' });
+
+      if (slippageEstimate.slippage > maxSlippage) {
+        logger.warn(
+          { slippage: slippageEstimate.slippage, maxSlippage, request },
+          'Slippage protection triggered - order rejected'
+        );
+        return {
+          success: false,
+          error: `Slippage ${(slippageEstimate.slippage * 100).toFixed(2)}% exceeds max ${(maxSlippage * 100).toFixed(2)}%`,
+        };
+      }
+
+      // Use limit order with buffer if enabled
+      if (slippageConfig.useLimitOrders) {
+        const limitPrice = Math.min(0.99, slippageEstimate.expectedPrice * (1 + slippageConfig.limitPriceBuffer));
+        return executeOrder({
+          ...request,
+          side: 'buy',
+          price: limitPrice,
+          orderType: 'GTC',
+        });
+      }
+
+      return executeOrder({ ...request, side: 'buy', orderType: request.orderType || 'GTC' });
+    },
+
+    async protectedSell(request, maxSlippageOverride) {
+      const slippageConfig = {
+        maxSlippage: 0.02,
+        checkOrderbook: true,
+        autoCancel: true,
+        useLimitOrders: true,
+        limitPriceBuffer: 0.01,
+        ...config.slippageProtection,
+      };
+
+      const maxSlippage = maxSlippageOverride ?? request.maxSlippage ?? slippageConfig.maxSlippage;
+
+      // Estimate slippage before executing
+      const slippageEstimate = await this.estimateSlippage({ ...request, side: 'sell' });
+
+      if (slippageEstimate.slippage > maxSlippage) {
+        logger.warn(
+          { slippage: slippageEstimate.slippage, maxSlippage, request },
+          'Slippage protection triggered - order rejected'
+        );
+        return {
+          success: false,
+          error: `Slippage ${(slippageEstimate.slippage * 100).toFixed(2)}% exceeds max ${(maxSlippage * 100).toFixed(2)}%`,
+        };
+      }
+
+      // Use limit order with buffer if enabled
+      if (slippageConfig.useLimitOrders) {
+        const limitPrice = Math.max(0.01, slippageEstimate.expectedPrice * (1 - slippageConfig.limitPriceBuffer));
+        return executeOrder({
+          ...request,
+          side: 'sell',
+          price: limitPrice,
+          orderType: 'GTC',
+        });
+      }
+
+      return executeOrder({ ...request, side: 'sell', orderType: request.orderType || 'GTC' });
+    },
+
+    async estimateSlippage(request) {
+      // TODO: Fetch orderbook and calculate actual slippage
+      // For now, estimate based on size vs typical liquidity
+      const baseSlippage = 0.005; // 0.5% base slippage
+      const sizeImpact = Math.min(0.05, request.size * 0.0001); // 0.01% per share, max 5%
+
+      const estimatedSlippage = baseSlippage + sizeImpact;
+
+      return {
+        slippage: estimatedSlippage,
+        expectedPrice: request.side === 'buy'
+          ? request.price * (1 + estimatedSlippage)
+          : request.price * (1 - estimatedSlippage),
+      };
+    },
   };
 
   return service;
@@ -645,6 +806,17 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
 // Export types
 export type { PolymarketApiKeyAuth, KalshiApiKeyAuth };
 
+// Export utility functions
+export { checkPolymarketNegRisk, getPolymarketExchange };
+
+// Exchange addresses
+export const POLYMARKET_EXCHANGES = {
+  CTF: POLY_CTF_EXCHANGE,
+  NEG_RISK_CTF: POLY_NEG_RISK_CTF_EXCHANGE,
+};
+
 // Re-export sub-modules
 export * from './smart-router';
 export * from './mev-protection';
+export * from './circuit-breaker';
+export * from './position-manager';

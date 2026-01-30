@@ -7,6 +7,7 @@ import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { Market, Outcome, PriceUpdate, Platform } from '../../types';
 import { logger } from '../../utils/logger';
+import { getGlobalFreshnessTracker, type FreshnessTracker } from '../freshness';
 
 const API_URL = 'https://api.manifold.markets/v0';
 const WS_URL = 'wss://api.manifold.markets/ws';
@@ -52,29 +53,40 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
   let reconnectAttempts = 0;
   const MAX_RECONNECTS = 5;
   const subscribedIds = new Set<string>();
-  const priceCache = new Map<string, number>();
+  // Price cache: marketId -> outcomeId -> price
+  const priceCache = new Map<string, Map<string, number>>();
+  // Store outcome type for each market
+  const marketTypeCache = new Map<string, 'BINARY' | 'MULTIPLE_CHOICE' | 'PSEUDO_NUMERIC' | 'FREE_RESPONSE'>();
+
+  // Freshness tracking for WebSocket health monitoring
+  const freshnessTracker: FreshnessTracker = getGlobalFreshnessTracker();
 
   function convertToMarket(m: ManifoldMarket): Market {
     let outcomes: Outcome[] = [];
 
-    if (m.outcomeType === 'BINARY') {
+    // Cache market type for WebSocket handling
+    marketTypeCache.set(m.id, m.outcomeType);
+
+    if (m.outcomeType === 'BINARY' || m.outcomeType === 'PSEUDO_NUMERIC') {
       const prob = m.probability || 0.5;
       outcomes = [
         {
           id: `${m.id}-yes`,
-          name: 'Yes',
+          name: m.outcomeType === 'PSEUDO_NUMERIC' ? 'Higher' : 'Yes',
           price: prob,
           volume24h: m.volume24Hours / 2,
         },
         {
           id: `${m.id}-no`,
-          name: 'No',
+          name: m.outcomeType === 'PSEUDO_NUMERIC' ? 'Lower' : 'No',
           price: 1 - prob,
           volume24h: m.volume24Hours / 2,
         },
       ];
-    } else if (m.outcomeType === 'MULTIPLE_CHOICE' && m.answers) {
-      outcomes = m.answers.map(a => ({
+    } else if ((m.outcomeType === 'MULTIPLE_CHOICE' || m.outcomeType === 'FREE_RESPONSE') && m.answers) {
+      // Sort answers by probability descending for easier display
+      const sortedAnswers = [...m.answers].sort((a, b) => b.probability - a.probability);
+      outcomes = sortedAnswers.map(a => ({
         id: a.id,
         name: a.text,
         price: a.probability,
@@ -94,7 +106,7 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
       endDate: m.closeTime ? new Date(m.closeTime) : undefined,
       resolved: m.isResolved,
       resolutionValue: m.resolutionProbability,
-      tags: [],
+      tags: [m.outcomeType], // Include market type as a tag
       url: m.url || `https://manifold.markets/${m.slug}`,
       createdAt: new Date(m.createdTime),
       updatedAt: new Date(m.lastUpdatedTime),
@@ -170,24 +182,62 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
 
         if (message.type === 'market-update') {
           const market = message.data;
-          const currentPrice = market.probability;
+          const marketId = market.id;
 
-          if (currentPrice !== undefined) {
-            const previousPrice = priceCache.get(market.id);
+          // Record message for freshness tracking
+          freshnessTracker.recordMessage('manifold', marketId);
+
+          // Get or create price cache for this market
+          let marketPrices = priceCache.get(marketId);
+          if (!marketPrices) {
+            marketPrices = new Map();
+            priceCache.set(marketId, marketPrices);
+          }
+
+          // Handle BINARY markets
+          if (market.probability !== undefined) {
+            const outcomeId = `${marketId}-yes`;
+            const currentPrice = market.probability;
+            const previousPrice = marketPrices.get(outcomeId);
 
             if (previousPrice !== undefined && currentPrice !== previousPrice) {
-              const update: PriceUpdate = {
+              emitter.emit('price', {
                 platform: 'manifold',
-                marketId: market.id,
-                outcomeId: `${market.id}-yes`,
+                marketId,
+                outcomeId,
                 price: currentPrice,
                 previousPrice,
                 timestamp: Date.now(),
-              };
-              emitter.emit('price', update);
+              } as PriceUpdate);
             }
 
-            priceCache.set(market.id, currentPrice);
+            marketPrices.set(outcomeId, currentPrice);
+            // Also update NO price
+            marketPrices.set(`${marketId}-no`, 1 - currentPrice);
+          }
+
+          // Handle MULTIPLE_CHOICE markets
+          if (market.answers && Array.isArray(market.answers)) {
+            for (const answer of market.answers) {
+              if (!answer.id || answer.probability === undefined) continue;
+
+              const outcomeId = answer.id;
+              const currentPrice = answer.probability;
+              const previousPrice = marketPrices.get(outcomeId);
+
+              if (previousPrice !== undefined && currentPrice !== previousPrice) {
+                emitter.emit('price', {
+                  platform: 'manifold',
+                  marketId,
+                  outcomeId,
+                  price: currentPrice,
+                  previousPrice,
+                  timestamp: Date.now(),
+                } as PriceUpdate);
+              }
+
+              marketPrices.set(outcomeId, currentPrice);
+            }
           }
         }
       } catch (error) {
@@ -234,11 +284,45 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
           topics: [`market/${id}`],
         }));
       }
+
+      // Start freshness tracking with polling fallback
+      freshnessTracker.track('manifold', id, async () => {
+        const market = await getMarket(id);
+        if (market && market.outcomes.length > 0) {
+          // Get or create price cache for this market
+          let marketPrices = priceCache.get(id);
+          if (!marketPrices) {
+            marketPrices = new Map();
+            priceCache.set(id, marketPrices);
+          }
+
+          // Emit updates for all outcomes
+          for (const outcome of market.outcomes) {
+            const currentPrice = outcome.price;
+            const previousPrice = marketPrices.get(outcome.id);
+
+            if (previousPrice !== undefined && previousPrice !== currentPrice) {
+              emitter.emit('price', {
+                platform: 'manifold',
+                marketId: id,
+                outcomeId: outcome.id,
+                price: currentPrice,
+                previousPrice,
+                timestamp: Date.now(),
+              });
+            }
+
+            marketPrices.set(outcome.id, currentPrice);
+          }
+        }
+      });
     },
 
     unsubscribeFromMarket(id: string): void {
       subscribedIds.delete(id);
       priceCache.delete(id);
+      marketTypeCache.delete(id);
+      freshnessTracker.untrack('manifold', id);
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type: 'unsubscribe',

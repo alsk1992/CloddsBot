@@ -15,6 +15,7 @@ import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { Market, Outcome, PriceUpdate, Platform, Orderbook } from '../../types';
 import { logger } from '../../utils/logger';
+import { getGlobalFreshnessTracker, type FreshnessTracker } from '../freshness';
 
 // =============================================================================
 // CONSTANTS
@@ -126,6 +127,9 @@ export async function createSmarketsFeed(config: SmarketsConfig = {}): Promise<S
   const marketCache = new Map<string, { market: SmarketsMarket; event: SmarketsEvent }>();
   const contractCache = new Map<string, SmarketsContract[]>();
   let pingInterval: NodeJS.Timeout | null = null;
+
+  // Freshness tracking for WebSocket health monitoring
+  const freshnessTracker: FreshnessTracker = getGlobalFreshnessTracker();
 
   const apiToken = config.apiToken || process.env.SMARKETS_API_TOKEN;
   const sessionToken = config.sessionToken || process.env.SMARKETS_SESSION_TOKEN;
@@ -278,6 +282,9 @@ export async function createSmarketsFeed(config: SmarketsConfig = {}): Promise<S
 
   function handleQuoteUpdate(msg: any) {
     const { market_id, contract_id, bids, offers, last_executed_price } = msg;
+
+    // Record message for freshness tracking
+    freshnessTracker.recordMessage('smarkets', market_id);
 
     const marketPrices = priceCache.get(market_id) || new Map();
     const prevPrice = marketPrices.get(contract_id);
@@ -441,11 +448,34 @@ export async function createSmarketsFeed(config: SmarketsConfig = {}): Promise<S
     subscribeToMarket(marketId: string) {
       subscribedMarkets.add(marketId);
       subscribeMarketStream(marketId);
+
+      // Start freshness tracking with polling fallback
+      freshnessTracker.track('smarkets', marketId, async () => {
+        const quotes = await feed.getQuotes(marketId);
+        for (const quote of quotes) {
+          const marketPrices = priceCache.get(marketId) || new Map();
+          const prevPrice = marketPrices.get(quote.contract_id);
+          const newPrice = (quote.bids?.[0]?.price || quote.last_executed_price || 0) / 100;
+          if (prevPrice !== newPrice && newPrice > 0) {
+            marketPrices.set(quote.contract_id, newPrice);
+            priceCache.set(marketId, marketPrices);
+            emitter.emit('price', {
+              platform: 'smarkets' as Platform,
+              marketId,
+              outcomeId: quote.contract_id,
+              price: newPrice,
+              previousPrice: prevPrice,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      });
     },
 
     unsubscribeFromMarket(marketId: string) {
       subscribedMarkets.delete(marketId);
       priceCache.delete(marketId);
+      freshnessTracker.untrack('smarkets', marketId);
     },
 
     async placeBuyOrder(marketId: string, contractId: string, price: number, quantity: number) {

@@ -395,3 +395,6 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
 
   return emitter;
 }
+
+// Re-export freshness tracking
+export * from './freshness';

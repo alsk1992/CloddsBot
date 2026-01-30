@@ -9,6 +9,7 @@ import WebSocket from 'ws';
 import { Market, Orderbook, PriceUpdate, Platform } from '../../types';
 import { logger } from '../../utils/logger';
 import { buildKalshiHeadersForUrl, KalshiApiKeyAuth, normalizeKalshiPrivateKey } from '../../utils/kalshi-auth';
+import { getGlobalFreshnessTracker, type FreshnessTracker } from '../freshness';
 
 const BASE_URL = 'https://api.elections.kalshi.com/trade-api/v2';
 const WS_URL = 'wss://api.elections.kalshi.com/trade-api/ws/v2';
@@ -70,6 +71,9 @@ export async function createKalshiFeed(config?: {
   const subscribedTickers = new Set<string>();
   const priceCache = new Map<string, number>();
 
+  // Freshness tracking for WebSocket health monitoring
+  const freshnessTracker: FreshnessTracker = getGlobalFreshnessTracker();
+
   function loadApiKeyAuth(): void {
     const apiKeyId = config?.apiKeyId || process.env.KALSHI_API_KEY_ID;
     const privateKeyPath = config?.privateKeyPath || process.env.KALSHI_PRIVATE_KEY_PATH;
@@ -129,6 +133,10 @@ export async function createKalshiFeed(config?: {
   function emitTickerPrice(ticker: string, price: number): void {
     const previousPrice = priceCache.get(ticker);
     if (previousPrice !== undefined && previousPrice === price) return;
+
+    // Record message for freshness tracking
+    freshnessTracker.recordMessage('kalshi', ticker);
+
     const update: PriceUpdate = {
       platform: 'kalshi',
       marketId: ticker,
@@ -480,11 +488,20 @@ export async function createKalshiFeed(config?: {
       if (wsConnected) {
         subscribeWs(ticker);
       }
+
+      // Start freshness tracking with polling fallback
+      freshnessTracker.track('kalshi', ticker, async () => {
+        const market = await getMarket(ticker);
+        if (market && market.outcomes[0]) {
+          emitTickerPrice(ticker, market.outcomes[0].price);
+        }
+      });
     },
 
     unsubscribeFromMarket(ticker: string): void {
       subscribedTickers.delete(ticker);
       priceCache.delete(ticker);
+      freshnessTracker.untrack('kalshi', ticker);
       if (wsConnected) {
         unsubscribeWs(ticker);
       }

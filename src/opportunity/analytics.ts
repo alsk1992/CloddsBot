@@ -74,6 +74,82 @@ export interface PlatformPairStats {
   winRate: number;
 }
 
+// =============================================================================
+// PERFORMANCE ATTRIBUTION TYPES
+// =============================================================================
+
+export interface PerformanceAttribution {
+  /** Attribution by edge source */
+  byEdgeSource: {
+    priceLag: AttributionBucket;      // Edge from stale prices
+    liquidityGap: AttributionBucket;  // Edge from liquidity imbalance
+    informationEdge: AttributionBucket; // Edge from better info
+    unknown: AttributionBucket;
+  };
+  /** Attribution by time of day (hour UTC) */
+  byHour: Record<number, AttributionBucket>;
+  /** Attribution by day of week (0=Sunday) */
+  byDayOfWeek: Record<number, AttributionBucket>;
+  /** Attribution by edge size bucket */
+  byEdgeBucket: {
+    tiny: AttributionBucket;    // < 1%
+    small: AttributionBucket;   // 1-2%
+    medium: AttributionBucket;  // 2-5%
+    large: AttributionBucket;   // 5-10%
+    huge: AttributionBucket;    // > 10%
+  };
+  /** Attribution by liquidity bucket */
+  byLiquidityBucket: {
+    low: AttributionBucket;     // < $500
+    medium: AttributionBucket;  // $500 - $5000
+    high: AttributionBucket;    // > $5000
+  };
+  /** Attribution by confidence bucket */
+  byConfidenceBucket: {
+    low: AttributionBucket;     // < 0.7
+    medium: AttributionBucket;  // 0.7 - 0.9
+    high: AttributionBucket;    // > 0.9
+  };
+  /** Execution quality metrics */
+  executionQuality: {
+    avgSlippagePct: number;
+    avgExecutionTimeMs: number;
+    fillRatePct: number;
+    partialFills: number;
+  };
+  /** Edge decay analysis */
+  edgeDecay: {
+    avgLifespanMs: number;
+    medianLifespanMs: number;
+    decayByMinute: Record<number, number>; // Remaining edge by minute
+  };
+}
+
+export interface AttributionBucket {
+  count: number;
+  taken: number;
+  wins: number;
+  losses: number;
+  totalPnL: number;
+  avgPnL: number;
+  winRate: number;
+  avgEdge: number;
+}
+
+export type EdgeSource = 'priceLag' | 'liquidityGap' | 'informationEdge' | 'unknown';
+
+export interface AttributionInput {
+  opportunityId: string;
+  edgeSource?: EdgeSource;
+  discoveredAt: Date;
+  executedAt?: Date;
+  closedAt?: Date;
+  expectedSlippage?: number;
+  actualSlippage?: number;
+  fillRate?: number;
+  executionTimeMs?: number;
+}
+
 export interface OpportunityAnalytics {
   /** Record an opportunity discovery */
   recordDiscovery(opportunity: OpportunityInput): void;
@@ -117,6 +193,21 @@ export interface OpportunityAnalytics {
 
   /** Cleanup old records */
   cleanup(olderThanDays?: number): number;
+
+  /** Record attribution data for an opportunity */
+  recordAttribution(input: AttributionInput): void;
+
+  /** Get performance attribution analysis */
+  getPerformanceAttribution(options?: { days?: number }): PerformanceAttribution;
+
+  /** Classify edge source based on opportunity characteristics */
+  classifyEdgeSource(opportunity: OpportunityInput): EdgeSource;
+
+  /** Get edge decay analysis for a specific opportunity type */
+  getEdgeDecayAnalysis(options?: { type?: string; days?: number }): {
+    avgLifespanMs: number;
+    decayCurve: Array<{ minutesSinceDiscovery: number; remainingEdgePct: number }>;
+  };
 }
 
 interface OpportunityInput {
@@ -723,6 +814,335 @@ export function createOpportunityAnalytics(db: Database): OpportunityAnalytics {
     }
   }
 
+  // ===========================================================================
+  // PERFORMANCE ATTRIBUTION
+  // ===========================================================================
+
+  function recordAttribution(input: AttributionInput): void {
+    try {
+      db.run(
+        `INSERT OR REPLACE INTO opportunity_attribution
+         (opportunity_id, edge_source, discovered_at, executed_at, closed_at,
+          expected_slippage, actual_slippage, fill_rate, execution_time_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          input.opportunityId,
+          input.edgeSource || 'unknown',
+          input.discoveredAt.getTime(),
+          input.executedAt?.getTime() || null,
+          input.closedAt?.getTime() || null,
+          input.expectedSlippage || null,
+          input.actualSlippage || null,
+          input.fillRate || null,
+          input.executionTimeMs || null,
+        ]
+      );
+    } catch (error) {
+      logger.warn({ error, id: input.opportunityId }, 'Failed to record attribution');
+    }
+  }
+
+  function classifyEdgeSource(opportunity: OpportunityInput): EdgeSource {
+    // Classify based on opportunity characteristics
+    const markets = opportunity.markets;
+    if (markets.length < 2) return 'unknown';
+
+    // Check for price lag (large time difference between platform updates)
+    // This would require price timestamp data - simplified heuristic here
+
+    // Check for liquidity gap (one platform has much more liquidity)
+    // Would need liquidity data per leg
+
+    // For now, use edge magnitude as a heuristic
+    if (opportunity.edgePct > 5) {
+      // Large edges often come from price lag
+      return 'priceLag';
+    } else if (opportunity.edgePct > 2) {
+      // Medium edges often from liquidity gaps
+      return 'liquidityGap';
+    } else if (opportunity.confidence > 0.9) {
+      // High confidence small edges might be information advantage
+      return 'informationEdge';
+    }
+
+    return 'unknown';
+  }
+
+  function createEmptyBucket(): AttributionBucket {
+    return {
+      count: 0,
+      taken: 0,
+      wins: 0,
+      losses: 0,
+      totalPnL: 0,
+      avgPnL: 0,
+      winRate: 0,
+      avgEdge: 0,
+    };
+  }
+
+  function getPerformanceAttribution(options?: { days?: number }): PerformanceAttribution {
+    const { days = 30 } = options || {};
+    const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+
+    // Initialize attribution structure
+    const attribution: PerformanceAttribution = {
+      byEdgeSource: {
+        priceLag: createEmptyBucket(),
+        liquidityGap: createEmptyBucket(),
+        informationEdge: createEmptyBucket(),
+        unknown: createEmptyBucket(),
+      },
+      byHour: {},
+      byDayOfWeek: {},
+      byEdgeBucket: {
+        tiny: createEmptyBucket(),
+        small: createEmptyBucket(),
+        medium: createEmptyBucket(),
+        large: createEmptyBucket(),
+        huge: createEmptyBucket(),
+      },
+      byLiquidityBucket: {
+        low: createEmptyBucket(),
+        medium: createEmptyBucket(),
+        high: createEmptyBucket(),
+      },
+      byConfidenceBucket: {
+        low: createEmptyBucket(),
+        medium: createEmptyBucket(),
+        high: createEmptyBucket(),
+      },
+      executionQuality: {
+        avgSlippagePct: 0,
+        avgExecutionTimeMs: 0,
+        fillRatePct: 100,
+        partialFills: 0,
+      },
+      edgeDecay: {
+        avgLifespanMs: 0,
+        medianLifespanMs: 0,
+        decayByMinute: {},
+      },
+    };
+
+    // Initialize hour and day buckets
+    for (let h = 0; h < 24; h++) {
+      attribution.byHour[h] = createEmptyBucket();
+    }
+    for (let d = 0; d < 7; d++) {
+      attribution.byDayOfWeek[d] = createEmptyBucket();
+    }
+
+    try {
+      // Get all opportunities with outcomes
+      const rows = db.query<{
+        id: string;
+        type: string;
+        edge_pct: number;
+        confidence: number;
+        total_liquidity: number;
+        discovered_at: number;
+        taken: number;
+        realized_pnl: number | null;
+        closed_at: number | null;
+      }>(
+        `SELECT id, type, edge_pct, confidence, total_liquidity,
+                discovered_at, taken, realized_pnl, closed_at
+         FROM opportunities
+         WHERE discovered_at > ? AND status = 'closed'`,
+        [sinceMs]
+      );
+
+      // Get attribution data
+      const attrRows = db.query<{
+        opportunity_id: string;
+        edge_source: string;
+        expected_slippage: number | null;
+        actual_slippage: number | null;
+        fill_rate: number | null;
+        execution_time_ms: number | null;
+      }>(
+        `SELECT * FROM opportunity_attribution WHERE opportunity_id IN (
+           SELECT id FROM opportunities WHERE discovered_at > ?
+         )`,
+        [sinceMs]
+      );
+
+      const attrMap = new Map(attrRows.map((r) => [r.opportunity_id, r]));
+
+      // Process each opportunity
+      let totalSlippage = 0;
+      let totalExecTime = 0;
+      let execCount = 0;
+      const lifespans: number[] = [];
+
+      for (const row of rows) {
+        const discoveredDate = new Date(row.discovered_at);
+        const hour = discoveredDate.getUTCHours();
+        const dayOfWeek = discoveredDate.getUTCDay();
+        const pnl = row.realized_pnl || 0;
+        const isWin = pnl > 0;
+        const isTaken = row.taken === 1;
+
+        // Get edge bucket
+        let edgeBucket: keyof typeof attribution.byEdgeBucket;
+        if (row.edge_pct < 1) edgeBucket = 'tiny';
+        else if (row.edge_pct < 2) edgeBucket = 'small';
+        else if (row.edge_pct < 5) edgeBucket = 'medium';
+        else if (row.edge_pct < 10) edgeBucket = 'large';
+        else edgeBucket = 'huge';
+
+        // Get liquidity bucket
+        let liquidityBucket: keyof typeof attribution.byLiquidityBucket;
+        if (row.total_liquidity < 500) liquidityBucket = 'low';
+        else if (row.total_liquidity < 5000) liquidityBucket = 'medium';
+        else liquidityBucket = 'high';
+
+        // Get confidence bucket
+        let confidenceBucket: keyof typeof attribution.byConfidenceBucket;
+        if (row.confidence < 0.7) confidenceBucket = 'low';
+        else if (row.confidence < 0.9) confidenceBucket = 'medium';
+        else confidenceBucket = 'high';
+
+        // Get edge source
+        const attr = attrMap.get(row.id);
+        const edgeSource = (attr?.edge_source || 'unknown') as EdgeSource;
+
+        // Update buckets helper
+        const updateBucket = (bucket: AttributionBucket) => {
+          bucket.count++;
+          bucket.avgEdge = (bucket.avgEdge * (bucket.count - 1) + row.edge_pct) / bucket.count;
+          if (isTaken) {
+            bucket.taken++;
+            bucket.totalPnL += pnl;
+            if (isWin) bucket.wins++;
+            else bucket.losses++;
+          }
+          bucket.avgPnL = bucket.taken > 0 ? bucket.totalPnL / bucket.taken : 0;
+          bucket.winRate = bucket.taken > 0 ? (bucket.wins / bucket.taken) * 100 : 0;
+        };
+
+        // Update all relevant buckets
+        updateBucket(attribution.byEdgeSource[edgeSource]);
+        updateBucket(attribution.byHour[hour]);
+        updateBucket(attribution.byDayOfWeek[dayOfWeek]);
+        updateBucket(attribution.byEdgeBucket[edgeBucket]);
+        updateBucket(attribution.byLiquidityBucket[liquidityBucket]);
+        updateBucket(attribution.byConfidenceBucket[confidenceBucket]);
+
+        // Execution quality
+        if (attr && isTaken) {
+          if (attr.actual_slippage !== null) {
+            totalSlippage += attr.actual_slippage;
+            execCount++;
+          }
+          if (attr.execution_time_ms !== null) {
+            totalExecTime += attr.execution_time_ms;
+          }
+          if (attr.fill_rate !== null && attr.fill_rate < 100) {
+            attribution.executionQuality.partialFills++;
+          }
+        }
+
+        // Lifespan calculation
+        if (row.closed_at) {
+          lifespans.push(row.closed_at - row.discovered_at);
+        }
+      }
+
+      // Finalize execution quality
+      if (execCount > 0) {
+        attribution.executionQuality.avgSlippagePct = totalSlippage / execCount;
+        attribution.executionQuality.avgExecutionTimeMs = totalExecTime / execCount;
+      }
+
+      // Calculate lifespan stats
+      if (lifespans.length > 0) {
+        lifespans.sort((a, b) => a - b);
+        attribution.edgeDecay.avgLifespanMs =
+          lifespans.reduce((a, b) => a + b, 0) / lifespans.length;
+        attribution.edgeDecay.medianLifespanMs =
+          lifespans[Math.floor(lifespans.length / 2)];
+      }
+
+      return attribution;
+    } catch (error) {
+      logger.warn({ error }, 'Failed to get performance attribution');
+      return attribution;
+    }
+  }
+
+  function getEdgeDecayAnalysis(options?: {
+    type?: string;
+    days?: number;
+  }): {
+    avgLifespanMs: number;
+    decayCurve: Array<{ minutesSinceDiscovery: number; remainingEdgePct: number }>;
+  } {
+    const { type, days = 30 } = options || {};
+    const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+
+    try {
+      let whereClause = 'WHERE discovered_at > ? AND status IN (?, ?)';
+      const params: unknown[] = [sinceMs, 'closed', 'expired'];
+
+      if (type) {
+        whereClause += ' AND type = ?';
+        params.push(type);
+      }
+
+      const rows = db.query<{
+        discovered_at: number;
+        expires_at: number;
+        closed_at: number | null;
+        edge_pct: number;
+      }>(
+        `SELECT discovered_at, expires_at, closed_at, edge_pct
+         FROM opportunities ${whereClause}`,
+        params
+      );
+
+      if (rows.length === 0) {
+        return { avgLifespanMs: 0, decayCurve: [] };
+      }
+
+      const lifespans: number[] = [];
+      const edgeByMinute: Record<number, number[]> = {};
+
+      for (const row of rows) {
+        const lifespan = (row.closed_at || row.expires_at) - row.discovered_at;
+        lifespans.push(lifespan);
+
+        // Build decay curve (simplified - assume linear decay)
+        const lifespanMinutes = Math.ceil(lifespan / 60000);
+        for (let m = 0; m <= lifespanMinutes && m <= 60; m++) {
+          if (!edgeByMinute[m]) edgeByMinute[m] = [];
+          // Assume edge decays linearly to 0 at expiry
+          const remainingPct = Math.max(0, (1 - m / lifespanMinutes) * row.edge_pct);
+          edgeByMinute[m].push(remainingPct);
+        }
+      }
+
+      const avgLifespanMs = lifespans.reduce((a, b) => a + b, 0) / lifespans.length;
+
+      const decayCurve: Array<{ minutesSinceDiscovery: number; remainingEdgePct: number }> = [];
+      for (const [minute, edges] of Object.entries(edgeByMinute)) {
+        const avgEdge = edges.reduce((a, b) => a + b, 0) / edges.length;
+        decayCurve.push({
+          minutesSinceDiscovery: parseInt(minute),
+          remainingEdgePct: avgEdge,
+        });
+      }
+
+      decayCurve.sort((a, b) => a.minutesSinceDiscovery - b.minutesSinceDiscovery);
+
+      return { avgLifespanMs, decayCurve };
+    } catch (error) {
+      logger.warn({ error }, 'Failed to get edge decay analysis');
+      return { avgLifespanMs: 0, decayCurve: [] };
+    }
+  }
+
   return {
     recordDiscovery,
     recordTaken,
@@ -734,5 +1154,9 @@ export function createOpportunityAnalytics(db: Database): OpportunityAnalytics {
     getOpportunities,
     getBestStrategies,
     cleanup,
+    recordAttribution,
+    getPerformanceAttribution,
+    classifyEdgeSource,
+    getEdgeDecayAnalysis,
   };
 }

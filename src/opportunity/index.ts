@@ -47,12 +47,14 @@ export * from './analytics';
 export * from './links';
 export * from './combinatorial';
 export * from './executor';
+export * from './risk';
 
 import { createMarketMatcher, MarketMatcher, MarketMatch } from './matching';
 import { createOpportunityScorer, OpportunityScorer, ScoredOpportunity } from './scoring';
 import { createOutcomeNormalizer, OutcomeNormalizer, NormalizedOutcome } from './outcomes';
 import { createOpportunityAnalytics, OpportunityAnalytics } from './analytics';
 import { createMarketLinker, MarketLinker, MarketLink } from './links';
+import { createRiskModeler, RiskModeler, RiskModelOutput, ArbitrageLeg } from './risk';
 
 // =============================================================================
 // TYPES
@@ -114,6 +116,17 @@ export interface Opportunity {
   status: 'active' | 'taken' | 'expired' | 'closed';
   /** Outcome tracking */
   outcome?: OpportunityOutcome;
+  /** Match verification info for cross-platform opportunities */
+  matchVerification?: {
+    /** How the markets were matched */
+    method: 'semantic' | 'text' | 'manual' | 'slug';
+    /** Similarity score (0-1) */
+    similarity: number;
+    /** Verification confidence (0-1) */
+    verificationConfidence?: number;
+    /** Any warnings about the match */
+    warnings?: string[];
+  };
 }
 
 export interface OpportunityMarket {
@@ -268,12 +281,16 @@ export interface OpportunityFinder extends EventEmitter {
   /** Estimate execution for opportunity */
   estimateExecution(opportunity: Opportunity, size: number): ExecutionPlan;
 
+  /** Model risk for an opportunity */
+  modelRisk(opportunity: Opportunity, positionSize: number): RiskModelOutput;
+
   /** Sub-components */
   matcher: MarketMatcher;
   scorer: OpportunityScorer;
   normalizer: OutcomeNormalizer;
   analytics: OpportunityAnalytics;
   linker: MarketLinker;
+  riskModeler: RiskModeler;
 }
 
 // =============================================================================
@@ -333,6 +350,8 @@ export function createOpportunityFinder(
   const analytics = createOpportunityAnalytics(db);
 
   const linker = createMarketLinker(db);
+
+  const riskModeler = createRiskModeler();
 
   // State
   const activeOpportunities = new Map<string, Opportunity>();
@@ -564,6 +583,24 @@ export function createOpportunityFinder(
     for (const match of matches) {
       if (match.markets.length < 2) continue;
 
+      // SAFETY CHECK: Skip matches that need human review
+      if (match.needsReview) {
+        logger.warn(
+          {
+            canonicalId: match.canonicalId,
+            warnings: match.verification?.warnings,
+            confidence: match.verification?.confidence,
+            markets: match.markets.map((m) => ({
+              platform: m.platform,
+              id: m.market.id,
+              question: m.market.question.slice(0, 80),
+            })),
+          },
+          'Cross-platform match SKIPPED - needs human review before arbitrage'
+        );
+        continue;
+      }
+
       // Get prices for same outcome across platforms
       const pricesByPlatform: Array<{
         platform: Platform;
@@ -652,6 +689,12 @@ export function createOpportunityFinder(
         discoveredAt: new Date(),
         expiresAt: new Date(Date.now() + cfg.opportunityTtlMs),
         status: 'active',
+        matchVerification: {
+          method: match.method,
+          similarity: match.similarity,
+          verificationConfidence: match.verification?.confidence,
+          warnings: match.verification?.warnings,
+        },
       };
 
       opportunities.push(opp);
@@ -1037,6 +1080,29 @@ export function createOpportunityFinder(
     return scorer.estimateExecution(opportunity, size);
   }
 
+  function modelRisk(opportunity: Opportunity, positionSize: number): RiskModelOutput {
+    // Convert opportunity markets to arbitrage legs
+    const legs: ArbitrageLeg[] = opportunity.markets.map((m) => ({
+      platform: m.platform,
+      marketId: m.marketId,
+      outcomeId: m.outcome,
+      side: m.action,
+      price: m.price,
+      size: m.recommendedSize,
+      liquidityAtPrice: m.liquidity,
+    }));
+
+    // Determine if same event (internal arb vs cross-platform)
+    const sameEvent = opportunity.type === 'internal';
+
+    return riskModeler.modelRisk({
+      legs,
+      positionSize,
+      expectedEdge: opportunity.edgePct,
+      sameEvent,
+    });
+  }
+
   // ==========================================================================
   // ATTACH TO EMITTER
   // ==========================================================================
@@ -1055,11 +1121,13 @@ export function createOpportunityFinder(
     getAnalytics,
     getPlatformPairs,
     estimateExecution,
+    modelRisk,
     matcher,
     scorer,
     normalizer,
     analytics,
     linker,
+    riskModeler,
   } as Partial<OpportunityFinder>);
 
   logger.info({ platforms: cfg.platforms.length, minEdge: cfg.minEdge }, 'Opportunity finder initialized');
@@ -1128,6 +1196,24 @@ function initializeTables(db: Database): void {
       PRIMARY KEY (platform_a, platform_b)
     )
   `);
+
+  // Opportunity attribution table for performance analytics
+  db.run(`
+    CREATE TABLE IF NOT EXISTS opportunity_attribution (
+      opportunity_id TEXT PRIMARY KEY,
+      edge_source TEXT NOT NULL DEFAULT 'unknown',
+      discovered_at INTEGER NOT NULL,
+      executed_at INTEGER,
+      closed_at INTEGER,
+      expected_slippage REAL,
+      actual_slippage REAL,
+      fill_rate REAL,
+      execution_time_ms INTEGER,
+      FOREIGN KEY (opportunity_id) REFERENCES opportunities(id)
+    )
+  `);
+
+  db.run(`CREATE INDEX IF NOT EXISTS idx_attribution_source ON opportunity_attribution(edge_source)`);
 }
 
 // =============================================================================
@@ -1140,3 +1226,6 @@ export type {
   ScoredOpportunity,
   NormalizedOutcome,
 };
+
+// Re-export verification types for match quality inspection
+export type { MatchVerification, ExtractedEntities } from './matching';

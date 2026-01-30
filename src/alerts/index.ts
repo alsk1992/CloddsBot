@@ -53,6 +53,10 @@ export interface AlertConfig {
   pollIntervalMs?: number;
   /** Default cooldown between repeated alerts */
   defaultCooldownSecs?: number;
+  /** Deduplication window in seconds (default: 60) */
+  deduplicationWindowSecs?: number;
+  /** Enable alert deduplication (default: true) */
+  enableDeduplication?: boolean;
 }
 
 export interface PriceProvider {
@@ -132,6 +136,8 @@ export interface AlertService extends EventEmitter {
 const DEFAULT_CONFIG: AlertConfig = {
   pollIntervalMs: 10000, // 10 seconds
   defaultCooldownSecs: 300, // 5 minutes
+  deduplicationWindowSecs: 60, // 1 minute
+  enableDeduplication: true,
 };
 
 export function createAlertService(
@@ -148,6 +154,49 @@ export function createAlertService(
 
   // Track price history for change alerts
   const priceHistory = new Map<string, { price: number; timestamp: number }[]>();
+
+  // Alert deduplication cache: hash -> timestamp
+  const deduplicationCache = new Map<string, number>();
+
+  /**
+   * Generate deduplication hash for an alert trigger
+   */
+  function getDeduplicationHash(alert: Alert, currentPrice: number): string {
+    // Hash based on: user, market, type, threshold, and price bucket
+    const priceBucket = Math.floor(currentPrice * 100); // Round to cents
+    return `${alert.userId}:${alert.platform}:${alert.marketId}:${alert.type}:${alert.threshold}:${priceBucket}`;
+  }
+
+  /**
+   * Check if alert is a duplicate (already sent recently)
+   */
+  function isDuplicateAlert(hash: string): boolean {
+    if (!config.enableDeduplication) return false;
+
+    const lastSent = deduplicationCache.get(hash);
+    if (!lastSent) return false;
+
+    const windowMs = (config.deduplicationWindowSecs || 60) * 1000;
+    return Date.now() - lastSent < windowMs;
+  }
+
+  /**
+   * Record alert as sent for deduplication
+   */
+  function recordAlertSent(hash: string): void {
+    if (!config.enableDeduplication) return;
+    deduplicationCache.set(hash, Date.now());
+
+    // Clean up old entries periodically
+    if (deduplicationCache.size > 1000) {
+      const cutoff = Date.now() - (config.deduplicationWindowSecs || 60) * 1000;
+      for (const [key, timestamp] of deduplicationCache) {
+        if (timestamp < cutoff) {
+          deduplicationCache.delete(key);
+        }
+      }
+    }
+  }
 
   // Initialize database if provided
   if (db) {
@@ -341,6 +390,16 @@ export function createAlertService(
     }
 
     if (triggered) {
+      // Check for duplicate alert
+      const dedupHash = getDeduplicationHash(alert, price);
+      if (isDuplicateAlert(dedupHash)) {
+        logger.debug({ alertId: alert.id, dedupHash }, 'Alert deduplicated (already sent recently)');
+        return false;
+      }
+
+      // Record this alert as sent
+      recordAlertSent(dedupHash);
+
       alert.triggeredAt = new Date();
       alert.lastTriggeredAt = new Date();
 

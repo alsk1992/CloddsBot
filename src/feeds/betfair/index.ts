@@ -15,6 +15,7 @@ import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { Market, Outcome, PriceUpdate, Platform, Orderbook } from '../../types';
 import { logger } from '../../utils/logger';
+import { getGlobalFreshnessTracker, type FreshnessTracker } from '../freshness';
 
 // =============================================================================
 // CONSTANTS
@@ -230,6 +231,9 @@ export async function createBetfairFeed(config: BetfairConfig): Promise<BetfairF
   const priceCache = new Map<string, Map<number, number>>(); // marketId -> selectionId -> price
   let pingInterval: NodeJS.Timeout | null = null;
 
+  // Freshness tracking for WebSocket health monitoring
+  const freshnessTracker: FreshnessTracker = getGlobalFreshnessTracker();
+
   // Convert Betfair market to our Market type
   function convertToMarket(m: BetfairMarket, book?: BetfairMarketBook): Market {
     const outcomes: Outcome[] = m.runners.map((r) => {
@@ -370,6 +374,9 @@ export async function createBetfairFeed(config: BetfairConfig): Promise<BetfairF
           if (ltp) {
             const marketPrices = priceCache.get(marketId) || new Map();
             const prevPrice = marketPrices.get(selectionId);
+
+            // Record message for freshness tracking
+            freshnessTracker.recordMessage('betfair', marketId);
 
             if (prevPrice !== ltp) {
               marketPrices.set(selectionId, ltp);
@@ -625,11 +632,38 @@ export async function createBetfairFeed(config: BetfairConfig): Promise<BetfairF
     subscribeToMarket(marketId: string) {
       subscribedMarkets.add(marketId);
       subscribeMarketStream(marketId);
+
+      // Start freshness tracking with polling fallback
+      freshnessTracker.track('betfair', marketId, async () => {
+        const book = await feed.getMarketBook(marketId);
+        if (book?.runners) {
+          for (const runner of book.runners) {
+            const ltp = runner.lastPriceTraded;
+            if (ltp) {
+              const marketPrices = priceCache.get(marketId) || new Map();
+              const prevPrice = marketPrices.get(runner.selectionId);
+              if (prevPrice !== ltp) {
+                marketPrices.set(runner.selectionId, ltp);
+                priceCache.set(marketId, marketPrices);
+                emitter.emit('price', {
+                  platform: 'betfair' as Platform,
+                  marketId,
+                  outcomeId: runner.selectionId.toString(),
+                  price: 1 / ltp,
+                  previousPrice: prevPrice ? 1 / prevPrice : undefined,
+                  timestamp: Date.now(),
+                });
+              }
+            }
+          }
+        }
+      });
     },
 
     unsubscribeFromMarket(marketId: string) {
       subscribedMarkets.delete(marketId);
       priceCache.delete(marketId);
+      freshnessTracker.untrack('betfair', marketId);
     },
 
     async placeBackOrder(marketId: string, selectionId: number, price: number, size: number) {

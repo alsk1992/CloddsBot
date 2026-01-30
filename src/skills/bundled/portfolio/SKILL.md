@@ -46,6 +46,19 @@ Track your positions and performance across all prediction market platforms.
 - Kalshi (via API)
 - Manifold (via API key)
 
+### Risk Analytics
+- **Correlation Matrix**: See how your positions correlate with each other
+- **Category Exposure**: Breakdown by politics, crypto, sports, economics, etc.
+- **Concentration Risk**: HHI score and diversification metrics
+- **Hedged Pairs**: Identify offsetting positions (long YES + short NO)
+
+### Risk Commands
+```
+/portfolio risk          # Full risk metrics
+/portfolio correlation   # Position correlation matrix
+/portfolio exposure      # Category exposure breakdown
+```
+
 ## Examples
 
 User: "What's my portfolio looking like?"

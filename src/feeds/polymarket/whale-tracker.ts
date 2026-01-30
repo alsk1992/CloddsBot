@@ -75,12 +75,33 @@ export interface WhaleProfile {
   lastActive: Date;
 }
 
+export interface CopyTradeSignal {
+  /** Whale address initiating the trade */
+  whaleAddress: string;
+  /** Whale profile info */
+  whaleProfile: WhaleProfile;
+  /** The trade to copy */
+  trade: WhaleTrade;
+  /** Suggested position size (percentage of whale's position) */
+  suggestedSizePct: number;
+  /** Signal strength (0-1 based on whale's track record) */
+  signalStrength: number;
+  /** Recommended action */
+  action: 'buy' | 'sell' | 'skip';
+  /** Reason for recommendation */
+  reason: string;
+}
+
 export interface WhaleTrackerEvents {
   trade: (trade: WhaleTrade) => void;
   positionOpened: (position: WhalePosition) => void;
   positionClosed: (position: WhalePosition, pnl: number) => void;
   positionChanged: (position: WhalePosition, change: number) => void;
   newWhale: (profile: WhaleProfile) => void;
+  /** Copy trading signal when a profitable whale makes a move */
+  copySignal: (signal: CopyTradeSignal) => void;
+  /** WebSocket connection state change */
+  connectionState: (state: 'connected' | 'disconnected' | 'reconnecting') => void;
   error: (error: Error) => void;
 }
 
@@ -95,6 +116,14 @@ export interface WhaleTracker extends EventEmitter<keyof WhaleTrackerEvents> {
   getActivePositions(marketId?: string): WhalePosition[];
   trackAddress(address: string): void;
   untrackAddress(address: string): void;
+  /** Get WebSocket connection state */
+  getConnectionState(): 'connected' | 'disconnected' | 'reconnecting';
+  /** Get profitable whales suitable for copy trading */
+  getProfitableWhales(minWinRate?: number, minTrades?: number): WhaleProfile[];
+  /** Record a position closure for win rate tracking */
+  recordClosedPosition(address: string, pnl: number): void;
+  /** Calculate signal strength for a whale */
+  calculateSignalStrength(profile: WhaleProfile): number;
 }
 
 // =============================================================================
@@ -130,12 +159,16 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
   let ws: WebSocket | null = null;
   let pollInterval: NodeJS.Timeout | null = null;
   let reconnectTimeout: NodeJS.Timeout | null = null;
+  let pingInterval: NodeJS.Timeout | null = null;
+  let reconnectAttempts = 0;
+  let connectionState: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
 
   // State
   const whaleProfiles = new Map<string, WhaleProfile>();
   const activePositions = new Map<string, WhalePosition>();
   const recentTrades: WhaleTrade[] = [];
   const trackedAddresses = new Set<string>(KNOWN_WHALES);
+  const closedPositionsByWhale = new Map<string, { wins: number; losses: number; totalPnl: number }>();
 
   // ==========================================================================
   // REST API HELPERS
@@ -239,10 +272,16 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
       ws.close();
     }
 
+    connectionState = 'reconnecting';
+    emitter.emit('connectionState', connectionState);
+
     ws = new WebSocket(CLOB_WS_URL);
 
     ws.on('open', () => {
       logger.info('Whale tracker WebSocket connected');
+      connectionState = 'connected';
+      reconnectAttempts = 0;
+      emitter.emit('connectionState', connectionState);
 
       // Subscribe to trade events for tracked markets
       const markets = cfg.marketIds.length > 0 ? cfg.marketIds : ['*'];
@@ -253,6 +292,14 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
           market: marketId,
         }));
       }
+
+      // Start heartbeat ping
+      if (pingInterval) clearInterval(pingInterval);
+      pingInterval = setInterval(() => {
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.ping();
+        }
+      }, 30000); // Ping every 30 seconds
     });
 
     ws.on('message', (data: Buffer) => {
@@ -267,14 +314,31 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
       }
     });
 
+    ws.on('pong', () => {
+      // Connection is alive
+      logger.debug('WebSocket pong received');
+    });
+
     ws.on('close', (code, reason) => {
       logger.info({ code, reason: reason.toString() }, 'Whale tracker WebSocket disconnected');
+      connectionState = 'disconnected';
+      emitter.emit('connectionState', connectionState);
+
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
 
       if (running) {
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 60s
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 60000);
+        reconnectAttempts++;
+
+        logger.info({ delay, attempt: reconnectAttempts }, 'Scheduling WebSocket reconnect');
         reconnectTimeout = setTimeout(() => {
           logger.info('Reconnecting whale tracker WebSocket');
           connectWebSocket();
-        }, 5000);
+        }, delay);
       }
     });
 
@@ -341,6 +405,81 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
       trackedAddresses.add(trade.taker);
       logger.info({ address: trade.taker }, 'New whale discovered');
     }
+
+    // Emit copy trading signal if from a profitable whale
+    emitCopySignalIfProfitable(trade);
+  }
+
+  function emitCopySignalIfProfitable(trade: WhaleTrade): void {
+    // Check both maker and taker
+    const addresses = [trade.maker, trade.taker].filter((a) => a && a !== 'unknown');
+
+    for (const address of addresses) {
+      const profile = whaleProfiles.get(address);
+      if (!profile) continue;
+
+      // Only emit signals for whales with good track records
+      const signalStrength = calculateSignalStrengthInternal(profile);
+      if (signalStrength < 0.5) continue; // Need at least 50% signal strength
+
+      const stats = closedPositionsByWhale.get(address);
+      const totalTrades = stats ? stats.wins + stats.losses : 0;
+      if (totalTrades < 5) continue; // Need at least 5 trades for reliability
+
+      const winRate = stats ? stats.wins / totalTrades : 0;
+      if (winRate < 0.55) continue; // Need at least 55% win rate
+
+      // Determine if this is a buy or sell for copy trading
+      const isBuyer = trade.taker === address && trade.side === 'BUY';
+      const isSeller = trade.taker === address && trade.side === 'SELL';
+
+      if (!isBuyer && !isSeller) continue; // Taker is the one initiating
+
+      const signal: CopyTradeSignal = {
+        whaleAddress: address,
+        whaleProfile: profile,
+        trade,
+        suggestedSizePct: Math.min(50, signalStrength * 100), // Cap at 50% of whale's size
+        signalStrength,
+        action: isBuyer ? 'buy' : 'sell',
+        reason: `Whale ${address.slice(0, 8)}... (${(winRate * 100).toFixed(0)}% WR, ${totalTrades} trades) ${isBuyer ? 'bought' : 'sold'} $${trade.usdValue.toFixed(0)}`,
+      };
+
+      logger.info(
+        {
+          whale: address.slice(0, 8),
+          action: signal.action,
+          size: trade.usdValue,
+          winRate: winRate * 100,
+          signalStrength,
+        },
+        'Copy trading signal'
+      );
+
+      emitter.emit('copySignal', signal);
+    }
+  }
+
+  function calculateSignalStrengthInternal(profile: WhaleProfile): number {
+    const stats = closedPositionsByWhale.get(profile.address);
+    if (!stats) return 0;
+
+    const totalTrades = stats.wins + stats.losses;
+    if (totalTrades < 3) return 0;
+
+    const winRate = stats.wins / totalTrades;
+    const avgPnl = stats.totalPnl / totalTrades;
+
+    // Signal strength based on:
+    // - Win rate (40% weight)
+    // - Number of trades / confidence (30% weight)
+    // - Average PnL (30% weight)
+
+    const winRateScore = Math.max(0, (winRate - 0.5) * 2); // 0 at 50%, 1 at 100%
+    const tradeCountScore = Math.min(1, totalTrades / 20); // 1 at 20+ trades
+    const pnlScore = avgPnl > 0 ? Math.min(1, avgPnl / 1000) : 0; // 1 at $1000 avg PnL
+
+    return winRateScore * 0.4 + tradeCountScore * 0.3 + pnlScore * 0.3;
   }
 
   // ==========================================================================
@@ -370,6 +509,11 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
             if (position.size === 0) {
               const pnl = position.unrealizedPnl || 0;
               activePositions.delete(key);
+              // Record for win rate tracking
+              const recordFn = (emitter as WhaleTracker).recordClosedPosition;
+              if (recordFn) {
+                recordFn(address, pnl);
+              }
               emitter.emit('positionClosed', position, pnl);
             } else {
               emitter.emit('positionChanged', position, change);
@@ -500,6 +644,79 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
     untrackAddress(address: string): void {
       trackedAddresses.delete(address);
       logger.info({ address }, 'Stopped tracking address');
+    },
+
+    getConnectionState(): 'connected' | 'disconnected' | 'reconnecting' {
+      return connectionState;
+    },
+
+    getProfitableWhales(minWinRate = 0.55, minTrades = 5): WhaleProfile[] {
+      const profitable: WhaleProfile[] = [];
+
+      for (const [address, profile] of whaleProfiles) {
+        const stats = closedPositionsByWhale.get(address);
+        if (!stats) continue;
+
+        const totalTrades = stats.wins + stats.losses;
+        if (totalTrades < minTrades) continue;
+
+        const winRate = stats.wins / totalTrades;
+        if (winRate < minWinRate) continue;
+
+        // Update profile with calculated stats
+        profile.winRate = winRate * 100;
+        profile.avgReturn = totalTrades > 0 ? stats.totalPnl / totalTrades : 0;
+
+        profitable.push(profile);
+      }
+
+      // Sort by win rate, then by total value
+      return profitable.sort((a, b) => {
+        if (Math.abs(a.winRate - b.winRate) > 1) {
+          return b.winRate - a.winRate;
+        }
+        return b.totalValue - a.totalValue;
+      });
+    },
+
+    recordClosedPosition(address: string, pnl: number): void {
+      const stats = closedPositionsByWhale.get(address) || {
+        wins: 0,
+        losses: 0,
+        totalPnl: 0,
+      };
+
+      if (pnl > 0) {
+        stats.wins++;
+      } else {
+        stats.losses++;
+      }
+      stats.totalPnl += pnl;
+
+      closedPositionsByWhale.set(address, stats);
+
+      // Update profile win rate
+      const profile = whaleProfiles.get(address);
+      if (profile) {
+        const totalTrades = stats.wins + stats.losses;
+        profile.winRate = totalTrades > 0 ? (stats.wins / totalTrades) * 100 : 0;
+        profile.avgReturn = totalTrades > 0 ? stats.totalPnl / totalTrades : 0;
+      }
+
+      logger.debug(
+        {
+          address: address.slice(0, 8),
+          pnl,
+          wins: stats.wins,
+          losses: stats.losses,
+          winRate: ((stats.wins / (stats.wins + stats.losses)) * 100).toFixed(1),
+        },
+        'Recorded closed position'
+      );
+    },
+
+    calculateSignalStrength(profile: WhaleProfile): number {
+      return calculateSignalStrengthInternal(profile);
     },
   } as Partial<WhaleTracker>);
 

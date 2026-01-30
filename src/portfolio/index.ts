@@ -66,6 +66,77 @@ export interface PortfolioConfig {
   cacheTtlSeconds?: number;
 }
 
+// =============================================================================
+// CORRELATION TRACKING TYPES
+// =============================================================================
+
+export type PositionCategory =
+  | 'politics'
+  | 'crypto'
+  | 'sports'
+  | 'economics'
+  | 'entertainment'
+  | 'weather'
+  | 'science'
+  | 'other';
+
+export interface PositionCorrelation {
+  positionA: string;
+  positionB: string;
+  correlation: number; // -1 to 1
+  correlationType: 'positive' | 'negative' | 'neutral';
+  reason: string;
+}
+
+export interface CategoryExposure {
+  category: PositionCategory;
+  positionCount: number;
+  totalValue: number;
+  valuePercent: number;
+  positions: string[];
+}
+
+export interface ConcentrationRisk {
+  /** Herfindahl-Hirschman Index (0-10000, higher = more concentrated) */
+  hhi: number;
+  /** Largest position as % of portfolio */
+  largestPositionPct: number;
+  /** Top 3 positions as % of portfolio */
+  top3Pct: number;
+  /** Diversification score (0-100, higher = more diversified) */
+  diversificationScore: number;
+  /** Risk level */
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+}
+
+export interface CorrelationMatrix {
+  /** Position IDs in order */
+  positions: string[];
+  /** NxN correlation matrix */
+  matrix: number[][];
+  /** High correlation pairs (|correlation| > 0.7) */
+  highCorrelationPairs: PositionCorrelation[];
+  /** Overall portfolio correlation score (0-1, lower = better diversified) */
+  portfolioCorrelation: number;
+}
+
+export interface PortfolioRiskMetrics {
+  correlationMatrix: CorrelationMatrix;
+  categoryExposure: CategoryExposure[];
+  platformExposure: {
+    platform: string;
+    positionCount: number;
+    totalValue: number;
+    valuePercent: number;
+  }[];
+  concentrationRisk: ConcentrationRisk;
+  hedgedPositions: Array<{
+    longPosition: string;
+    shortPosition: string;
+    hedgeRatio: number;
+  }>;
+}
+
 export interface PortfolioService {
   /** Fetch all positions from connected platforms */
   fetchPositions(): Promise<Position[]>;
@@ -96,6 +167,29 @@ export interface PortfolioService {
 
   /** Refresh cache */
   refresh(): Promise<void>;
+
+  // Correlation tracking methods
+
+  /** Calculate correlation between two positions */
+  calculateCorrelation(positionA: Position, positionB: Position): PositionCorrelation;
+
+  /** Get full correlation matrix for portfolio */
+  getCorrelationMatrix(): Promise<CorrelationMatrix>;
+
+  /** Get category exposure breakdown */
+  getCategoryExposure(): Promise<CategoryExposure[]>;
+
+  /** Get concentration risk metrics */
+  getConcentrationRisk(): Promise<ConcentrationRisk>;
+
+  /** Get comprehensive portfolio risk metrics */
+  getPortfolioRiskMetrics(): Promise<PortfolioRiskMetrics>;
+
+  /** Classify a position into a category */
+  classifyPosition(position: Position): PositionCategory;
+
+  /** Find hedged position pairs */
+  findHedgedPairs(): Promise<Array<{ longPosition: string; shortPosition: string; hedgeRatio: number }>>;
 }
 
 // =============================================================================
@@ -470,6 +564,367 @@ export function createPortfolioService(config: PortfolioConfig, db?: Database): 
     async refresh() {
       await Promise.all([this.fetchPositions(), this.fetchBalances()]);
       logger.info('Portfolio refreshed');
+    },
+
+    // =========================================================================
+    // CORRELATION TRACKING
+    // =========================================================================
+
+    classifyPosition(position: Position): PositionCategory {
+      const question = (position.marketQuestion || '').toLowerCase();
+
+      // Politics keywords
+      if (/trump|biden|harris|election|president|congress|senate|governor|poll|vote/i.test(question)) {
+        return 'politics';
+      }
+
+      // Crypto keywords
+      if (/bitcoin|btc|ethereum|eth|crypto|solana|sol|doge|token|blockchain/i.test(question)) {
+        return 'crypto';
+      }
+
+      // Sports keywords
+      if (/nfl|nba|mlb|nhl|super\s*bowl|world\s*series|playoff|championship|team|game|match|win/i.test(question)) {
+        return 'sports';
+      }
+
+      // Economics keywords
+      if (/fed|interest\s*rate|inflation|cpi|gdp|recession|unemployment|fomc|tariff|trade/i.test(question)) {
+        return 'economics';
+      }
+
+      // Weather keywords
+      if (/weather|temperature|hurricane|storm|rain|snow|heat|cold|climate/i.test(question)) {
+        return 'weather';
+      }
+
+      // Entertainment keywords
+      if (/movie|oscar|emmy|grammy|album|song|celebrity|actor|netflix|disney/i.test(question)) {
+        return 'entertainment';
+      }
+
+      // Science keywords
+      if (/nasa|space|mars|moon|vaccine|fda|drug|research|study|discovery/i.test(question)) {
+        return 'science';
+      }
+
+      return 'other';
+    },
+
+    calculateCorrelation(positionA: Position, positionB: Position): PositionCorrelation {
+      const questionA = (positionA.marketQuestion || '').toLowerCase();
+      const questionB = (positionB.marketQuestion || '').toLowerCase();
+
+      // Same market, opposite outcomes = negative correlation
+      if (positionA.marketId === positionB.marketId) {
+        if (positionA.outcome !== positionB.outcome) {
+          return {
+            positionA: positionA.id,
+            positionB: positionB.id,
+            correlation: -1.0,
+            correlationType: 'negative',
+            reason: 'Same market, opposite outcomes',
+          };
+        }
+        return {
+          positionA: positionA.id,
+          positionB: positionB.id,
+          correlation: 1.0,
+          correlationType: 'positive',
+          reason: 'Same market, same outcome',
+        };
+      }
+
+      // Check for related topics
+      const categoryA = this.classifyPosition(positionA);
+      const categoryB = this.classifyPosition(positionB);
+
+      // Same category = moderate positive correlation
+      if (categoryA === categoryB && categoryA !== 'other') {
+        // Look for more specific correlations
+        const extractKeyEntities = (q: string): string[] => {
+          const entities: string[] = [];
+          // Extract names
+          const nameMatch = q.match(/\b(trump|biden|harris|musk|bezos|bitcoin|ethereum|solana)\b/gi);
+          if (nameMatch) entities.push(...nameMatch.map((n) => n.toLowerCase()));
+          // Extract years
+          const yearMatch = q.match(/\b(202\d)\b/g);
+          if (yearMatch) entities.push(...yearMatch);
+          return entities;
+        };
+
+        const entitiesA = extractKeyEntities(questionA);
+        const entitiesB = extractKeyEntities(questionB);
+        const sharedEntities = entitiesA.filter((e) => entitiesB.includes(e));
+
+        if (sharedEntities.length > 0) {
+          return {
+            positionA: positionA.id,
+            positionB: positionB.id,
+            correlation: 0.7 + sharedEntities.length * 0.1,
+            correlationType: 'positive',
+            reason: `Same category (${categoryA}) with shared entities: ${sharedEntities.join(', ')}`,
+          };
+        }
+
+        return {
+          positionA: positionA.id,
+          positionB: positionB.id,
+          correlation: 0.4,
+          correlationType: 'positive',
+          reason: `Same category: ${categoryA}`,
+        };
+      }
+
+      // Check for economic/political correlation
+      if (
+        (categoryA === 'politics' && categoryB === 'economics') ||
+        (categoryA === 'economics' && categoryB === 'politics')
+      ) {
+        return {
+          positionA: positionA.id,
+          positionB: positionB.id,
+          correlation: 0.3,
+          correlationType: 'positive',
+          reason: 'Politics and economics are often correlated',
+        };
+      }
+
+      // Default: low/no correlation
+      return {
+        positionA: positionA.id,
+        positionB: positionB.id,
+        correlation: 0.1,
+        correlationType: 'neutral',
+        reason: 'Different categories',
+      };
+    },
+
+    async getCorrelationMatrix(): Promise<CorrelationMatrix> {
+      await refreshIfStale();
+      const positions = cachedPositions || [];
+
+      if (positions.length === 0) {
+        return {
+          positions: [],
+          matrix: [],
+          highCorrelationPairs: [],
+          portfolioCorrelation: 0,
+        };
+      }
+
+      const positionIds = positions.map((p) => p.id);
+      const n = positions.length;
+      const matrix: number[][] = Array(n)
+        .fill(null)
+        .map(() => Array(n).fill(0));
+      const highCorrelationPairs: PositionCorrelation[] = [];
+
+      // Calculate pairwise correlations
+      for (let i = 0; i < n; i++) {
+        matrix[i][i] = 1.0; // Self-correlation
+        for (let j = i + 1; j < n; j++) {
+          const corr = this.calculateCorrelation(positions[i], positions[j]);
+          matrix[i][j] = corr.correlation;
+          matrix[j][i] = corr.correlation;
+
+          if (Math.abs(corr.correlation) > 0.7) {
+            highCorrelationPairs.push(corr);
+          }
+        }
+      }
+
+      // Calculate overall portfolio correlation (average of absolute correlations)
+      let totalCorr = 0;
+      let count = 0;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          totalCorr += Math.abs(matrix[i][j]);
+          count++;
+        }
+      }
+      const portfolioCorrelation = count > 0 ? totalCorr / count : 0;
+
+      return {
+        positions: positionIds,
+        matrix,
+        highCorrelationPairs,
+        portfolioCorrelation,
+      };
+    },
+
+    async getCategoryExposure(): Promise<CategoryExposure[]> {
+      await refreshIfStale();
+      const positions = cachedPositions || [];
+
+      if (positions.length === 0) {
+        return [];
+      }
+
+      const totalValue = positions.reduce((sum, p) => sum + Math.abs(p.value), 0);
+      const byCategory = new Map<PositionCategory, { value: number; positions: string[] }>();
+
+      for (const pos of positions) {
+        const category = this.classifyPosition(pos);
+        const existing = byCategory.get(category) || { value: 0, positions: [] };
+        existing.value += Math.abs(pos.value);
+        existing.positions.push(pos.id);
+        byCategory.set(category, existing);
+      }
+
+      const exposures: CategoryExposure[] = [];
+      for (const [category, data] of byCategory) {
+        exposures.push({
+          category,
+          positionCount: data.positions.length,
+          totalValue: data.value,
+          valuePercent: totalValue > 0 ? (data.value / totalValue) * 100 : 0,
+          positions: data.positions,
+        });
+      }
+
+      // Sort by value descending
+      exposures.sort((a, b) => b.totalValue - a.totalValue);
+      return exposures;
+    },
+
+    async getConcentrationRisk(): Promise<ConcentrationRisk> {
+      await refreshIfStale();
+      const positions = cachedPositions || [];
+
+      if (positions.length === 0) {
+        return {
+          hhi: 0,
+          largestPositionPct: 0,
+          top3Pct: 0,
+          diversificationScore: 100,
+          riskLevel: 'low',
+        };
+      }
+
+      const totalValue = positions.reduce((sum, p) => sum + Math.abs(p.value), 0);
+      if (totalValue === 0) {
+        return {
+          hhi: 0,
+          largestPositionPct: 0,
+          top3Pct: 0,
+          diversificationScore: 100,
+          riskLevel: 'low',
+        };
+      }
+
+      // Calculate market shares (as percentages)
+      const shares = positions.map((p) => (Math.abs(p.value) / totalValue) * 100);
+      shares.sort((a, b) => b - a);
+
+      // HHI = sum of squared market shares
+      const hhi = shares.reduce((sum, s) => sum + s * s, 0);
+
+      const largestPositionPct = shares[0];
+      const top3Pct = shares.slice(0, 3).reduce((sum, s) => sum + s, 0);
+
+      // Diversification score: 100 - (HHI normalized to 0-100)
+      // Max HHI = 10000 (single position), Min HHI = 10000/n (equal distribution)
+      const maxHhi = 10000;
+      const minHhi = positions.length > 0 ? 10000 / positions.length : 0;
+      const normalizedHhi = ((hhi - minHhi) / (maxHhi - minHhi)) * 100;
+      const diversificationScore = Math.max(0, 100 - normalizedHhi);
+
+      // Risk level thresholds
+      let riskLevel: ConcentrationRisk['riskLevel'];
+      if (largestPositionPct > 50 || hhi > 5000) {
+        riskLevel = 'critical';
+      } else if (largestPositionPct > 30 || hhi > 2500) {
+        riskLevel = 'high';
+      } else if (largestPositionPct > 20 || hhi > 1500) {
+        riskLevel = 'medium';
+      } else {
+        riskLevel = 'low';
+      }
+
+      return {
+        hhi: Math.round(hhi),
+        largestPositionPct,
+        top3Pct,
+        diversificationScore: Math.round(diversificationScore),
+        riskLevel,
+      };
+    },
+
+    async findHedgedPairs(): Promise<Array<{ longPosition: string; shortPosition: string; hedgeRatio: number }>> {
+      await refreshIfStale();
+      const positions = cachedPositions || [];
+
+      const hedgedPairs: Array<{ longPosition: string; shortPosition: string; hedgeRatio: number }> = [];
+
+      // Find positions in the same market with opposite outcomes
+      const byMarket = new Map<string, Position[]>();
+      for (const pos of positions) {
+        const key = `${pos.platform}:${pos.marketId}`;
+        const existing = byMarket.get(key) || [];
+        existing.push(pos);
+        byMarket.set(key, existing);
+      }
+
+      for (const [_, marketPositions] of byMarket) {
+        if (marketPositions.length >= 2) {
+          // Find YES and NO positions
+          const yesPos = marketPositions.find((p) => p.outcome.toLowerCase() === 'yes');
+          const noPos = marketPositions.find((p) => p.outcome.toLowerCase() === 'no');
+
+          if (yesPos && noPos) {
+            const minValue = Math.min(Math.abs(yesPos.value), Math.abs(noPos.value));
+            const maxValue = Math.max(Math.abs(yesPos.value), Math.abs(noPos.value));
+            const hedgeRatio = maxValue > 0 ? minValue / maxValue : 0;
+
+            hedgedPairs.push({
+              longPosition: yesPos.value > noPos.value ? yesPos.id : noPos.id,
+              shortPosition: yesPos.value > noPos.value ? noPos.id : yesPos.id,
+              hedgeRatio,
+            });
+          }
+        }
+      }
+
+      return hedgedPairs;
+    },
+
+    async getPortfolioRiskMetrics(): Promise<PortfolioRiskMetrics> {
+      await refreshIfStale();
+      const positions = cachedPositions || [];
+
+      const [correlationMatrix, categoryExposure, concentrationRisk, hedgedPositions] = await Promise.all([
+        this.getCorrelationMatrix(),
+        this.getCategoryExposure(),
+        this.getConcentrationRisk(),
+        this.findHedgedPairs(),
+      ]);
+
+      // Platform exposure
+      const totalValue = positions.reduce((sum, p) => sum + Math.abs(p.value), 0);
+      const byPlatform = new Map<string, { count: number; value: number }>();
+
+      for (const pos of positions) {
+        const existing = byPlatform.get(pos.platform) || { count: 0, value: 0 };
+        existing.count++;
+        existing.value += Math.abs(pos.value);
+        byPlatform.set(pos.platform, existing);
+      }
+
+      const platformExposure = Array.from(byPlatform.entries()).map(([platform, data]) => ({
+        platform,
+        positionCount: data.count,
+        totalValue: data.value,
+        valuePercent: totalValue > 0 ? (data.value / totalValue) * 100 : 0,
+      }));
+
+      return {
+        correlationMatrix,
+        categoryExposure,
+        platformExposure,
+        concentrationRisk,
+        hedgedPositions,
+      };
     },
   };
 

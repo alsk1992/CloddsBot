@@ -418,7 +418,7 @@ const MIGRATIONS: Migration[] = [
       const getColumns = (table: string): string[] => {
         ensureIdentifier(table);
         const rows = db.query<{ name: string }>(`PRAGMA table_info(${table})`);
-        return rows.map((row) => row.name);
+        return Array.isArray(rows) ? rows.map((row) => row.name) : [];
       };
 
       const addColumnIfMissing = (table: string, column: string, type: string, defaultSql?: string) => {
@@ -934,7 +934,7 @@ const MIGRATIONS: Migration[] = [
       const getColumns = (table: string): string[] => {
         ensureIdentifier(table);
         const rows = db.query<{ name: string }>(`PRAGMA table_info(${table})`);
-        return rows.map((row) => row.name);
+        return Array.isArray(rows) ? rows.map((row) => row.name) : [];
       };
 
       const addColumnIfMissing = (table: string, column: string, type: string, defaultSql?: string) => {

@@ -9,6 +9,7 @@ import { EventEmitter } from 'eventemitter3';
 import WebSocket from 'ws';
 import { logger } from '../../utils/logger';
 import type { Market, PriceUpdate, Orderbook, Platform } from '../../types';
+import { getGlobalFreshnessTracker, type FreshnessTracker } from '../freshness';
 
 const WS_URL = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
 const REST_URL = 'https://clob.polymarket.com';
@@ -59,6 +60,9 @@ export async function createPolymarketFeed(): Promise<PolymarketFeed> {
   const subscriptions = new Map<string, Set<(update: PriceUpdate) => void>>();
   const marketCache = new Map<string, Market>();
   const lastPrices = new Map<string, number>();
+
+  // Freshness tracking for WebSocket health monitoring
+  const freshnessTracker: FreshnessTracker = getGlobalFreshnessTracker();
 
   function connect() {
     if (ws) return;
@@ -164,6 +168,9 @@ export async function createPolymarketFeed(): Promise<PolymarketFeed> {
   function emitPriceUpdate(assetId: string, marketId: string, price: number, timestamp: number) {
     const previousPrice = lastPrices.get(assetId);
     lastPrices.set(assetId, price);
+
+    // Record message for freshness tracking
+    freshnessTracker.recordMessage('polymarket', assetId);
 
     const priceUpdate: PriceUpdate = {
       platform: 'polymarket',
@@ -442,6 +449,15 @@ export async function createPolymarketFeed(): Promise<PolymarketFeed> {
     if (!subscriptions.has(marketId)) {
       subscriptions.set(marketId, new Set());
       subscribeToMarket(marketId);
+
+      // Start freshness tracking with polling fallback
+      freshnessTracker.track('polymarket', marketId, async () => {
+        // Polling fallback: fetch orderbook and emit update
+        const orderbook = await fetchOrderbook(marketId);
+        if (orderbook && orderbook.midPrice) {
+          emitPriceUpdate(marketId, marketId, orderbook.midPrice, Date.now());
+        }
+      });
     }
     subscriptions.get(marketId)!.add(callback);
 
@@ -452,6 +468,7 @@ export async function createPolymarketFeed(): Promise<PolymarketFeed> {
         callbacks.delete(callback);
         if (callbacks.size === 0) {
           subscriptions.delete(marketId);
+          freshnessTracker.untrack('polymarket', marketId);
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(
               JSON.stringify({
