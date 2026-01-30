@@ -443,6 +443,156 @@ const prices = await quickPriceCompare(feeds, 'trump-win-2024');
 console.log(prices); // { polymarket: 0.52, kalshi: 0.54 }
 ```
 
+### Authentication (OAuth, Copilot, Google, Qwen)
+
+```typescript
+import {
+  OAuthClient,
+  interactiveOAuth,
+  createAnthropicOAuth,
+  createOpenAIOAuth,
+  createGoogleOAuth
+} from 'clodds/auth/oauth';
+import { CopilotAuthClient, interactiveCopilotAuth } from 'clodds/auth/copilot';
+import { GoogleAuthClient, GeminiClient, interactiveGoogleAuth } from 'clodds/auth/google';
+import { QwenAuthClient, QwenClient } from 'clodds/auth/qwen';
+
+// OAuth for Anthropic/OpenAI
+const anthropicOAuth = createAnthropicOAuth('client-id', 'client-secret');
+const tokens = await interactiveOAuth({
+  provider: 'anthropic',
+  clientId: 'your-client-id',
+  scopes: ['api:read', 'api:write'],
+});
+
+// GitHub Copilot authentication
+const copilotAuth = new CopilotAuthClient();
+await interactiveCopilotAuth(); // Interactive device code flow
+const headers = await copilotAuth.getHeaders();
+
+// Google/Gemini authentication
+const googleAuth = new GoogleAuthClient({ projectId: 'my-project' });
+await interactiveGoogleAuth();
+const gemini = new GeminiClient({ projectId: 'my-project' });
+const response = await gemini.generateContent('gemini-pro', 'Hello world');
+
+// Qwen/DashScope authentication
+const qwen = new QwenClient({ apiKey: process.env.DASHSCOPE_API_KEY });
+const result = await qwen.generate('qwen-turbo', 'Hello');
+```
+
+### OpenTelemetry Diagnostics
+
+```typescript
+import {
+  initTelemetry,
+  TelemetryService,
+  LLMInstrumentation,
+  createLLMInstrumentation
+} from 'clodds/telemetry';
+
+// Initialize telemetry
+const telemetry = initTelemetry({
+  enabled: true,
+  serviceName: 'clodds',
+  otlpEndpoint: 'http://localhost:4318', // OTLP collector
+  jaegerEndpoint: 'http://localhost:14268', // Jaeger
+  metricsPort: 9090, // Prometheus metrics
+  sampleRate: 1.0,
+});
+
+// Create LLM instrumentation
+const llmInstr = createLLMInstrumentation();
+
+// Trace LLM completion
+const { result, span } = await llmInstr.traceCompletion(
+  'anthropic',
+  'claude-3-5-sonnet',
+  () => provider.complete({ model, messages }),
+  { inputTokens: 100, userId: 'user-123' }
+);
+
+// Record token usage
+llmInstr.recordTokenUsage('anthropic', 'claude-3-5-sonnet', 100, 500);
+
+// Manual tracing
+const span = telemetry.startTrace('my-operation', { custom: 'attr' });
+telemetry.addEvent(span, 'checkpoint');
+telemetry.endSpan(span, 'ok');
+
+// Metrics
+telemetry.recordCounter('requests_total', 1, { endpoint: '/api' });
+telemetry.recordHistogram('request_duration_ms', 150);
+
+// Start Prometheus metrics server
+telemetry.startMetricsServer(9090);
+```
+
+### Task Runner Extension
+
+```typescript
+import { createTaskRunner, TaskRunner, TaskDefinition } from 'clodds/extensions/task-runner';
+
+const runner = createTaskRunner({
+  maxConcurrent: 4,
+  defaultTimeout: 60000,
+  planningModel: 'claude-3-5-sonnet',
+}, provider);
+
+// Plan tasks from high-level goal
+const tasks = await runner.planTasks('Build a REST API with user authentication');
+
+// Execute tasks with dependency resolution
+const results = await runner.executeTasks(tasks, '/path/to/workdir');
+
+// Built-in executors: shell, file, http, llm, transform
+const shellTask: TaskDefinition = {
+  id: 'build',
+  name: 'Build project',
+  type: 'atomic',
+  executor: 'shell',
+  input: { command: 'npm', args: ['run', 'build'] },
+};
+
+// Register custom executor
+runner.registerExecutor({
+  name: 'custom',
+  execute: async (task, context) => {
+    // Custom logic
+    return { success: true };
+  },
+});
+```
+
+### Open Prose Extension
+
+```typescript
+import { createOpenProseExtension } from 'clodds/extensions/open-prose';
+
+const prose = await createOpenProseExtension({
+  enabled: true,
+  enableHistory: true,
+  maxHistoryEntries: 100,
+});
+
+// Create and edit documents
+const doc = await prose.createDocument('My Article', '# Draft\n\nContent here...', 'markdown');
+await prose.updateDocument(doc.id, '# Updated\n\nNew content', 'Major revision');
+
+// AI-assisted editing (requires provider)
+const { document, changes } = await prose.aiEdit(doc.id, 'Make it more concise', provider);
+const completion = await prose.aiComplete(doc.id, 50, provider);
+const summary = await prose.aiSummarize(doc.id, provider);
+const { document: rewritten } = await prose.aiRewrite(doc.id, 'formal', provider);
+
+// Version history
+const history = await prose.getHistory(doc.id);
+await prose.restoreVersion(doc.id, 3);
+
+// Export
+const html = await prose.exportDocument(doc.id, 'html');
+```
+
 ### Auto-Arbitrage Execution
 
 ```typescript

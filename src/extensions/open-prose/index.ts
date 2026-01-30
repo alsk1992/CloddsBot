@@ -63,9 +63,15 @@ export interface OpenProseExtension {
   /** List all documents */
   listDocuments(): Promise<Document[]>;
   /** AI-assisted editing */
-  aiEdit(id: string, instruction: string): Promise<{ document: Document; changes: string }>;
+  aiEdit(id: string, instruction: string, provider?: any): Promise<{ document: Document; changes: string }>;
   /** AI-assisted completion */
-  aiComplete(id: string, position: number): Promise<string>;
+  aiComplete(id: string, position: number, provider?: any): Promise<string>;
+  /** AI-assisted summarization */
+  aiSummarize(id: string, provider?: any): Promise<string>;
+  /** AI-assisted rewrite */
+  aiRewrite(id: string, style: string, provider?: any): Promise<{ document: Document; changes: string }>;
+  /** AI-assisted expand */
+  aiExpand(id: string, section?: string, provider?: any): Promise<{ document: Document; changes: string }>;
   /** Export document */
   exportDocument(id: string, format: 'md' | 'html' | 'pdf' | 'docx'): Promise<Buffer>;
   /** Import document */
@@ -233,34 +239,196 @@ export async function createOpenProseExtension(config: OpenProseConfig): Promise
 
     async aiEdit(
       id: string,
-      instruction: string
+      instruction: string,
+      provider?: any
     ): Promise<{ document: Document; changes: string }> {
       const doc = documents.get(id);
       if (!doc) {
         throw new Error(`Document ${id} not found`);
       }
 
-      // This would integrate with an LLM to perform the edit
-      // For now, return a placeholder
-      logger.info({ id, instruction }, 'AI edit requested');
+      if (!provider) {
+        throw new Error('Provider required for AI edit');
+      }
+
+      const prompt = `You are an expert editor. Apply this instruction to the document.
+
+Instruction: ${instruction}
+
+Document (${doc.format}):
+${doc.content}
+
+Respond with ONLY the edited document content, no explanations. Preserve the original format.`;
+
+      const response = await provider.complete({
+        model: 'claude-3-5-sonnet-20241022',
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 8192,
+      });
+
+      const newContent = response.text.trim();
+      const previousContent = doc.content;
+
+      doc.content = newContent;
+      doc.updatedAt = Date.now();
+      doc.version++;
+      addToHistory(id, doc, `AI edit: ${instruction.substring(0, 50)}...`);
+
+      // Calculate diff summary
+      const oldWords = previousContent.split(/\s+/).length;
+      const newWords = newContent.split(/\s+/).length;
+      const wordDiff = newWords - oldWords;
+      const changes = wordDiff > 0
+        ? `Added ~${wordDiff} words`
+        : wordDiff < 0
+          ? `Removed ~${Math.abs(wordDiff)} words`
+          : 'Content restructured';
+
+      logger.info({ id, instruction, changes }, 'AI edit completed');
 
       return {
         document: doc,
-        changes: 'AI editing not yet implemented - requires LLM integration',
+        changes,
       };
     },
 
-    async aiComplete(id: string, position: number): Promise<string> {
+    async aiComplete(id: string, position: number, provider?: any): Promise<string> {
       const doc = documents.get(id);
       if (!doc) {
         throw new Error(`Document ${id} not found`);
       }
 
-      // This would integrate with an LLM for completion
-      // For now, return a placeholder
-      logger.info({ id, position }, 'AI completion requested');
+      if (!provider) {
+        throw new Error('Provider required for AI completion');
+      }
 
-      return '... [AI completion not yet implemented]';
+      const textBefore = doc.content.substring(0, position);
+      const textAfter = doc.content.substring(position);
+
+      const prompt = `Continue writing this ${doc.format} document naturally.
+Match the style, tone, and format of the existing content.
+
+Text before cursor:
+${textBefore}
+
+${textAfter ? `Text after cursor:\n${textAfter}` : ''}
+
+Provide only the completion text, no explanations. Write 1-3 sentences that naturally continue from where the cursor is.`;
+
+      const response = await provider.complete({
+        model: 'claude-3-5-sonnet-20241022',
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 500,
+      });
+
+      const completion = response.text.trim();
+      logger.info({ id, position, completionLength: completion.length }, 'AI completion generated');
+
+      return completion;
+    },
+
+    async aiSummarize(id: string, provider?: any): Promise<string> {
+      const doc = documents.get(id);
+      if (!doc) {
+        throw new Error(`Document ${id} not found`);
+      }
+
+      if (!provider) {
+        throw new Error('Provider required for AI summarize');
+      }
+
+      const prompt = `Summarize this document in 2-3 concise sentences:
+
+${doc.content}`;
+
+      const response = await provider.complete({
+        model: 'claude-3-5-sonnet-20241022',
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 200,
+      });
+
+      return response.text.trim();
+    },
+
+    async aiRewrite(id: string, style: string, provider?: any): Promise<{ document: Document; changes: string }> {
+      const doc = documents.get(id);
+      if (!doc) {
+        throw new Error(`Document ${id} not found`);
+      }
+
+      if (!provider) {
+        throw new Error('Provider required for AI rewrite');
+      }
+
+      const prompt = `Rewrite this document in a ${style} style while preserving the core meaning:
+
+${doc.content}
+
+Output only the rewritten document content.`;
+
+      const response = await provider.complete({
+        model: 'claude-3-5-sonnet-20241022',
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 8192,
+      });
+
+      const newContent = response.text.trim();
+      doc.content = newContent;
+      doc.updatedAt = Date.now();
+      doc.version++;
+      addToHistory(id, doc, `AI rewrite: ${style} style`);
+
+      return {
+        document: doc,
+        changes: `Rewritten in ${style} style`,
+      };
+    },
+
+    async aiExpand(id: string, section?: string, provider?: any): Promise<{ document: Document; changes: string }> {
+      const doc = documents.get(id);
+      if (!doc) {
+        throw new Error(`Document ${id} not found`);
+      }
+
+      if (!provider) {
+        throw new Error('Provider required for AI expand');
+      }
+
+      const prompt = section
+        ? `Expand this section with more detail while fitting the document context:
+
+Section to expand:
+${section}
+
+Full document:
+${doc.content}
+
+Output the full document with the expanded section.`
+        : `Expand this document with more detail, examples, and elaboration:
+
+${doc.content}
+
+Output the expanded document.`;
+
+      const response = await provider.complete({
+        model: 'claude-3-5-sonnet-20241022',
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 8192,
+      });
+
+      const newContent = response.text.trim();
+      const oldWords = doc.content.split(/\s+/).length;
+      const newWords = newContent.split(/\s+/).length;
+
+      doc.content = newContent;
+      doc.updatedAt = Date.now();
+      doc.version++;
+      addToHistory(id, doc, 'AI expand');
+
+      return {
+        document: doc,
+        changes: `Expanded from ${oldWords} to ${newWords} words`,
+      };
     },
 
     async exportDocument(

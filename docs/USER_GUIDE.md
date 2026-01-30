@@ -464,6 +464,132 @@ Real-time prices via Binance WebSocket with Coinbase/CoinGecko fallback:
 - 24h volume and price changes
 - OHLCV historical data
 
+## Authentication
+
+Clodds supports multiple authentication methods for AI providers:
+
+### OAuth Authentication
+
+```bash
+# Interactive OAuth flow
+clodds auth login anthropic
+clodds auth login openai
+clodds auth login google
+
+# Check status
+clodds auth status
+
+# Revoke tokens
+clodds auth logout anthropic
+```
+
+### GitHub Copilot
+
+```bash
+# Authenticate with GitHub Copilot
+clodds auth copilot
+```
+
+### Google/Gemini
+
+```bash
+# API key authentication
+export GOOGLE_API_KEY=your-key
+# Or OAuth
+clodds auth login google
+```
+
+### Qwen/DashScope
+
+```bash
+export DASHSCOPE_API_KEY=your-key
+```
+
+## Telemetry & Monitoring
+
+Enable OpenTelemetry for observability:
+
+```json
+{
+  "telemetry": {
+    "enabled": true,
+    "serviceName": "clodds",
+    "otlpEndpoint": "http://localhost:4318",
+    "metricsPort": 9090,
+    "sampleRate": 1.0
+  }
+}
+```
+
+Access Prometheus metrics at `http://localhost:9090/metrics`.
+
+### LLM Metrics
+
+- `llm_requests_total` - Total LLM requests by provider/model/status
+- `llm_request_duration_ms` - Request latency histogram
+- `llm_tokens_input_total` - Input tokens by provider/model
+- `llm_tokens_output_total` - Output tokens by provider/model
+
+## Extensions
+
+### Task Runner
+
+AI-powered task execution with planning:
+
+```bash
+# Run a complex task
+clodds task run "Build a REST API with authentication"
+
+# View task status
+clodds task status
+
+# Cancel running task
+clodds task cancel <id>
+```
+
+### Open Prose
+
+AI-assisted document editing:
+
+```bash
+# Create a document
+clodds prose create "My Article"
+
+# Edit with AI
+clodds prose edit <id> "Make it more concise"
+
+# Export
+clodds prose export <id> html
+```
+
+## Production Deployment
+
+### Channel Adapters
+
+All channel adapters include production-grade features:
+
+- **Rate Limiting**: Token bucket algorithm (30 req/s default)
+- **Circuit Breaker**: Auto-disable on repeated failures
+- **Health Checks**: Periodic connectivity checks
+- **Auto-Reconnection**: Exponential backoff reconnection
+- **Metrics**: Request counts, latency, error rates
+
+Configure in `clodds.json`:
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "rateLimit": 30,
+      "rateLimitBurst": 10,
+      "circuitBreakerThreshold": 5,
+      "healthCheckIntervalMs": 30000,
+      "maxReconnectAttempts": 10
+    }
+  }
+}
+```
+
 ## Tips
 
 - Keep the gateway on loopback unless you add auth and a reverse proxy.
