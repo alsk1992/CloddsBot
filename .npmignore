@@ -1,0 +1,78 @@
+# Source files (dist is published)
+src/
+tests/
+*.ts
+!*.d.ts
+
+# Config files
+.env*
+.claude/
+.vscode/
+.github/
+*.config.js
+*.config.ts
+tsconfig.json
+eslint*
+prettier*
+.editorconfig
+
+# Documentation (link to GitHub instead)
+docs/
+apps/
+*.md
+!README.md
+!LICENSE
+
+# Dev/Build
+node_modules/
+coverage/
+.nyc_output/
+*.log
+*.tgz
+
+# Assets
+assets/
+screenshots/
+*.png
+*.gif
+*.mp4
+
+# Scripts
+scripts/
+Makefile
+
+# Git
+.git/
+.gitignore
+
+# Misc
+.DS_Store
+Thumbs.db
+*.bak
+*.swp
+*~
+
+# Large/unnecessary folders
+gsc-mcp/
+polybot/
+btc-arb-bot/
+qmd-skill/
+
+# Vercel
+.vercel/
+vercel.json
+
+# Python trading scripts
+trading/
+*.py
+
+# Workspace/dev folders
+workspace/
+ui/
+vendor/
+server/
+public/
+
+# Docker
+Dockerfile
+docker-compose.yml
