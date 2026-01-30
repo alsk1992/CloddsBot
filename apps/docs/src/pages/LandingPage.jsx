@@ -83,7 +83,7 @@ const features = [
   {
     color: 'blue',
     title: 'Whale Tracking & Copy Trading',
-    description: 'Monitor large trades, follow successful wallets, and automatically mirror positions.',
+    description: 'Monitor large trades on Polymarket and crypto chains (Solana, ETH, Polygon, ARB, Base), follow whales, and auto-copy positions.',
   },
   {
     color: 'orange',
@@ -148,7 +148,7 @@ npx wrangler deploy
 curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://clodds-worker.<account>.workers.dev/webhook/telegram"`;
 
 const advancedFeatures = [
-  { icon: Radar, title: 'Whale Tracking', desc: 'Monitor large trades, track wallets, leaderboard', color: 'cyan' },
+  { icon: Radar, title: 'Whale Tracking', desc: 'Polymarket + multi-chain crypto (Solana, ETH, Polygon, ARB, Base, OP)', color: 'cyan' },
   { icon: Users, title: 'Copy Trading', desc: 'Auto-mirror positions with configurable sizing', color: 'green' },
   { icon: Route, title: 'Smart Routing', desc: 'Best price routing, maker rebates, liquidity-aware', color: 'purple' },
   { icon: Shield, title: 'MEV Protection', desc: 'Flashbots, Jito bundles, sequencer protection', color: 'red' },

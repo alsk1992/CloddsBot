@@ -157,14 +157,28 @@ createMomentumStrategy({
 ```
 
 ### Arbitrage
-Cross-platform price differences.
+Cross-platform price differences with semantic entity matching.
 
 ```typescript
 createArbitrageStrategy({
   platforms: ['polymarket', 'kalshi'],
   minSpread: 0.02,
   maxPositionSize: 500,
+  // Entity matching for accurate cross-platform comparison
+  matchEntities: true,  // Extract year, person, threshold from market titles
 });
+```
+
+**Entity Extraction:**
+The arbitrage strategy extracts entities from market titles for accurate matching:
+- **Year**: "2024 Election" vs "2025 Election" - prevents false matches
+- **Person**: "Trump" vs "Biden" - ensures same subject
+- **Threshold**: "50%" vs "60%" - prevents threshold mismatches
+
+Canonical IDs are generated for cross-platform matching:
+```
+polymarket:trump-2024-president → canonical:election:trump:2024
+kalshi:POTUS-24-DJT → canonical:election:trump:2024
 ```
 
 ## Creating Custom Strategies
@@ -603,7 +617,7 @@ await tracker.start();
 
 ### Copy Trading
 
-Automatically mirror trades from successful wallets.
+Automatically mirror trades from successful wallets with automatic stop-loss and take-profit monitoring.
 
 ```typescript
 import { createCopyTradingService } from './trading/copy-trading';
@@ -615,11 +629,22 @@ const copier = createCopyTradingService(whaleTracker, execution, {
   maxPositionSize: 500,
   copyDelayMs: 5000,    // Wait 5s before copying
   dryRun: true,
+  // Stop-loss / Take-profit
+  stopLossPct: 10,      // Exit at 10% loss
+  takeProfitPct: 20,    // Exit at 20% profit
 });
 
 copier.on('tradeCopied', (trade) => console.log('Copied:', trade.id));
+copier.on('positionClosed', (trade, reason) => {
+  console.log(`Closed ${trade.id}: ${reason} at ${trade.exitPrice}`);
+});
 copier.start();
 ```
+
+**SL/TP Monitoring:**
+- 5-second price polling interval
+- Automatic position exit when thresholds hit
+- Events: `positionClosed` with reason ('stop_loss', 'take_profit', 'manual')
 
 ### Smart Order Routing
 
@@ -711,6 +736,77 @@ await mev.sendEvmTransaction('ethereum', signedTx);
 const bundle = await mev.createSolanaBundle(transactions, payer);
 await mev.submitSolanaBundle(bundle);
 ```
+
+### Crypto Whale Tracking
+
+Monitor whale activity across multiple blockchains.
+
+```typescript
+import { createCryptoWhaleTracker } from './feeds/crypto/whale-tracker';
+
+const tracker = createCryptoWhaleTracker({
+  chains: ['solana', 'ethereum', 'polygon', 'arbitrum'],
+  thresholds: {
+    solana: 10000,     // $10k+ on Solana
+    ethereum: 50000,   // $50k+ on ETH
+    polygon: 5000,     // $5k+ on Polygon
+  },
+  // API keys
+  birdeyeApiKey: process.env.BIRDEYE_API_KEY,  // For Solana
+  alchemyApiKey: process.env.ALCHEMY_API_KEY,  // For EVM chains
+});
+
+// Real-time transaction events
+tracker.on('transaction', (tx) => {
+  console.log(`${tx.chain}: ${tx.type} $${tx.usdValue} by ${tx.wallet}`);
+});
+
+// Whale alerts (above threshold)
+tracker.on('alert', (alert) => {
+  console.log(`WHALE ALERT: ${alert.message}`);
+});
+
+// Watch specific wallets
+tracker.watchWallet('solana', 'ABC123...', { label: 'Whale 1' });
+
+await tracker.start();
+
+// Query methods
+const topWhales = tracker.getTopWhales('solana', 10);
+const recent = tracker.getRecentTransactions('ethereum', 100);
+```
+
+**Supported Chains:**
+| Chain | Provider | WebSocket | Features |
+|-------|----------|-----------|----------|
+| Solana | Birdeye | Yes | Token transfers, swaps, NFTs |
+| Ethereum | Alchemy | Yes | ERC-20, ETH transfers |
+| Polygon | Alchemy | Yes | MATIC, tokens |
+| Arbitrum | Alchemy | Yes | L2 activity |
+| Base | Alchemy | Yes | Coinbase L2 |
+| Optimism | Alchemy | Yes | OP ecosystem |
+
+**Transaction Types:**
+- `transfer` - Token/native transfers
+- `swap` - DEX swaps
+- `nft` - NFT purchases/sales
+- `stake` - Staking operations
+- `unknown` - Other transactions
+
+### Slippage Estimation
+
+Real orderbook-based slippage calculation for accurate execution estimates.
+
+```typescript
+import { estimateSlippage } from './execution';
+
+const estimate = await estimateSlippage('polymarket', 'market-id', 'buy', 1000);
+console.log(`Expected slippage: ${estimate.slippagePct}%`);
+console.log(`Average fill price: ${estimate.avgFillPrice}`);
+console.log(`Total filled: ${estimate.totalFilled}`);
+```
+
+The system fetches live orderbook data and simulates walking the book to calculate realistic fill prices.
 
 ## API Reference
 

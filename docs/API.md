@@ -355,7 +355,7 @@ const bundle = await mev.createSolanaBundle(transactions, payerPubkey);
 await mev.submitSolanaBundle(bundle);
 ```
 
-### Whale Tracking
+### Whale Tracking (Polymarket)
 
 ```typescript
 import { createWhaleTracker, getMarketWhaleActivity } from 'clodds/feeds/polymarket/whale-tracker';
@@ -381,6 +381,60 @@ const activity = await getMarketWhaleActivity(marketId);
 console.log(`Buy volume: $${activity.buyVolume}, Sell volume: $${activity.sellVolume}`);
 ```
 
+### Crypto Whale Tracking (Multi-Chain)
+
+```typescript
+import { createCryptoWhaleTracker } from 'clodds/feeds/crypto/whale-tracker';
+
+const tracker = createCryptoWhaleTracker({
+  chains: ['solana', 'ethereum', 'polygon', 'arbitrum', 'base', 'optimism'],
+  thresholds: {
+    solana: 10000,      // $10k+ on Solana
+    ethereum: 50000,    // $50k+ on ETH
+    polygon: 5000,      // $5k+ on Polygon
+    arbitrum: 10000,
+    base: 10000,
+    optimism: 10000,
+  },
+  birdeyeApiKey: process.env.BIRDEYE_API_KEY,  // For Solana
+  alchemyApiKey: process.env.ALCHEMY_API_KEY,  // For EVM chains
+});
+
+// Real-time transaction events
+tracker.on('transaction', (tx) => {
+  console.log(`${tx.chain}: ${tx.type} $${tx.usdValue} from ${tx.wallet}`);
+  console.log(`  Token: ${tx.token}, Amount: ${tx.amount}`);
+});
+
+// Whale alerts (above threshold)
+tracker.on('alert', (alert) => {
+  console.log(`WHALE ALERT: ${alert.message}`);
+});
+
+// Watch specific wallets
+tracker.watchWallet('solana', 'ABC123...', { label: 'Known Whale' });
+tracker.watchWallet('ethereum', '0x1234...', { label: 'Smart Money' });
+
+await tracker.start();
+
+// Query methods
+const topSolWhales = tracker.getTopWhales('solana', 10);
+const recentEthTxs = tracker.getRecentTransactions('ethereum', 100);
+const wallet = tracker.getWallet('solana', 'ABC123...');
+```
+
+**Supported Chains:**
+| Chain | Provider | Features |
+|-------|----------|----------|
+| Solana | Birdeye WebSocket | Token transfers, swaps, NFTs |
+| Ethereum | Alchemy WebSocket | ERC-20, ETH transfers |
+| Polygon | Alchemy WebSocket | MATIC, tokens |
+| Arbitrum | Alchemy WebSocket | L2 activity |
+| Base | Alchemy WebSocket | Coinbase L2 |
+| Optimism | Alchemy WebSocket | OP ecosystem |
+
+**Transaction Types:** `transfer`, `swap`, `nft`, `stake`, `unknown`
+
 ### Copy Trading
 
 ```typescript
@@ -400,10 +454,19 @@ const copyTrader = createCopyTradingService(whaleTracker, execution, {
   maxPositionSize: 500,   // Max $500 per market
   copyDelayMs: 5000,      // 5s delay before copying
   dryRun: true,           // Start in dry run mode
+  // Stop-loss / Take-profit monitoring
+  stopLossPct: 10,        // Exit at 10% loss
+  takeProfitPct: 20,      // Exit at 20% profit
 });
 
 copyTrader.on('tradeCopied', (trade) => {
   console.log(`Copied: ${trade.side} ${trade.size} @ ${trade.entryPrice}`);
+});
+
+// SL/TP events
+copyTrader.on('positionClosed', (trade, reason) => {
+  console.log(`Position closed: ${reason} at ${trade.exitPrice}`);
+  // reason: 'stop_loss' | 'take_profit' | 'manual'
 });
 
 copyTrader.start();
@@ -412,6 +475,11 @@ copyTrader.start();
 copyTrader.follow('0x...');
 copyTrader.unfollow('0x...');
 ```
+
+**SL/TP Monitoring:**
+- 5-second price polling interval
+- Automatic position exit when thresholds hit
+- Events emitted for position closures with reason
 
 ### Smart Order Routing
 

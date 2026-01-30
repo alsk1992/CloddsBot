@@ -1025,6 +1025,48 @@ tracker.on('positionOpened', (position) => {
 await tracker.start();`}
               </CodeBlock>
             </Subsection>
+
+            <Subsection title="Crypto Whale Tracking (Multi-Chain)">
+              <p className="text-slate-400 mb-3">Monitor whale activity across Solana and EVM chains:</p>
+              <Table
+                headers={['Chain', 'Provider', 'Features']}
+                rows={[
+                  ['Solana', 'Birdeye WebSocket', 'Token transfers, swaps, NFTs'],
+                  ['Ethereum', 'Alchemy WebSocket', 'ERC-20, ETH transfers'],
+                  ['Polygon', 'Alchemy WebSocket', 'MATIC, tokens'],
+                  ['Arbitrum', 'Alchemy WebSocket', 'L2 activity'],
+                  ['Base', 'Alchemy WebSocket', 'Coinbase L2'],
+                  ['Optimism', 'Alchemy WebSocket', 'OP ecosystem'],
+                ]}
+              />
+              <CodeBlock title="Chat Commands" className="mt-4">
+{`/crypto-whale start                    # Start tracking all configured chains
+/crypto-whale watch solana ABC123...   # Watch a Solana wallet
+/crypto-whale watch ethereum 0x1234... # Watch an ETH wallet
+/crypto-whale top solana 10            # Top 10 Solana whales
+/crypto-whale recent ethereum 20       # Recent ETH whale transactions`}
+              </CodeBlock>
+              <CodeBlock title="TypeScript">
+{`import { createCryptoWhaleTracker } from 'clodds/feeds/crypto/whale-tracker';
+
+const tracker = createCryptoWhaleTracker({
+  chains: ['solana', 'ethereum', 'polygon'],
+  thresholds: {
+    solana: 10000,    // $10k+ on Solana
+    ethereum: 50000,  // $50k+ on ETH
+    polygon: 5000,    // $5k+ on Polygon
+  },
+  birdeyeApiKey: process.env.BIRDEYE_API_KEY,
+  alchemyApiKey: process.env.ALCHEMY_API_KEY,
+});
+
+tracker.on('transaction', (tx) => {
+  console.log(\`\${tx.chain}: \${tx.type} $\${tx.usdValue} from \${tx.wallet}\`);
+});
+
+await tracker.start();`}
+              </CodeBlock>
+            </Subsection>
           </Section>
 
           {/* Copy Trading */}
@@ -1057,7 +1099,18 @@ await tracker.start();`}
                 <li><strong>Max Position Size:</strong> Limit per-market exposure</li>
                 <li><strong>Dry Run Mode:</strong> Test without real trades</li>
                 <li><strong>Filtering:</strong> Skip trades below minimum confidence</li>
+                <li><strong>Stop-Loss / Take-Profit:</strong> Automatic position exit with 5-second price polling</li>
               </ul>
+            </Subsection>
+
+            <Subsection title="Stop-Loss / Take-Profit Monitoring">
+              <p className="text-slate-400 mb-3">Configure automatic position exits:</p>
+              <CodeBlock>
+{`/copy config sl=10      # Set 10% stop-loss
+/copy config tp=20      # Set 20% take-profit
+/copy status            # View active positions and SL/TP status`}
+              </CodeBlock>
+              <p className="text-slate-400 mt-3">Positions are monitored every 5 seconds. When thresholds are hit, positions are automatically closed and you receive a notification.</p>
             </Subsection>
           </Section>
 

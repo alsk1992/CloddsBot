@@ -155,6 +155,7 @@ clodds version                  # Show version
 | **Solana DeFi** | Jupiter, Raydium, Orca, Meteora, Pump.fun integration |
 | **EVM DeFi** | Uniswap V3, 1inch aggregator (ETH, ARB, OP, Base, Polygon) |
 | **Smart Trading** | Whale tracking, copy trading, smart routing, MEV protection |
+| **Crypto Whale Tracking** | Multi-chain whale monitoring (Solana, ETH, Polygon, ARB, Base, OP) |
 | **Payments** | x402 protocol for machine-to-machine USDC payments (Base + Solana) |
 | **Bridging** | Wormhole cross-chain token transfers |
 | **Automation** | Trading bots, cron jobs, webhooks, skills system |
@@ -283,6 +284,9 @@ Machine-to-machine crypto payments:
 - **Asset**: USDC
 - **Features**: Auto-approval, fee-free via Coinbase facilitator
 - Full client and server middleware
+- Proper ECDSA secp256k1 signing for EVM
+- Solana ATA derivation via PDA algorithm
+- Real blockchain balance queries
 
 ---
 
@@ -396,13 +400,33 @@ Monitor large trades and positions to identify market-moving activity:
 - Position history and PnL tracking
 - Top trader leaderboard
 
+### Crypto Whale Tracking (Multi-Chain)
+Real-time whale monitoring across major blockchains:
+
+| Chain | Protocol | Features |
+|-------|----------|----------|
+| **Solana** | Birdeye WebSocket | Real-time token transfers, swap detection |
+| **Ethereum** | Alchemy WebSocket | ERC-20 transfers, large ETH movements |
+| **Polygon** | Alchemy WebSocket | MATIC + token tracking |
+| **Arbitrum** | Alchemy WebSocket | L2 whale activity |
+| **Base** | Alchemy WebSocket | Coinbase L2 tracking |
+| **Optimism** | Alchemy WebSocket | OP ecosystem whales |
+
+**Features:**
+- Configurable thresholds per chain ($10k-$1M+)
+- Watch specific wallet addresses
+- Transaction type detection (transfer, swap, NFT, stake)
+- Top whale leaderboards by volume
+- Real-time alerts via any channel
+
 ### Copy Trading
 Automatically mirror trades from successful wallets:
 - Follow multiple addresses
 - Configurable sizing (fixed, proportional, % of portfolio)
 - Copy delay to avoid detection
 - Risk limits (max position, daily loss)
-- Stop loss / take profit automation
+- Stop-loss / take-profit monitoring with 5-second price polling
+- Automatic position exit on SL/TP trigger
 
 ### Smart Order Routing
 Automatically route orders to the best venue:

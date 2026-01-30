@@ -59,6 +59,22 @@ Track your positions and performance across all prediction market platforms.
 /portfolio exposure      # Category exposure breakdown
 ```
 
+### Whale Tracking Integration
+Track what large traders are doing:
+```
+/portfolio whales        # Top whales in your markets
+/portfolio follow 0x...  # Follow a whale's positions
+/portfolio smart-money   # Aggregate whale activity
+```
+
+### Crypto Whale Monitoring
+Monitor large crypto transactions across chains:
+```
+/portfolio crypto-whales          # Recent whale activity
+/portfolio crypto-whales solana   # Solana whales only
+/portfolio crypto-whales top 10   # Top 10 by volume
+```
+
 ## Examples
 
 User: "What's my portfolio looking like?"

@@ -341,7 +341,7 @@ You can also specify per-account WhatsApp DM policies under
 
 ## Advanced Trading Features
 
-### Whale Tracking
+### Whale Tracking (Polymarket)
 
 Monitor large trades on Polymarket:
 
@@ -351,15 +351,56 @@ Monitor large trades on Polymarket:
 /whale activity trump   # Whale activity for Trump markets
 ```
 
+### Crypto Whale Tracking (Multi-Chain)
+
+Monitor whale activity across Solana and EVM chains:
+
+```
+/crypto-whale start                    # Start tracking all configured chains
+/crypto-whale watch solana ABC123...   # Watch a Solana wallet
+/crypto-whale watch ethereum 0x1234... # Watch an ETH wallet
+/crypto-whale top solana 10            # Top 10 Solana whales
+/crypto-whale recent ethereum 20       # Recent 20 ETH whale transactions
+/crypto-whale stop                     # Stop tracking
+```
+
+**Supported chains:** Solana, Ethereum, Polygon, Arbitrum, Base, Optimism
+
+Configure thresholds in `clodds.json`:
+
+```json
+{
+  "cryptoWhaleTracking": {
+    "enabled": true,
+    "chains": ["solana", "ethereum", "polygon"],
+    "thresholds": {
+      "solana": 10000,
+      "ethereum": 50000,
+      "polygon": 5000
+    },
+    "birdeyeApiKey": "...",
+    "alchemyApiKey": "..."
+  }
+}
+```
+
 ### Copy Trading
 
-Automatically mirror trades from successful wallets:
+Automatically mirror trades from successful wallets with automatic stop-loss and take-profit:
 
 ```
 /copy start 0x1234...   # Start copying an address
 /copy config size=100   # Set copy size to $100
+/copy config sl=10      # Set 10% stop-loss
+/copy config tp=20      # Set 20% take-profit
+/copy status            # View active positions and SL/TP status
 /copy stop              # Stop copy trading
 ```
+
+**SL/TP Monitoring:**
+- Positions are monitored every 5 seconds
+- Automatic exit when stop-loss or take-profit triggers
+- Notifications sent when positions are closed
 
 ### Smart Order Routing
 
