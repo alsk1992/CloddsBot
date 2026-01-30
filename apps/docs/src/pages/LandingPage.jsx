@@ -200,8 +200,16 @@ function MarketsSection() {
     { name: 'PancakeSwap', icon: PieChart, status: 'Execute', chain: 'EVM' },
   ];
 
+  const futuresExchanges = [
+    { name: 'Binance', icon: TrendingUp, status: '125x', chain: 'CEX' },
+    { name: 'Bybit', icon: BarChart2, status: '100x', chain: 'CEX' },
+    { name: 'Hyperliquid', icon: Zap, status: '50x', chain: 'Arbitrum' },
+    { name: 'dYdX', icon: Activity, status: '20x', chain: 'Cosmos' },
+  ];
+
   const slides = [
     { title: 'Prediction Markets', subtitle: 'Unified interface for all major prediction platforms', markets: predictionMarkets },
+    { title: 'Perpetual Futures', subtitle: 'Trade with leverage up to 125x on CEX and DEX', markets: futuresExchanges },
     { title: 'DeFi & Crypto', subtitle: 'Trade any token on Solana and EVM chains with MEV protection', markets: defiMarkets },
   ];
 
@@ -590,7 +598,7 @@ export default function LandingPage() {
               <div className="w-16"></div>
             </div>
             {/* Demo content */}
-            <div className="bg-white">
+            <div>
               <img
                 src="/demo.gif"
                 alt="Clodds Demo"
@@ -601,6 +609,139 @@ export default function LandingPage() {
           <p className="text-slate-500 text-sm mt-4">
             Arbitrage scanning, trade execution, DeFi swaps, whale tracking, copy trading
           </p>
+        </div>
+      </section>
+
+      {/* Perpetual Futures Section */}
+      <section className="py-20 px-6 bg-gradient-to-b from-slate-900 via-emerald-950/20 to-slate-900">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 mb-4">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              <span className="text-emerald-400 text-sm font-medium">Perpetual Futures</span>
+            </div>
+            <h2
+              className="text-3xl md:text-4xl font-bold mb-3"
+              style={{
+                background: 'linear-gradient(180deg, #ffffff 0%, #10b981 50%, #059669 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                filter: 'drop-shadow(0 0 15px rgba(16, 185, 129, 0.4))',
+              }}
+            >
+              Trade with up to 125x leverage
+            </h2>
+            <p className="text-slate-400 max-w-2xl mx-auto">
+              Long or short any major crypto asset with real leverage on centralized and decentralized exchanges.
+            </p>
+          </div>
+
+          {/* Exchange Cards */}
+          <div className="grid md:grid-cols-3 gap-6 mb-12">
+            {/* Binance */}
+            <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6 hover:border-emerald-500/50 transition-colors">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-yellow-500/20 flex items-center justify-center">
+                    <TrendingUp className="w-5 h-5 text-yellow-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold">Binance Futures</h3>
+                    <p className="text-slate-500 text-xs">Highest liquidity CEX</p>
+                  </div>
+                </div>
+                <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded font-mono">125x</span>
+              </div>
+              <ul className="text-slate-400 text-sm space-y-2">
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> USDT-M perpetuals</li>
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> Cross & isolated margin</li>
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> TP/SL on entry</li>
+              </ul>
+            </div>
+
+            {/* Bybit */}
+            <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6 hover:border-emerald-500/50 transition-colors">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                    <BarChart2 className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold">Bybit</h3>
+                    <p className="text-slate-500 text-xs">Unified trading account</p>
+                  </div>
+                </div>
+                <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded font-mono">100x</span>
+              </div>
+              <ul className="text-slate-400 text-sm space-y-2">
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> USDT perpetuals</li>
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> Portfolio margin</li>
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> Copy trading built-in</li>
+              </ul>
+            </div>
+
+            {/* Hyperliquid */}
+            <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6 hover:border-emerald-500/50 transition-colors">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold">Hyperliquid</h3>
+                    <p className="text-slate-500 text-xs">Decentralized on Arbitrum</p>
+                  </div>
+                </div>
+                <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded font-mono">50x</span>
+              </div>
+              <ul className="text-slate-400 text-sm space-y-2">
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> No KYC required</li>
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> On-chain settlement</li>
+                <li className="flex items-center gap-2"><span className="text-emerald-400">✓</span> Self-custody</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Code Example */}
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
+            <div className="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between">
+              <span className="text-slate-400 text-sm font-medium">Open a leveraged position</span>
+              <span className="text-slate-500 text-xs">TypeScript</span>
+            </div>
+            <pre className="p-4 overflow-x-auto">
+              <code className="text-xs text-slate-300 font-mono whitespace-pre">{`// Open a 10x long on BTC with TP/SL
+await futures.openLong('binance', 'BTCUSDT', 0.01, 10, {
+  takeProfit: 105000,  // Exit at $105k
+  stopLoss: 95000,     // Exit at $95k
+});
+
+// Monitor for liquidation risk
+futures.on('liquidationWarning', ({ level, position }) => {
+  if (level === 'critical') {
+    sendAlert(\`Position \${position.symbol} near liquidation!\`);
+  }
+});
+
+// Close position
+await futures.closePosition('binance', 'BTCUSDT');`}</code>
+            </pre>
+          </div>
+
+          {/* Features Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+            {[
+              { icon: TrendingUp, label: 'Long & Short', desc: 'Either direction' },
+              { icon: Shield, label: 'Liquidation Alerts', desc: 'Real-time monitoring' },
+              { icon: Target, label: 'TP/SL on Entry', desc: 'Automatic exits' },
+              { icon: Activity, label: 'Funding Rates', desc: 'Track costs' },
+            ].map((feature, idx) => (
+              <div key={idx} className="bg-slate-800/30 rounded-lg p-4 text-center">
+                <feature.icon className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
+                <p className="text-white text-sm font-medium">{feature.label}</p>
+                <p className="text-slate-500 text-xs">{feature.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
