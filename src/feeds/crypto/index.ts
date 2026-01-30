@@ -664,3 +664,9 @@ export function formatChange(change: number, changePct: number): string {
   const emoji = change >= 0 ? '🟢' : '🔴';
   return `${emoji} ${sign}${formatPrice(Math.abs(change))} (${sign}${changePct.toFixed(2)}%)`;
 }
+
+// =============================================================================
+// WHALE TRACKER RE-EXPORTS
+// =============================================================================
+
+export * from './whale-tracker';
