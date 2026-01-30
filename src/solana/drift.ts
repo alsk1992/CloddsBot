@@ -491,7 +491,9 @@ export function createDriftLiquidationMonitor(
     }
 
     if (driftClient) {
-      driftClient.unsubscribe().catch(() => {});
+      driftClient.unsubscribe().catch((err: unknown) => {
+        logger.debug({ err }, 'Error unsubscribing drift client during cleanup');
+      });
       driftClient = null;
     }
 

@@ -273,7 +273,9 @@ export async function createiMessageChannel(
         );
         await fsPromises.writeFile(tempPath, resolved.buffer);
         await sendFile(tempPath);
-        await fsPromises.unlink(tempPath).catch(() => {});
+        await fsPromises.unlink(tempPath).catch((err) => {
+          logger.debug({ err, tempPath }, 'Failed to cleanup temp iMessage file');
+        });
       }
     } catch (error) {
       // Try alternative method for group chats
@@ -307,7 +309,9 @@ export async function createiMessageChannel(
             end tell
           `;
           await execAsync(`osascript -e '${groupFileScript.replace(/'/g, "'\"'\"'")}'`);
-          await fsPromises.unlink(tempPath).catch(() => {});
+          await fsPromises.unlink(tempPath).catch((err) => {
+          logger.debug({ err, tempPath }, 'Failed to cleanup temp iMessage file');
+        });
         }
         logger.debug({ chatId }, 'iMessage sent to group');
       } else {

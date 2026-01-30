@@ -39,9 +39,12 @@ const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_DEVICE_CODE_URL = 'https://oauth2.googleapis.com/device/code';
 
-// Default client ID for CLI tools (like google-cloud-sdk)
-const DEFAULT_CLIENT_ID = '764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com';
-const DEFAULT_CLIENT_SECRET = 'd-FL95Q19q7MQmFpd7hHD0Ty';
+// Default client ID for CLI tools (uses Google Cloud SDK public client as fallback)
+// These can be overridden via environment variables for custom OAuth apps
+const DEFAULT_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID ||
+  '764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com';
+const DEFAULT_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET ||
+  'd-FL95Q19q7MQmFpd7hHD0Ty';
 
 export class GoogleAuthClient {
   private config: GoogleAuthConfig;

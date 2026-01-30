@@ -402,7 +402,9 @@ export function createSkillsRegistry(config: RegistryConfig): SkillsRegistry {
 
   // Auto-sync on creation
   if (config.autoUpdate) {
-    registry.sync().catch(() => {});
+    registry.sync().catch((err) => {
+      logger.warn({ err }, 'Failed to auto-sync skill registry');
+    });
   }
 
   return registry;

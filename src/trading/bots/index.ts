@@ -762,6 +762,9 @@ export function createMomentumStrategy(config: Partial<StrategyConfig> = {}): St
 
 /**
  * Arbitrage strategy across platforms
+ *
+ * Finds markets with similar questions across platforms and
+ * generates signals when there's a significant price discrepancy.
  */
 export function createArbitrageStrategy(config: Partial<StrategyConfig> = {}): Strategy {
   const fullConfig: StrategyConfig = {
@@ -769,24 +772,207 @@ export function createArbitrageStrategy(config: Partial<StrategyConfig> = {}): S
     name: config.name || 'Cross-Platform Arbitrage',
     description: 'Exploit price differences across platforms',
     platforms: config.platforms || ['polymarket', 'kalshi'],
-    intervalMs: config.intervalMs || 10000, // Check every 10 seconds
+    intervalMs: config.intervalMs || 10000,
     maxPositionSize: config.maxPositionSize || 500,
     enabled: config.enabled ?? true,
     dryRun: config.dryRun ?? true,
     params: {
-      minSpreadPct: 3, // Minimum 3% spread
-      maxExposure: 1000,
+      minSpreadPct: 3, // Minimum 3% spread to trigger
+      maxExposure: 1000, // Maximum total exposure
+      minConfidence: 0.7, // Minimum confidence for match
+      maxPositionsPerPair: 1, // Only one position per arb pair
       ...config.params,
     },
   };
+
+  // Track matched market pairs (canonicalId -> markets by platform)
+  const matchedPairs = new Map<string, Map<Platform, { marketId: string; price: number; outcome: string }>>();
+
+  // Normalize question text for matching
+  function normalizeQuestion(q: string): string {
+    return q.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Extract key entities for matching
+  function extractEntities(question: string): {
+    year?: string;
+    person?: string;
+    threshold?: string;
+  } {
+    const yearMatch = question.match(/\b(20[2-3]\d)\b/);
+    const personMatch = question.match(/\b(trump|biden|harris|desantis|musk|powell)\b/i);
+    const thresholdMatch = question.match(/\$?([\d,.]+)\s*(k|m|b|%|percent)?/i);
+
+    return {
+      year: yearMatch?.[1],
+      person: personMatch?.[1]?.toLowerCase(),
+      threshold: thresholdMatch?.[0],
+    };
+  }
+
+  // Generate a canonical ID for matching across platforms
+  function generateCanonicalId(market: Market): string | null {
+    const q = normalizeQuestion(market.question);
+    const entities = extractEntities(market.question);
+
+    // Key patterns for well-known market types
+    if (q.includes('bitcoin') || q.includes('btc')) {
+      const priceMatch = market.question.match(/\$?([\d,]+)\s*(k)?/i);
+      if (priceMatch) {
+        const price = priceMatch[1].replace(/,/g, '') + (priceMatch[2] ? '000' : '');
+        return `btc_price_${price}`;
+      }
+    }
+
+    if (q.includes('president') || q.includes('election')) {
+      if (entities.year && entities.person) {
+        return `election_${entities.year}_${entities.person}`;
+      }
+    }
+
+    if (q.includes('fed') && q.includes('rate')) {
+      const dateMatch = q.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s*\d*/i);
+      if (dateMatch) {
+        return `fed_rate_${dateMatch[0].toLowerCase().replace(/\s+/g, '_')}`;
+      }
+    }
+
+    // Generic fallback - first 5 significant words
+    const words = q.split(' ').filter(w => w.length > 3).slice(0, 5);
+    if (words.length >= 3) {
+      return `generic_${words.join('_')}`;
+    }
+
+    return null;
+  }
 
   return {
     config: fullConfig,
 
     async evaluate(ctx) {
       const signals: Signal[] = [];
-      // Arbitrage logic would compare prices across markets
-      // This is a simplified placeholder
+      const { minSpreadPct, maxExposure, minConfidence, maxPositionsPerPair } = fullConfig.params as {
+        minSpreadPct: number;
+        maxExposure: number;
+        minConfidence: number;
+        maxPositionsPerPair: number;
+      };
+
+      // Group markets by canonical ID
+      const marketGroups = new Map<string, Array<{ platform: Platform; market: Market; price: number }>>();
+
+      for (const [marketId, market] of ctx.markets) {
+        const canonicalId = generateCanonicalId(market);
+        if (!canonicalId) continue;
+
+        // Get current price (YES outcome price)
+        const price = market.outcomes?.find(o =>
+          o.name.toLowerCase() === 'yes' || o.name.toLowerCase() === market.outcomes![0].name.toLowerCase()
+        )?.price;
+
+        if (price === undefined || price <= 0 || price >= 1) continue;
+
+        const group = marketGroups.get(canonicalId) || [];
+        group.push({
+          platform: market.platform,
+          market,
+          price,
+        });
+        marketGroups.set(canonicalId, group);
+      }
+
+      // Find arbitrage opportunities
+      for (const [canonicalId, group] of marketGroups) {
+        // Need at least 2 platforms
+        if (group.length < 2) continue;
+
+        // Check if we have markets from different platforms
+        const platforms = new Set(group.map(g => g.platform));
+        if (platforms.size < 2) continue;
+
+        // Find best bid and ask across platforms
+        const sorted = [...group].sort((a, b) => a.price - b.price);
+        const lowestPrice = sorted[0];
+        const highestPrice = sorted[sorted.length - 1];
+
+        // Must be different platforms
+        if (lowestPrice.platform === highestPrice.platform) continue;
+
+        // Calculate spread
+        const spread = highestPrice.price - lowestPrice.price;
+        const spreadPct = (spread / lowestPrice.price) * 100;
+
+        if (spreadPct < minSpreadPct) continue;
+
+        // Check current exposure
+        let currentExposure = 0;
+        for (const [, pos] of ctx.positions) {
+          currentExposure += pos.shares * pos.avgPrice;
+        }
+        if (currentExposure >= maxExposure) continue;
+
+        // Calculate position size based on available capital and spread
+        const confidence = Math.min(1, spreadPct / 10); // Higher spread = higher confidence
+        if (confidence < minConfidence) continue;
+
+        const maxSize = Math.min(
+          fullConfig.maxPositionSize || 500,
+          (maxExposure - currentExposure) / 2, // Split between buy and sell sides
+          ctx.availableBalance / 2
+        );
+
+        if (maxSize < 10) continue; // Minimum $10 position
+
+        // Generate BUY signal on lower-priced platform
+        signals.push({
+          type: 'buy',
+          platform: lowestPrice.platform,
+          marketId: lowestPrice.market.id,
+          outcome: 'YES',
+          price: lowestPrice.price,
+          size: maxSize,
+          confidence,
+          reason: `Arb: Buy at ${(lowestPrice.price * 100).toFixed(1)}¢ on ${lowestPrice.platform}, spread ${spreadPct.toFixed(1)}%`,
+          meta: {
+            canonicalId,
+            spreadPct,
+            counterpartPlatform: highestPrice.platform,
+            counterpartPrice: highestPrice.price,
+          },
+        });
+
+        // Generate SELL (or buy NO) signal on higher-priced platform
+        signals.push({
+          type: 'sell',
+          platform: highestPrice.platform,
+          marketId: highestPrice.market.id,
+          outcome: 'YES',
+          price: highestPrice.price,
+          size: maxSize,
+          confidence,
+          reason: `Arb: Sell at ${(highestPrice.price * 100).toFixed(1)}¢ on ${highestPrice.platform}, spread ${spreadPct.toFixed(1)}%`,
+          meta: {
+            canonicalId,
+            spreadPct,
+            counterpartPlatform: lowestPrice.platform,
+            counterpartPrice: lowestPrice.price,
+          },
+        });
+
+        logger.info({
+          canonicalId,
+          buyPlatform: lowestPrice.platform,
+          buyPrice: lowestPrice.price,
+          sellPlatform: highestPrice.platform,
+          sellPrice: highestPrice.price,
+          spreadPct,
+          size: maxSize,
+        }, 'Arbitrage opportunity detected');
+      }
+
       return signals;
     },
   };

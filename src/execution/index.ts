@@ -167,6 +167,126 @@ export function getPolymarketExchange(negRisk: boolean): string {
   return negRisk ? POLY_NEG_RISK_CTF_EXCHANGE : POLY_CTF_EXCHANGE;
 }
 
+// =============================================================================
+// ORDERBOOK FETCHING FOR SLIPPAGE CALCULATION
+// =============================================================================
+
+interface OrderbookData {
+  bids: [number, number][]; // [price, size]
+  asks: [number, number][]; // [price, size]
+  midPrice: number;
+}
+
+/**
+ * Fetch Polymarket orderbook for a token
+ */
+async function fetchPolymarketOrderbook(tokenId: string): Promise<OrderbookData | null> {
+  try {
+    const response = await fetch(`${POLY_CLOB_URL}/book?token_id=${tokenId}`);
+    if (!response.ok) return null;
+
+    const data = await response.json() as {
+      bids?: Array<{ price: string; size: string }>;
+      asks?: Array<{ price: string; size: string }>;
+    };
+
+    const bids: [number, number][] = (data.bids || [])
+      .map(b => [parseFloat(b.price), parseFloat(b.size)] as [number, number])
+      .sort((a, b) => b[0] - a[0]); // Sort bids descending by price
+
+    const asks: [number, number][] = (data.asks || [])
+      .map(a => [parseFloat(a.price), parseFloat(a.size)] as [number, number])
+      .sort((a, b) => a[0] - b[0]); // Sort asks ascending by price
+
+    const bestBid = bids[0]?.[0] || 0;
+    const bestAsk = asks[0]?.[0] || 1;
+    const midPrice = (bestBid + bestAsk) / 2;
+
+    return { bids, asks, midPrice };
+  } catch (error) {
+    logger.warn({ error, tokenId }, 'Failed to fetch Polymarket orderbook');
+    return null;
+  }
+}
+
+const KALSHI_URL = 'https://trading-api.kalshi.com/trade-api/v2';
+
+/**
+ * Fetch Kalshi orderbook for a market
+ */
+async function fetchKalshiOrderbook(marketId: string): Promise<OrderbookData | null> {
+  try {
+    const response = await fetch(`${KALSHI_URL}/markets/${marketId}/orderbook`);
+    if (!response.ok) return null;
+
+    const data = await response.json() as {
+      orderbook?: {
+        yes?: Array<[number, number]>;
+        no?: Array<[number, number]>;
+      };
+    };
+
+    // Kalshi returns [price_cents, contracts] for yes and no sides
+    const yesOrders = data.orderbook?.yes || [];
+    const noOrders = data.orderbook?.no || [];
+
+    // For YES: bids are buy yes orders, asks are from sell yes / buy no
+    const bids: [number, number][] = yesOrders
+      .map(([priceCents, size]) => [priceCents / 100, size] as [number, number])
+      .sort((a, b) => b[0] - a[0]);
+
+    // For asks, use complementary no price (1 - no_price = yes_ask)
+    const asks: [number, number][] = noOrders
+      .map(([priceCents, size]) => [1 - priceCents / 100, size] as [number, number])
+      .sort((a, b) => a[0] - b[0]);
+
+    const bestBid = bids[0]?.[0] || 0;
+    const bestAsk = asks[0]?.[0] || 1;
+    const midPrice = (bestBid + bestAsk) / 2;
+
+    return { bids, asks, midPrice };
+  } catch (error) {
+    logger.warn({ error, marketId }, 'Failed to fetch Kalshi orderbook');
+    return null;
+  }
+}
+
+/**
+ * Calculate average fill price by walking through orderbook
+ */
+function calculateFillFromOrderbook(
+  orders: [number, number][],  // [price, size] sorted appropriately
+  targetSize: number,
+  side: 'buy' | 'sell'
+): { avgFillPrice: number; totalFilled: number } {
+  let totalFilled = 0;
+  let totalCost = 0;
+
+  for (const [price, size] of orders) {
+    const fillableAtThisLevel = Math.min(size, targetSize - totalFilled);
+
+    if (fillableAtThisLevel <= 0) break;
+
+    totalFilled += fillableAtThisLevel;
+    totalCost += fillableAtThisLevel * price;
+
+    if (totalFilled >= targetSize) break;
+  }
+
+  if (totalFilled === 0) {
+    // No liquidity, return worst-case price
+    return {
+      avgFillPrice: side === 'buy' ? 1 : 0,
+      totalFilled: 0,
+    };
+  }
+
+  return {
+    avgFillPrice: totalCost / totalFilled,
+    totalFilled,
+  };
+}
+
 interface PolymarketOrderResponse {
   orderID?: string;
   order_id?: string;
@@ -695,12 +815,29 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
     },
 
     async estimateFill(request) {
-      // Would need to fetch orderbook and calculate
-      // For now, return the requested price
-      return {
-        avgPrice: request.price,
-        filledSize: request.size,
-      };
+      try {
+        let orderbook: OrderbookData | null = null;
+
+        if (request.platform === 'polymarket' && request.tokenId) {
+          orderbook = await fetchPolymarketOrderbook(request.tokenId);
+        } else if (request.platform === 'kalshi') {
+          orderbook = await fetchKalshiOrderbook(request.marketId);
+        }
+
+        if (!orderbook) {
+          return { avgPrice: request.price, filledSize: request.size };
+        }
+
+        const orders = request.side === 'buy' ? orderbook.asks : orderbook.bids;
+        const { avgFillPrice, totalFilled } = calculateFillFromOrderbook(orders, request.size, request.side);
+
+        return {
+          avgPrice: totalFilled > 0 ? avgFillPrice : request.price,
+          filledSize: totalFilled,
+        };
+      } catch {
+        return { avgPrice: request.price, filledSize: request.size };
+      }
     },
 
     async protectedBuy(request, maxSlippageOverride) {
@@ -784,19 +921,66 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
     },
 
     async estimateSlippage(request) {
-      // TODO: Fetch orderbook and calculate actual slippage
-      // For now, estimate based on size vs typical liquidity
-      const baseSlippage = 0.005; // 0.5% base slippage
-      const sizeImpact = Math.min(0.05, request.size * 0.0001); // 0.01% per share, max 5%
+      try {
+        // Fetch orderbook based on platform
+        let orderbook: { bids: [number, number][]; asks: [number, number][]; midPrice: number } | null = null;
 
-      const estimatedSlippage = baseSlippage + sizeImpact;
+        if (request.platform === 'polymarket' && request.tokenId) {
+          orderbook = await fetchPolymarketOrderbook(request.tokenId);
+        } else if (request.platform === 'kalshi') {
+          orderbook = await fetchKalshiOrderbook(request.marketId);
+        }
 
-      return {
-        slippage: estimatedSlippage,
-        expectedPrice: request.side === 'buy'
-          ? request.price * (1 + estimatedSlippage)
-          : request.price * (1 - estimatedSlippage),
-      };
+        if (!orderbook || (orderbook.bids.length === 0 && orderbook.asks.length === 0)) {
+          // Fallback to heuristic estimate if no orderbook
+          const baseSlippage = 0.005;
+          const sizeImpact = Math.min(0.05, request.size * 0.0001);
+          const estimatedSlippage = baseSlippage + sizeImpact;
+          return {
+            slippage: estimatedSlippage,
+            expectedPrice: request.side === 'buy'
+              ? request.price * (1 + estimatedSlippage)
+              : request.price * (1 - estimatedSlippage),
+          };
+        }
+
+        // Calculate average fill price by walking through orderbook
+        const { avgFillPrice, totalFilled } = calculateFillFromOrderbook(
+          request.side === 'buy' ? orderbook.asks : orderbook.bids,
+          request.size,
+          request.side
+        );
+
+        if (totalFilled < request.size * 0.5) {
+          // Less than 50% can be filled - high slippage market
+          logger.warn(
+            { request, totalFilled, requested: request.size },
+            'Orderbook too thin - less than 50% fillable'
+          );
+        }
+
+        // Calculate slippage relative to mid price
+        const midPrice = orderbook.midPrice || request.price;
+        const slippage = request.side === 'buy'
+          ? (avgFillPrice - midPrice) / midPrice
+          : (midPrice - avgFillPrice) / midPrice;
+
+        return {
+          slippage: Math.max(0, slippage),
+          expectedPrice: avgFillPrice,
+        };
+      } catch (error) {
+        logger.warn({ error, request }, 'Failed to estimate slippage from orderbook');
+        // Fallback to heuristic
+        const baseSlippage = 0.005;
+        const sizeImpact = Math.min(0.05, request.size * 0.0001);
+        return {
+          slippage: baseSlippage + sizeImpact,
+          expectedPrice: request.side === 'buy'
+            ? request.price * (1 + baseSlippage + sizeImpact)
+            : request.price * (1 - baseSlippage - sizeImpact),
+        };
+      }
     },
   };
 

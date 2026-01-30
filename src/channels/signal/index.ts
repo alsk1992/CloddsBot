@@ -138,7 +138,9 @@ export async function createSignalChannel(
         }
         try {
           const buffer = await fs.readFile(tempPath);
-          await fs.unlink(tempPath).catch(() => {});
+          await fs.unlink(tempPath).catch((err) => {
+            logger.debug({ err, tempPath }, 'Failed to cleanup temp attachment file');
+          });
           resolve({
             type: guessAttachmentType(undefined, filename),
             data: buffer.toString('base64'),

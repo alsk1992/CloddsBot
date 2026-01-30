@@ -302,7 +302,9 @@ export class FreshnessTracker extends EventEmitter {
       }, this.config.pollingIntervalMs);
 
       // Run immediately
-      state.pollingCallback().catch(() => {});
+      state.pollingCallback().catch((err) => {
+        logger.warn({ err }, 'Polling callback failed in fallback mode');
+      });
     }
   }
 

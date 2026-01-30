@@ -532,7 +532,9 @@ export async function createTelegramChannel(
     // This sends to callbacks but we'll also provide default results
     try {
       // Send to callback for potential custom handling
-      callbacks.onMessage(inlineMessage).catch(() => {});
+      callbacks.onMessage(inlineMessage).catch((err) => {
+        logger.debug({ err, query }, 'Error handling inline query callback');
+      });
 
       // Provide default results (search across platforms)
       const results = [

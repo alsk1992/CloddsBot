@@ -847,7 +847,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
 
   function setupSkillWatcher(): void {
     if (skillWatcher) {
-      skillWatcher.close().catch(() => {});
+      skillWatcher.close().catch((err) => {
+        logger.debug({ err }, 'Error closing skill watcher during reset');
+      });
     }
 
     const paths = getSkillWatchPaths(currentConfig);

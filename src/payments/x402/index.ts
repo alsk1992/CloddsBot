@@ -394,9 +394,86 @@ export function createX402Client(config: X402Config = {}): X402Client {
       const address = emitter.getAddress(network);
       if (!address) return null;
 
-      // In production, would query the blockchain
-      // For now, return placeholder
-      return { balance: '0', asset: 'USDC' };
+      try {
+        if (network.startsWith('base')) {
+          // Query EVM USDC balance via eth_call to balanceOf
+          const usdcAddress = USDC_ADDRESSES[network];
+          const rpcUrl = network === 'base'
+            ? 'https://mainnet.base.org'
+            : 'https://sepolia.base.org';
+
+          // balanceOf(address) selector = 0x70a08231
+          const data = '0x70a08231' + address.slice(2).padStart(64, '0');
+
+          const response = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'eth_call',
+              params: [{ to: usdcAddress, data }, 'latest'],
+              id: 1,
+            }),
+          });
+
+          const result = await response.json() as { result?: string; error?: { message: string } };
+          if (result.error) {
+            logger.warn({ error: result.error, network }, 'x402: Balance query failed');
+            return { balance: '0', asset: 'USDC' };
+          }
+
+          // Parse hex balance
+          const balanceHex = result.result || '0x0';
+          const balance = BigInt(balanceHex).toString();
+          return { balance, asset: 'USDC' };
+
+        } else if (network.startsWith('solana')) {
+          // Query Solana USDC token account balance
+          const rpcUrl = network === 'solana'
+            ? 'https://api.mainnet-beta.solana.com'
+            : 'https://api.devnet.solana.com';
+
+          const response = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'getTokenAccountsByOwner',
+              params: [
+                address,
+                { mint: USDC_ADDRESSES[network] },
+                { encoding: 'jsonParsed' },
+              ],
+              id: 1,
+            }),
+          });
+
+          const result = await response.json() as {
+            result?: { value: Array<{ account: { data: { parsed: { info: { tokenAmount: { amount: string } } } } } }> };
+            error?: { message: string };
+          };
+
+          if (result.error) {
+            logger.warn({ error: result.error, network }, 'x402: Solana balance query failed');
+            return { balance: '0', asset: 'USDC' };
+          }
+
+          // Sum all USDC token accounts
+          const accounts = result.result?.value || [];
+          let totalBalance = BigInt(0);
+          for (const acc of accounts) {
+            const amount = acc.account?.data?.parsed?.info?.tokenAmount?.amount || '0';
+            totalBalance += BigInt(amount);
+          }
+
+          return { balance: totalBalance.toString(), asset: 'USDC' };
+        }
+
+        return null;
+      } catch (error) {
+        logger.warn({ error, network, address }, 'x402: Failed to query balance');
+        return { balance: '0', asset: 'USDC' };
+      }
     },
 
     isConfigured(): boolean {

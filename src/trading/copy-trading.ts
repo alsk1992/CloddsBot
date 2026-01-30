@@ -136,6 +136,8 @@ export function createCopyTradingService(
   const copiedTrades: CopiedTrade[] = [];
   const openPositions = new Map<string, CopiedTrade>();
   const pendingCopies = new Map<string, NodeJS.Timeout>();
+  const monitoringIntervals = new Map<string, NodeJS.Timeout>();
+  const MONITOR_INTERVAL_MS = 5000; // Check prices every 5 seconds
 
   // Stats
   const stats: CopyTradingStats = {
@@ -307,10 +309,154 @@ export function createCopyTradingService(
   }
 
   function monitorPosition(trade: CopiedTrade): void {
-    // In a real implementation, this would subscribe to price updates
-    // and close the position when SL/TP is hit
-    // For now, this is a placeholder
-    logger.debug({ tradeId: trade.id, stopLoss: cfg.stopLoss, takeProfit: cfg.takeProfit }, 'Monitoring position');
+    // Clear any existing monitoring for this trade
+    const existingInterval = monitoringIntervals.get(trade.id);
+    if (existingInterval) {
+      clearInterval(existingInterval);
+    }
+
+    logger.info(
+      { tradeId: trade.id, stopLoss: cfg.stopLoss, takeProfit: cfg.takeProfit, entryPrice: trade.entryPrice },
+      'Starting SL/TP monitoring for position'
+    );
+
+    // Set up periodic price checking
+    const intervalId = setInterval(async () => {
+      try {
+        // Check if position still exists
+        const position = openPositions.get(trade.id);
+        if (!position || position.status === 'closed') {
+          clearInterval(intervalId);
+          monitoringIntervals.delete(trade.id);
+          return;
+        }
+
+        // Fetch current price from whale tracker's market data
+        const currentPrice = await getCurrentPrice(trade);
+        if (currentPrice === null) {
+          logger.debug({ tradeId: trade.id }, 'Could not fetch current price');
+          return;
+        }
+
+        // Calculate PnL percentage
+        const pnlPct = trade.side === 'BUY'
+          ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
+          : ((trade.entryPrice - currentPrice) / trade.entryPrice) * 100;
+
+        // Check stop loss
+        if (cfg.stopLoss > 0 && pnlPct <= -cfg.stopLoss) {
+          logger.warn(
+            { tradeId: trade.id, pnlPct, stopLoss: cfg.stopLoss, currentPrice },
+            'Stop loss triggered - closing position'
+          );
+          clearInterval(intervalId);
+          monitoringIntervals.delete(trade.id);
+          await closePositionInternal(trade.id, 'stop_loss', currentPrice);
+          return;
+        }
+
+        // Check take profit
+        if (cfg.takeProfit > 0 && pnlPct >= cfg.takeProfit) {
+          logger.info(
+            { tradeId: trade.id, pnlPct, takeProfit: cfg.takeProfit, currentPrice },
+            'Take profit triggered - closing position'
+          );
+          clearInterval(intervalId);
+          monitoringIntervals.delete(trade.id);
+          await closePositionInternal(trade.id, 'take_profit', currentPrice);
+          return;
+        }
+
+        // Log periodic update
+        logger.debug(
+          { tradeId: trade.id, currentPrice, entryPrice: trade.entryPrice, pnlPct: pnlPct.toFixed(2) },
+          'Position monitoring update'
+        );
+      } catch (error) {
+        logger.error({ error, tradeId: trade.id }, 'Error in position monitoring');
+      }
+    }, MONITOR_INTERVAL_MS);
+
+    monitoringIntervals.set(trade.id, intervalId);
+  }
+
+  async function getCurrentPrice(trade: CopiedTrade): Promise<number | null> {
+    try {
+      // Try to get price from whale tracker's cached market data
+      const marketId = trade.originalTrade.marketId;
+      const tokenId = trade.originalTrade.tokenId;
+
+      // Fetch from Polymarket CLOB API
+      const response = await fetch(`https://clob.polymarket.com/price?token_id=${tokenId}`);
+      if (!response.ok) return null;
+
+      const data = await response.json() as { price?: string };
+      return data.price ? parseFloat(data.price) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function closePositionInternal(
+    tradeId: string,
+    reason: 'stop_loss' | 'take_profit' | 'manual',
+    exitPrice: number
+  ): Promise<void> {
+    const position = openPositions.get(tradeId);
+    if (!position) return;
+
+    try {
+      // Calculate final PnL
+      const pnl = position.side === 'BUY'
+        ? (exitPrice - position.entryPrice) * position.size
+        : (position.entryPrice - exitPrice) * position.size;
+
+      // Execute the close order (opposite side)
+      const closeSide = position.side === 'BUY' ? 'sell' : 'buy';
+
+      if (!cfg.dryRun) {
+        const result = await execution.protectedSell({
+          platform: 'polymarket',
+          marketId: position.originalTrade.marketId,
+          tokenId: position.originalTrade.tokenId,
+          price: exitPrice,
+          size: position.size,
+        }, cfg.maxSlippage / 100);
+
+        if (!result.success) {
+          logger.error({ tradeId, error: result.error }, 'Failed to close position');
+          return;
+        }
+      }
+
+      // Update position state
+      position.status = 'closed';
+      position.exitPrice = exitPrice;
+      position.pnl = pnl;
+
+      // Update stats
+      openPositions.delete(tradeId);
+      stats.openPositions = openPositions.size;
+      stats.totalPnl += pnl;
+
+      // Calculate win rate
+      const closedTrades = copiedTrades.filter(t => t.status === 'closed' && t.pnl !== undefined);
+      const wins = closedTrades.filter(t => (t.pnl || 0) > 0).length;
+      stats.winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0;
+      stats.avgReturn = closedTrades.length > 0
+        ? closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / closedTrades.length
+        : 0;
+
+      logger.info(
+        { tradeId, reason, pnl, exitPrice, entryPrice: position.entryPrice },
+        'Position closed'
+      );
+
+      emitter.emit('positionClosed', position, pnl);
+    } catch (error) {
+      logger.error({ error, tradeId }, 'Error closing position');
+      emitter.emit('error', error as Error);
+    }
   }
 
   // ==========================================================================
@@ -368,6 +514,12 @@ export function createCopyTradingService(
       }
       pendingCopies.clear();
 
+      // Stop all position monitoring
+      for (const intervalId of monitoringIntervals.values()) {
+        clearInterval(intervalId);
+      }
+      monitoringIntervals.clear();
+
       logger.info('Copy trading stopped');
     },
 
@@ -410,25 +562,23 @@ export function createCopyTradingService(
         throw new Error(`Position ${tradeId} not found`);
       }
 
-      // In real implementation, would sell the position
-      const pnl = 0; // Would calculate actual PnL
+      // Stop monitoring this position
+      const intervalId = monitoringIntervals.get(tradeId);
+      if (intervalId) {
+        clearInterval(intervalId);
+        monitoringIntervals.delete(tradeId);
+      }
 
-      position.status = 'closed';
-      position.pnl = pnl;
-      openPositions.delete(tradeId);
+      // Get current price for exit
+      const currentPrice = await getCurrentPrice(position);
+      const exitPrice = currentPrice ?? position.entryPrice;
 
-      stats.openPositions = openPositions.size;
-      stats.totalPnl += pnl;
-
-      emitter.emit('positionClosed', position, pnl);
-      logger.info({ tradeId, pnl }, 'Position closed');
+      await closePositionInternal(tradeId, 'manual', exitPrice);
     },
 
     async closeAllPositions(): Promise<void> {
       const positions = Array.from(openPositions.keys());
-      for (const tradeId of positions) {
-        await emitter.closePosition(tradeId);
-      }
+      await Promise.all(positions.map(tradeId => emitter.closePosition(tradeId)));
     },
 
     updateConfig(newConfig: Partial<CopyTradingConfig>): void {

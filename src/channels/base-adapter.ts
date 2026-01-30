@@ -330,7 +330,9 @@ export abstract class BaseAdapter extends EventEmitter implements ChannelAdapter
     // Handle specific error categories
     if (errorCategory === 'auth') {
       // Auth errors - stop adapter
-      this.stop().catch(() => {});
+      this.stop().catch((err) => {
+        logger.debug({ err }, 'Error stopping adapter after auth error');
+      });
     } else if (errorCategory === 'network') {
       // Network errors - trigger reconnect
       this.handleDisconnect(error.message);

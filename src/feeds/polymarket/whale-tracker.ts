@@ -18,6 +18,86 @@ import WebSocket from 'ws';
 import { logger } from '../../utils/logger';
 
 // =============================================================================
+// RETRY HELPER
+// =============================================================================
+
+interface RetryConfig {
+  maxRetries?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  timeoutMs?: number;
+}
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit = {},
+  config: RetryConfig = {}
+): Promise<Response> {
+  const {
+    maxRetries = 3,
+    baseDelayMs = 1000,
+    maxDelayMs = 10000,
+    timeoutMs = 30000,
+  } = config;
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // Add timeout using AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // Retry on 5xx errors or rate limits (429)
+      if (response.status >= 500 || response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        const waitMs = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+
+        if (attempt < maxRetries) {
+          logger.debug({ url, status: response.status, waitMs, attempt }, 'Retrying request');
+          await new Promise(resolve => setTimeout(resolve, waitMs));
+          continue;
+        }
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error as Error;
+
+      // Don't retry on abort (timeout)
+      if ((error as Error).name === 'AbortError') {
+        logger.warn({ url, timeoutMs }, 'Request timed out');
+        if (attempt < maxRetries) {
+          const waitMs = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+          await new Promise(resolve => setTimeout(resolve, waitMs));
+          continue;
+        }
+        throw new Error(`Request timed out after ${maxRetries + 1} attempts: ${url}`);
+      }
+
+      // Retry on network errors
+      if (attempt < maxRetries) {
+        const waitMs = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+        logger.debug({ url, error: (error as Error).message, waitMs, attempt }, 'Retrying after error');
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue;
+      }
+    }
+  }
+
+  throw lastError || new Error(`Failed to fetch after ${maxRetries + 1} attempts: ${url}`);
+}
+
+// =============================================================================
 // TYPES
 // =============================================================================
 
@@ -176,8 +256,10 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
 
   async function fetchMarketTrades(marketId: string): Promise<WhaleTrade[]> {
     try {
-      const response = await fetch(
-        `${CLOB_REST_URL}/trades?market=${marketId}&limit=100`
+      const response = await fetchWithRetry(
+        `${CLOB_REST_URL}/trades?market=${marketId}&limit=100`,
+        {},
+        { maxRetries: 3, baseDelayMs: 1000, timeoutMs: 15000 }
       );
 
       if (!response.ok) {
@@ -205,15 +287,17 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
           transactionHash: t.transaction_hash,
         }));
     } catch (error) {
-      logger.error({ marketId, error }, 'Failed to fetch market trades');
+      logger.error({ marketId, error }, 'Failed to fetch market trades after retries');
       return [];
     }
   }
 
   async function fetchAddressPositions(address: string): Promise<WhalePosition[]> {
     try {
-      const response = await fetch(
-        `${GAMMA_API_URL}/positions?address=${address}`
+      const response = await fetchWithRetry(
+        `${GAMMA_API_URL}/positions?address=${address}`,
+        {},
+        { maxRetries: 3, baseDelayMs: 1000, timeoutMs: 15000 }
       );
 
       if (!response.ok) {
@@ -240,15 +324,17 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
           lastUpdated: new Date(p.updatedAt || Date.now()),
         }));
     } catch (error) {
-      logger.error({ address, error }, 'Failed to fetch positions');
+      logger.error({ address, error }, 'Failed to fetch positions after retries');
       return [];
     }
   }
 
   async function fetchTopTraders(): Promise<string[]> {
     try {
-      const response = await fetch(
-        `${GAMMA_API_URL}/leaderboard?limit=100&sortBy=volume`
+      const response = await fetchWithRetry(
+        `${GAMMA_API_URL}/leaderboard?limit=100&sortBy=volume`,
+        {},
+        { maxRetries: 2, baseDelayMs: 1000, timeoutMs: 10000 }
       );
 
       if (!response.ok) {
