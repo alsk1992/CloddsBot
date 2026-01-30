@@ -23,7 +23,7 @@ import { Pool, PoolClient } from 'pg';
 // TYPES
 // =============================================================================
 
-export type FuturesExchange = 'binance' | 'bybit' | 'hyperliquid';
+export type FuturesExchange = 'binance' | 'bybit' | 'hyperliquid' | 'mexc';
 
 export type OrderSide = 'BUY' | 'SELL';
 export type PositionSide = 'LONG' | 'SHORT';
@@ -1312,6 +1312,375 @@ class HyperliquidClient {
 }
 
 // =============================================================================
+// MEXC FUTURES CLIENT (No KYC required for small amounts)
+// =============================================================================
+
+class MexcFuturesClient {
+  private apiKey: string;
+  private apiSecret: string;
+  private baseUrl = 'https://contract.mexc.com';
+  private dryRun: boolean;
+
+  constructor(credentials: FuturesCredentials, dryRun = false) {
+    this.apiKey = credentials.apiKey;
+    this.apiSecret = credentials.apiSecret;
+    this.dryRun = dryRun;
+  }
+
+  private sign(timestamp: string, params: string): string {
+    const payload = `${this.apiKey}${timestamp}${params}`;
+    return createHmac('sha256', this.apiSecret).update(payload).digest('hex');
+  }
+
+  private async request(
+    method: 'GET' | 'POST' | 'DELETE',
+    endpoint: string,
+    params: Record<string, string | number | boolean> = {},
+    signed = false
+  ): Promise<unknown> {
+    const timestamp = String(Date.now());
+    const url = new URL(endpoint, this.baseUrl);
+
+    let queryString = '';
+    let body = '';
+
+    if (method === 'GET') {
+      queryString = Object.entries(params)
+        .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+        .join('&');
+      if (queryString) url.search = queryString;
+    } else {
+      body = JSON.stringify(params);
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (signed) {
+      const signData = method === 'GET' ? queryString : body;
+      headers['ApiKey'] = this.apiKey;
+      headers['Request-Time'] = timestamp;
+      headers['Signature'] = this.sign(timestamp, signData);
+    }
+
+    const response = await fetch(url.toString(), {
+      method,
+      headers,
+      body: method !== 'GET' ? body : undefined,
+    });
+
+    const data = await response.json() as { success: boolean; code: number; message?: string; data: unknown };
+
+    if (!data.success && data.code !== 0) {
+      throw new Error(`MEXC error: ${data.message || data.code}`);
+    }
+
+    return data.data;
+  }
+
+  async getBalance(): Promise<FuturesBalance> {
+    const data = await this.request('GET', '/api/v1/private/account/assets', {}, true) as Array<{
+      currency: string;
+      availableBalance: string;
+      positionMargin: string;
+      frozenBalance: string;
+      equity: string;
+      unrealized: string;
+    }>;
+
+    const usdt = data.find(b => b.currency === 'USDT') || {
+      availableBalance: '0',
+      equity: '0',
+      unrealized: '0',
+    };
+
+    return {
+      exchange: 'mexc',
+      asset: 'USDT',
+      available: parseFloat(usdt.availableBalance),
+      total: parseFloat(usdt.equity),
+      unrealizedPnl: parseFloat(usdt.unrealized),
+      marginBalance: parseFloat(usdt.equity),
+    };
+  }
+
+  async getPositions(): Promise<FuturesPosition[]> {
+    const data = await this.request('GET', '/api/v1/private/position/open_positions', {}, true) as Array<{
+      symbol: string;
+      positionType: number; // 1=long, 2=short
+      holdVol: string;
+      openAvgPrice: string;
+      liquidatePrice: string;
+      leverage: number;
+      unrealised: string;
+      margin: string;
+      im: string;
+    }>;
+
+    // Get mark prices
+    const tickers = await this.request('GET', '/api/v1/contract/ticker') as Array<{
+      symbol: string;
+      lastPrice: string;
+    }>;
+    const priceMap = new Map(tickers.map(t => [t.symbol, parseFloat(t.lastPrice)]));
+
+    return data.map(p => {
+      const size = parseFloat(p.holdVol);
+      const entryPrice = parseFloat(p.openAvgPrice);
+      const markPrice = priceMap.get(p.symbol) || entryPrice;
+      const pnl = parseFloat(p.unrealised);
+      const positionValue = size * entryPrice;
+
+      return {
+        exchange: 'mexc' as FuturesExchange,
+        symbol: p.symbol,
+        side: p.positionType === 1 ? 'LONG' : 'SHORT' as PositionSide,
+        size,
+        entryPrice,
+        markPrice,
+        liquidationPrice: parseFloat(p.liquidatePrice),
+        leverage: p.leverage,
+        marginType: 'ISOLATED' as MarginType, // MEXC uses isolated by default
+        unrealizedPnl: pnl,
+        unrealizedPnlPct: positionValue > 0 ? (pnl / positionValue) * 100 : 0,
+        margin: parseFloat(p.margin || p.im),
+        timestamp: Date.now(),
+      };
+    });
+  }
+
+  async setLeverage(symbol: string, leverage: number): Promise<void> {
+    await this.request('POST', '/api/v1/private/position/change_leverage', {
+      symbol,
+      leverage,
+      openType: 1, // isolated
+      positionType: 1, // long
+    }, true);
+
+    await this.request('POST', '/api/v1/private/position/change_leverage', {
+      symbol,
+      leverage,
+      openType: 1,
+      positionType: 2, // short
+    }, true);
+  }
+
+  async placeOrder(order: FuturesOrderRequest): Promise<FuturesOrder> {
+    if (this.dryRun) {
+      logger.info({ order }, '[DRY RUN] Would place MEXC futures order');
+      return this.createDryRunOrder(order);
+    }
+
+    if (order.leverage) {
+      await this.setLeverage(order.symbol, order.leverage);
+    }
+
+    // MEXC uses vol (contracts) not size
+    const params: Record<string, string | number | boolean> = {
+      symbol: order.symbol,
+      side: order.side === 'BUY' ? 1 : 2, // 1=open long/close short, 2=close long/open short
+      type: order.type === 'MARKET' ? 5 : 1, // 1=limit, 5=market
+      vol: order.size,
+      openType: 1, // isolated
+    };
+
+    // Determine if opening or closing
+    const isOpening = !order.reduceOnly;
+    if (order.side === 'BUY') {
+      params.side = isOpening ? 1 : 4; // 1=open long, 4=close short
+    } else {
+      params.side = isOpening ? 3 : 2; // 3=open short, 2=close long
+    }
+
+    if (order.price && order.type === 'LIMIT') {
+      params.price = order.price;
+    }
+
+    const result = await this.request('POST', '/api/v1/private/order/submit', params, true) as {
+      orderId: string;
+    };
+
+    // Place TP/SL if specified
+    if (order.takeProfit) {
+      await this.request('POST', '/api/v1/private/order/submit_tp_sl', {
+        symbol: order.symbol,
+        triggerPrice: order.takeProfit,
+        triggerType: 1, // take profit
+        executePriceType: 1, // market
+      }, true);
+    }
+    if (order.stopLoss) {
+      await this.request('POST', '/api/v1/private/order/submit_tp_sl', {
+        symbol: order.symbol,
+        triggerPrice: order.stopLoss,
+        triggerType: 2, // stop loss
+        executePriceType: 1, // market
+      }, true);
+    }
+
+    return {
+      id: result.orderId,
+      exchange: 'mexc',
+      symbol: order.symbol,
+      side: order.side,
+      type: order.type,
+      size: order.size,
+      price: order.price,
+      leverage: order.leverage || 1,
+      reduceOnly: order.reduceOnly || false,
+      status: 'NEW',
+      filledSize: 0,
+      avgFillPrice: 0,
+      timestamp: Date.now(),
+    };
+  }
+
+  private createDryRunOrder(order: FuturesOrderRequest): FuturesOrder {
+    return {
+      id: `dry-${Date.now()}-${randomBytes(4).toString('hex')}`,
+      exchange: 'mexc',
+      symbol: order.symbol,
+      side: order.side,
+      type: order.type,
+      size: order.size,
+      price: order.price,
+      leverage: order.leverage || 1,
+      reduceOnly: order.reduceOnly || false,
+      status: 'FILLED',
+      filledSize: order.size,
+      avgFillPrice: order.price || 0,
+      timestamp: Date.now(),
+    };
+  }
+
+  async cancelOrder(symbol: string, orderId: string): Promise<void> {
+    await this.request('POST', '/api/v1/private/order/cancel', {
+      symbol,
+      orderId,
+    }, true);
+  }
+
+  async closePosition(symbol: string): Promise<FuturesOrder | null> {
+    const positions = await this.getPositions();
+    const position = positions.find(p => p.symbol === symbol);
+
+    if (!position) return null;
+
+    return this.placeOrder({
+      symbol,
+      side: position.side === 'LONG' ? 'SELL' : 'BUY',
+      type: 'MARKET',
+      size: position.size,
+      reduceOnly: true,
+    });
+  }
+
+  async getMarkets(): Promise<FuturesMarket[]> {
+    const [contracts, tickers] = await Promise.all([
+      this.request('GET', '/api/v1/contract/detail') as Promise<Array<{
+        symbol: string;
+        baseCoin: string;
+        quoteCoin: string;
+        priceUnit: string;
+        volUnit: string;
+        minVol: string;
+        maxLeverage: number;
+      }>>,
+      this.request('GET', '/api/v1/contract/ticker') as Promise<Array<{
+        symbol: string;
+        lastPrice: string;
+        indexPrice: string;
+        fairPrice: string;
+        fundingRate: string;
+        volume24: string;
+      }>>,
+    ]);
+
+    const tickerMap = new Map(tickers.map(t => [t.symbol, t]));
+
+    return contracts
+      .filter(c => c.quoteCoin === 'USDT')
+      .map(c => {
+        const ticker = tickerMap.get(c.symbol);
+        return {
+          exchange: 'mexc' as FuturesExchange,
+          symbol: c.symbol,
+          baseAsset: c.baseCoin,
+          quoteAsset: c.quoteCoin,
+          tickSize: parseFloat(c.priceUnit),
+          lotSize: parseFloat(c.volUnit),
+          minNotional: parseFloat(c.minVol),
+          maxLeverage: c.maxLeverage,
+          fundingRate: parseFloat(ticker?.fundingRate || '0') * 100,
+          markPrice: parseFloat(ticker?.fairPrice || ticker?.lastPrice || '0'),
+          indexPrice: parseFloat(ticker?.indexPrice || '0'),
+          volume24h: parseFloat(ticker?.volume24 || '0'),
+        };
+      });
+  }
+
+  async getFundingRate(symbol: string): Promise<{ rate: number; nextFundingTime: number }> {
+    const data = await this.request('GET', '/api/v1/contract/funding_rate', { symbol }) as {
+      symbol: string;
+      fundingRate: string;
+      nextSettleTime: number;
+    };
+
+    return {
+      rate: parseFloat(data.fundingRate) * 100,
+      nextFundingTime: data.nextSettleTime,
+    };
+  }
+
+  async getOpenOrders(symbol?: string): Promise<FuturesOrder[]> {
+    const params: Record<string, string> = {};
+    if (symbol) params.symbol = symbol;
+
+    const data = await this.request('GET', '/api/v1/private/order/open_orders', params, true) as Array<{
+      orderId: string;
+      symbol: string;
+      side: number;
+      type: number;
+      vol: string;
+      dealVol: string;
+      price: string;
+      dealAvgPrice: string;
+      state: number;
+      createTime: number;
+    }>;
+
+    return data.map(o => ({
+      id: o.orderId,
+      exchange: 'mexc' as FuturesExchange,
+      symbol: o.symbol,
+      side: (o.side === 1 || o.side === 4) ? 'BUY' : 'SELL' as OrderSide,
+      type: o.type === 5 ? 'MARKET' : 'LIMIT' as OrderType,
+      size: parseFloat(o.vol),
+      price: parseFloat(o.price),
+      leverage: 1,
+      reduceOnly: o.side === 2 || o.side === 4,
+      status: this.mapMexcStatus(o.state),
+      filledSize: parseFloat(o.dealVol),
+      avgFillPrice: parseFloat(o.dealAvgPrice),
+      timestamp: o.createTime,
+    }));
+  }
+
+  private mapMexcStatus(state: number): FuturesOrder['status'] {
+    // 1=pending, 2=filled, 3=partially filled, 4=canceled, 5=partially canceled
+    const statusMap: Record<number, FuturesOrder['status']> = {
+      1: 'NEW',
+      2: 'FILLED',
+      3: 'PARTIALLY_FILLED',
+      4: 'CANCELED',
+      5: 'PARTIALLY_FILLED',
+    };
+    return statusMap[state] || 'NEW';
+  }
+}
+
+// =============================================================================
 // FUTURES DATABASE MANAGER
 // =============================================================================
 
@@ -1882,7 +2251,7 @@ export class StrategyEngine {
 // =============================================================================
 
 export class FuturesService extends EventEmitter {
-  private clients: Map<FuturesExchange, BinanceFuturesClient | BybitFuturesClient | HyperliquidClient> = new Map();
+  private clients: Map<FuturesExchange, BinanceFuturesClient | BybitFuturesClient | HyperliquidClient | MexcFuturesClient> = new Map();
   private config: FuturesConfig[];
   private positionMonitorInterval: NodeJS.Timeout | null = null;
   private db: FuturesDatabase | null = null;
@@ -1933,11 +2302,14 @@ export class FuturesService extends EventEmitter {
       case 'hyperliquid':
         this.clients.set('hyperliquid', new HyperliquidClient(config.credentials, config.dryRun));
         break;
+      case 'mexc':
+        this.clients.set('mexc', new MexcFuturesClient(config.credentials, config.dryRun));
+        break;
     }
     logger.info({ exchange: config.exchange }, 'Initialized futures client');
   }
 
-  private getClient(exchange: FuturesExchange): BinanceFuturesClient | BybitFuturesClient | HyperliquidClient {
+  private getClient(exchange: FuturesExchange): BinanceFuturesClient | BybitFuturesClient | HyperliquidClient | MexcFuturesClient {
     const client = this.clients.get(exchange);
     if (!client) {
       throw new Error(`Exchange ${exchange} not configured`);
@@ -2055,7 +2427,7 @@ export class FuturesService extends EventEmitter {
   async getFundingRate(exchange: FuturesExchange, symbol: string): Promise<{ rate: number; nextFundingTime: number }> {
     const client = this.getClient(exchange);
     if ('getFundingRate' in client) {
-      return (client as BinanceFuturesClient | BybitFuturesClient | HyperliquidClient).getFundingRate(symbol);
+      return (client as BinanceFuturesClient | BybitFuturesClient | HyperliquidClient | MexcFuturesClient).getFundingRate(symbol);
     }
     throw new Error(`getFundingRate not supported on ${exchange}`);
   }
@@ -2063,7 +2435,7 @@ export class FuturesService extends EventEmitter {
   async getOpenOrders(exchange: FuturesExchange, symbol?: string): Promise<FuturesOrder[]> {
     const client = this.getClient(exchange);
     if ('getOpenOrders' in client) {
-      return (client as BinanceFuturesClient | BybitFuturesClient | HyperliquidClient).getOpenOrders(symbol);
+      return (client as BinanceFuturesClient | BybitFuturesClient | HyperliquidClient | MexcFuturesClient).getOpenOrders(symbol);
     }
     return [];
   }
@@ -2187,6 +2559,19 @@ export async function setupFromEnv(): Promise<{
     });
   }
 
+  // MEXC (No KYC for small amounts - up to 200x leverage)
+  if (process.env.MEXC_API_KEY && process.env.MEXC_API_SECRET) {
+    configs.push({
+      exchange: 'mexc',
+      credentials: {
+        apiKey: process.env.MEXC_API_KEY,
+        apiSecret: process.env.MEXC_API_SECRET,
+      },
+      dryRun,
+      maxLeverage: 200,
+    });
+  }
+
   if (configs.length === 0) {
     throw new Error('No exchange credentials found in environment variables');
   }
@@ -2290,4 +2675,4 @@ export const GridStrategy: FuturesStrategy = {
 // EXPORTS
 // =============================================================================
 
-export { BinanceFuturesClient, BybitFuturesClient, HyperliquidClient };
+export { BinanceFuturesClient, BybitFuturesClient, HyperliquidClient, MexcFuturesClient };
