@@ -52,7 +52,7 @@
     "url": "https://github.com/alsk1992/CloddsBot"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
+    "@anthropic-ai/sdk": "^0.72.1",
     "@anthropic-ai/tokenizer": "^0.0.4",
     "@coral-xyz/anchor": "^0.32.1",
     "@drift-labs/sdk": "^2.156.0",
@@ -95,7 +95,7 @@
     "pg": "^8.17.2",
     "pino": "^8.18.0",
     "pino-pretty": "^10.3.1",
-    "sharp": "^0.33.2",
+    "sharp": "^0.34.5",
     "sql.js": "^1.10.3",
     "tiktoken": "^1.0.22",
     "tmi.js": "^1.8.5",
