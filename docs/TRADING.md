@@ -26,18 +26,56 @@ Complete trading infrastructure for prediction markets.
 
 ## Quick Start
 
+### 1. Configure credentials in `~/.clodds/clodds.json`:
+
+```json
+{
+  "trading": {
+    "enabled": true,
+    "dryRun": false,
+    "maxOrderSize": 100,
+    "polymarket": {
+      "address": "0xYOUR_WALLET",
+      "apiKey": "your-api-key",
+      "apiSecret": "your-api-secret",
+      "apiPassphrase": "your-passphrase"
+    }
+  }
+}
+```
+
+Or use environment variables with `${VAR}` substitution:
+```json
+{
+  "trading": {
+    "enabled": true,
+    "dryRun": false,
+    "polymarket": {
+      "address": "${POLY_ADDRESS}",
+      "apiKey": "${POLY_API_KEY}",
+      "apiSecret": "${POLY_API_SECRET}",
+      "apiPassphrase": "${POLY_API_PASSPHRASE}"
+    }
+  }
+}
+```
+
+### 2. Get Polymarket Credentials
+
+1. Go to https://polymarket.com → Settings → API Keys
+2. Create new API key (you'll get key, secret, passphrase)
+3. Your connected wallet address is the `address` field
+
+### 3. Get Kalshi Credentials
+
+1. Go to https://kalshi.com → Settings → API Keys
+2. Generate RSA key pair locally
+3. Upload public key to Kalshi
+4. Use the `apiKeyId` from Kalshi and your local `privateKeyPem`
+
+### 4. Execute trades
+
 ```typescript
-import { createTradingSystem } from './trading';
-
-const trading = createTradingSystem(db, {
-  execution: {
-    polymarket: { apiKey: '...', apiSecret: '...' },
-    dryRun: false,
-  },
-  portfolioValue: 10000,
-  autoLog: true,
-});
-
 // Execute trades (auto-logged)
 await trading.execution.buyLimit({
   platform: 'polymarket',
@@ -128,6 +166,163 @@ for (const opp of opps) {
   console.log(`${opp.edgePct}% edge on ${opp.markets[0].question}`);
 }
 ```
+
+### 5. Orderbook Imbalance Detector
+Analyze orderbook to detect directional pressure and optimal entry timing.
+
+```typescript
+import { getOrderbookImbalance } from './execution';
+
+// Get imbalance for a Polymarket token
+const imbalance = await getOrderbookImbalance('polymarket', 'token-id-here');
+
+if (imbalance) {
+  console.log(`Signal: ${imbalance.signal}`);        // 'bullish', 'bearish', 'neutral'
+  console.log(`Score: ${imbalance.imbalanceScore}`); // -1 to +1
+  console.log(`Bid/Ask Ratio: ${imbalance.bidAskRatio}`);
+  console.log(`Confidence: ${imbalance.confidence}`);
+
+  // Trading decision
+  if (imbalance.signal === 'bullish' && imbalance.confidence > 0.6) {
+    console.log('Strong buy pressure - favorable for BUY orders');
+  } else if (imbalance.signal === 'bearish' && imbalance.confidence > 0.6) {
+    console.log('Strong sell pressure - favorable for SELL orders');
+  }
+}
+
+// Use with opportunity scoring for better entry timing
+const scorer = createOpportunityScorer();
+const enhancedScore = await scorer.scoreWithImbalance(opportunity);
+console.log(`Timing: ${enhancedScore.timingRecommendation}`); // 'execute_now', 'wait', 'monitor'
+```
+
+**Imbalance Metrics:**
+- `imbalanceScore`: -1 (all asks) to +1 (all bids) - indicates directional pressure
+- `bidAskRatio`: Bid volume / Ask volume - >1 means more buying pressure
+- `signal`: 'bullish' (score > 0.15), 'bearish' (score < -0.15), 'neutral'
+- `confidence`: 0-1 based on volume, spread, and imbalance magnitude
+
+**Agent Tool:**
+```
+orderbook_imbalance platform=polymarket market_id=<token_id>
+```
+
+### 6. Dynamic Kelly Criterion Sizing
+Adaptive position sizing that adjusts based on recent performance, drawdown, and volatility.
+
+```typescript
+import { createDynamicKellyCalculator } from './trading/kelly';
+
+const kelly = createDynamicKellyCalculator(10000, {  // $10k initial bankroll
+  baseMultiplier: 0.25,    // Quarter Kelly (conservative)
+  maxKelly: 0.25,          // Never more than 25% of bankroll
+  maxDrawdown: 0.15,       // Reduce size at 15% drawdown
+  volatilityScaling: true, // Adjust for return volatility
+});
+
+// Calculate position size
+const result = kelly.calculate(0.05, 0.8, { category: 'crypto' });
+console.log(`Kelly: ${result.kelly * 100}%`);
+console.log(`Position: $${result.positionSize}`);
+console.log(`Timing: ${result.timingRecommendation}`);
+
+// Record trade outcomes to improve sizing
+kelly.recordTrade({ id: 'trade-1', pnlPct: 0.08, won: true, category: 'crypto' });
+kelly.recordTrade({ id: 'trade-2', pnlPct: -0.05, won: false, category: 'politics' });
+
+// Update bankroll
+kelly.updateBankroll(10500);  // After wins
+
+// Check state
+const state = kelly.getState();
+console.log(`Drawdown: ${state.currentDrawdown * 100}%`);
+console.log(`Win streak: ${state.winStreak}`);
+console.log(`Recent win rate: ${state.recentWinRate * 100}%`);
+```
+
+**Dynamic Adjustments:**
+- **Drawdown Reduction**: Automatically reduces size when losing
+- **Win Streak Boost**: Increases size after consecutive wins
+- **Volatility Scaling**: Adjusts for return volatility vs target
+- **Category Performance**: Tracks win rates by market category
+- **Sample Size**: More conservative with fewer trades
+
+### 7. ML Signal Model
+Machine learning signal model for trade entry/exit decisions.
+
+```typescript
+import { createMLSignalModel, extractFeatures } from './trading/ml-signals';
+
+// Create model
+const model = createMLSignalModel({
+  type: 'simple',        // 'simple' | 'ensemble' | 'xgboost_python'
+  horizon: '24h',        // Prediction horizon
+  minConfidence: 0.6,    // Minimum confidence for signals
+});
+
+// Extract features from market data
+const features = extractFeatures(priceHistory, orderbookSnapshot, { category: 'crypto' });
+
+// Get prediction
+const signal = await model.predict(features);
+console.log(`Direction: ${signal.direction}`);   // 1 (buy), -1 (sell), 0 (hold)
+console.log(`Confidence: ${signal.confidence}`);
+console.log(`Prob Up: ${signal.probUp}`);
+
+// Train on historical data
+await model.train(trainingData);
+model.save();
+
+// Record outcomes for continuous improvement
+model.addTrainingData({ features, outcome: { direction: 1, return: 0.05, horizon: '24h' }, timestamp: new Date() });
+await model.retrain();
+```
+
+**Features Used:**
+- Price: change1h, change24h, volatility, RSI, momentum
+- Volume: current vs average, buy ratio
+- Orderbook: bid/ask ratio, imbalance, spread, depth
+- Market: days to expiry, total volume, category
+
+### 8. Cross-Asset Correlation Arbitrage
+Find arbitrage from correlated but mispriced markets.
+
+```typescript
+import { createCorrelationFinder } from './opportunity/correlation';
+
+const finder = createCorrelationFinder(feeds, db, {
+  minCorrelation: 0.7,
+  minMispricing: 0.02,  // 2%
+});
+
+// Find all correlated pairs with mispricing
+const pairs = await finder.findCorrelatedPairs();
+
+// Find actionable arbitrage opportunities
+const arbs = await finder.findArbitrage();
+for (const arb of arbs) {
+  console.log(`Edge: ${arb.edgePct}%`);
+  console.log(`Type: ${arb.pair.correlationType}`);
+  console.log(`Trades: ${arb.trades.map(t => `${t.action} ${t.outcome} on ${t.platform}`)}`);
+}
+
+// Add custom correlation rules
+finder.addCorrelationRule({
+  id: 'custom_rule',
+  patternA: /bitcoin.*100k.*jan/i,
+  patternB: /bitcoin.*100k.*feb/i,
+  type: 'implies',
+  correlation: 1.0,
+  description: 'If BTC hits $100k by Jan, it will also hit by Feb',
+});
+```
+
+**Correlation Types:**
+- `identical`: Same event on different platforms
+- `implies`: A happening means B must happen (P(B) >= P(A))
+- `mutually_exclusive`: A and B cannot both happen (P(A) + P(B) <= 1)
+- `time_shifted`: Earlier deadline implies later deadline
+- `partial`: Statistical correlation (0-1)
 
 ## Built-in Strategies
 
@@ -506,24 +701,26 @@ trading.stream.addChannel({
 
 ## Configuration Reference
 
+> **Enable Real Trading:** Set `trading.enabled: true` and `trading.dryRun: false` with valid credentials.
+
 ```json
 {
   "trading": {
-    "execution": {
-      "polymarket": {
-        "apiKey": "...",
-        "apiSecret": "...",
-        "funderAddress": "0x..."
-      },
-      "kalshi": {
-        "apiKey": "...",
-        "apiSecret": "..."
-      },
-      "dryRun": false
+    "enabled": true,
+    "dryRun": false,
+    "maxOrderSize": 100,
+    "maxDailyLoss": 200,
+    "polymarket": {
+      "address": "0xYOUR_WALLET_ADDRESS",
+      "apiKey": "your-polymarket-api-key",
+      "apiSecret": "your-polymarket-api-secret",
+      "apiPassphrase": "your-polymarket-api-passphrase",
+      "privateKey": "0xYOUR_PRIVATE_KEY"
     },
-    "portfolioValue": 10000,
-    "autoLog": true,
-    "botIntervalMs": 60000
+    "kalshi": {
+      "apiKeyId": "your-kalshi-api-key-id",
+      "privateKeyPem": "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+    }
   },
   "safety": {
     "dailyLossLimit": 500,
@@ -1108,6 +1305,147 @@ await binance.placeOrder({
   }
 }
 ```
+
+## Hyperliquid DEX
+
+Full integration with Hyperliquid, the dominant perpetual futures DEX (69% market share). Trade 130+ perp markets, spot trading, HLP vault, and TWAP orders.
+
+### Quick Start
+
+```bash
+# Set credentials
+export HYPERLIQUID_WALLET="0x..."
+export HYPERLIQUID_PRIVATE_KEY="0x..."
+
+# Check balance
+/hl balance
+
+# Open a position
+/hl long BTC 0.1
+/hl short ETH 1 3000
+
+# Close position
+/hl close BTC
+```
+
+### Commands
+
+**Trading:**
+| Command | Description |
+|---------|-------------|
+| `/hl long <coin> <size> [price]` | Open long position |
+| `/hl short <coin> <size> [price]` | Open short position |
+| `/hl close <coin>` | Close position at market |
+| `/hl closeall` | Close all positions |
+| `/hl leverage <coin> <1-50>` | Set leverage |
+| `/hl margin <coin> <amount>` | Add/remove isolated margin |
+
+**Account:**
+| Command | Description |
+|---------|-------------|
+| `/hl balance` | Positions, balances, margin |
+| `/hl portfolio` | PnL breakdown (day/week/month/all) |
+| `/hl orders` | List open orders |
+| `/hl orders cancel <coin> [orderId]` | Cancel orders |
+| `/hl orders cancelall` | Cancel all orders |
+| `/hl fills [coin]` | Recent trade fills |
+| `/hl history` | Order history |
+
+**Market Data:**
+| Command | Description |
+|---------|-------------|
+| `/hl stats` | HLP TVL, APR, top funding rates |
+| `/hl markets [query]` | List perp/spot markets |
+| `/hl price <coin>` | Get current price |
+| `/hl book <coin>` | Show orderbook depth |
+| `/hl candles <coin> [1m\|5m\|15m\|1h\|4h\|1d]` | OHLCV candle data |
+| `/hl funding [coin]` | Funding rates (current + predicted) |
+
+**TWAP Orders:**
+| Command | Description |
+|---------|-------------|
+| `/hl twap buy <coin> <size> <minutes>` | Start TWAP buy |
+| `/hl twap sell <coin> <size> <minutes>` | Start TWAP sell |
+| `/hl twap cancel <coin> <twapId>` | Cancel TWAP |
+| `/hl twap status` | Show active TWAP fills |
+
+**Spot Trading:**
+| Command | Description |
+|---------|-------------|
+| `/hl spot markets` | List spot markets |
+| `/hl spot book <coin>` | Spot orderbook |
+| `/hl spot buy <coin> <amount> [price]` | Buy spot |
+| `/hl spot sell <coin> <amount> [price]` | Sell spot |
+
+**HLP Vault:**
+| Command | Description |
+|---------|-------------|
+| `/hl hlp` | Show vault stats (TVL, APR) |
+| `/hl hlp deposit <amount>` | Deposit USDC to vault |
+| `/hl hlp withdraw <amount>` | Withdraw from vault |
+| `/hl vaults` | Your vault positions |
+
+**Transfers:**
+| Command | Description |
+|---------|-------------|
+| `/hl transfer spot2perp <amount>` | Move USDC to perps |
+| `/hl transfer perp2spot <amount>` | Move USDC to spot |
+| `/hl transfer send <address> <amount>` | Send USDC on Hyperliquid |
+| `/hl transfer withdraw <address> <amount>` | Withdraw to L1 (Arbitrum) |
+
+**Account Info:**
+| Command | Description |
+|---------|-------------|
+| `/hl fees` | Your fee tier & rate limits |
+| `/hl points` | Points balance |
+| `/hl referral` | Referral info & rewards |
+| `/hl claim` | Claim referral rewards |
+| `/hl leaderboard [day\|week\|month\|allTime]` | Top traders |
+| `/hl sub` | List subaccounts |
+| `/hl sub create <name>` | Create subaccount |
+| `/hl lend` | Borrow/lend rates |
+
+### Shortcuts
+
+| Full | Short |
+|------|-------|
+| `/hl balance` | `/hl b` |
+| `/hl markets` | `/hl m` |
+| `/hl price` | `/hl p` |
+| `/hl book` | `/hl ob` |
+| `/hl candles` | `/hl c` |
+| `/hl funding` | `/hl f` |
+| `/hl orders` | `/hl o` |
+| `/hl history` | `/hl h` |
+| `/hl long` | `/hl l` |
+| `/hl short` | `/hl s` |
+| `/hl leverage` | `/hl lev` |
+| `/hl portfolio` | `/hl pf` |
+| `/hl leaderboard` | `/hl lb` |
+| `/hl referral` | `/hl ref` |
+
+### Configuration
+
+```bash
+# Required for trading
+export HYPERLIQUID_WALLET="0x..."
+export HYPERLIQUID_PRIVATE_KEY="0x..."
+
+# Optional: dry run mode (no real trades)
+export DRY_RUN=true
+```
+
+### Features
+
+- **130+ Perp Markets** with up to 50x leverage
+- **Spot Trading** with native HYPE token
+- **HLP Vault** - Earn yield providing liquidity
+- **TWAP Orders** - Execute large orders over time
+- **Points System** - Earn rewards for activity
+- **Subaccounts** - Manage multiple strategies
+- **Real-time WebSocket** - Live orderbook and fills
+
+---
 
 ## API Reference
 

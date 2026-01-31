@@ -684,6 +684,25 @@ These commands work inside any chat interface (Telegram, Discord, WebChat, etc.)
 /futures stats                   Trade statistics from DB
 ```
 
+### Hyperliquid DEX
+```
+/hl balance                      Positions, balances, margin
+/hl long BTC 0.1                 Open long 0.1 BTC at market
+/hl short ETH 1 3000             Open short 1 ETH at $3000
+/hl close BTC                    Close BTC position
+/hl closeall                     Close all positions
+/hl leverage BTC 10              Set 10x leverage
+/hl orders                       List open orders
+/hl portfolio                    PnL breakdown
+/hl twap buy BTC 1 60            TWAP buy 1 BTC over 60 min
+/hl hlp                          HLP vault stats (TVL, APR)
+/hl hlp deposit 1000             Deposit $1000 to HLP vault
+/hl transfer spot2perp 500       Move $500 to perps
+/hl funding BTC                  BTC funding rate
+/hl leaderboard                  Top traders
+```
+Shortcuts: `/hl b` (balance), `/hl l` (long), `/hl s` (short), `/hl p` (price), `/hl f` (funding)
+
 ### Solana DEX
 ```
 /swap sol 1 SOL to USDC          Swap on Solana (Jupiter)
@@ -1182,13 +1201,14 @@ These commands work inside any chat interface (Telegram, Discord, WebChat, etc.)
 
 ## Skills System
 
-### Bundled Skills (61)
+### Bundled Skills (62)
 
 **Trading & Markets**
 - `trading-polymarket` — Polymarket trading
 - `trading-kalshi` — Kalshi trading
 - `trading-manifold` — Manifold trading
 - `trading-futures` — Perpetual futures (4 exchanges)
+- `hyperliquid` — Hyperliquid DEX (/hl commands, 130+ perps, spot, HLP, TWAP)
 - `trading-solana` — Solana DEX (Jupiter/Raydium/Orca)
 - `trading-evm` — EVM DEX trading (Uniswap/1inch)
 - `trading-system` — Unified trading with bots
@@ -1483,7 +1503,7 @@ docker compose up --build
 | Messaging Channels | **22** |
 | Prediction Markets | **9** |
 | AI Tools | **21** |
-| Skills | **61** |
+| Skills | **62** |
 | LLM Providers | **6** |
 | Solana DEX Protocols | **5** |
 | Trading Strategies | **3** |
