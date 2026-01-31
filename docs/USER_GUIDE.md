@@ -91,12 +91,45 @@ Send these in any supported channel (Telegram, Discord, WebChat, etc.):
 - `/swap <chain> <from> <to> <amount>` - EVM DEX swap
 
 **Virtuals Protocol (AI Agents):**
-- `/agents <query>` - search AI agents
-- `/agent <token-address>` - get agent details
-- `/trending-agents [limit]` - top agents by volume
-- `/new-agents [limit]` - recently launched agents
-- `/agent-quote <buy|sell> <token> <amount>` - get trade quote
-- `/virtual-balance [address]` - check VIRTUAL balances
+- `/virt search <query>` - search AI agents
+- `/virt agent <id>` - get agent details
+- `/virt agents [category]` - list agents with sorting
+- `/virt trending [limit]` - top agents by volume
+- `/virt new [limit]` - recently launched agents
+- `/virt price <token>` - get bonding curve price
+- `/virt graduation <token>` - check graduation status
+
+**Betfair Exchange (Sports):**
+- `/bf markets <query>` - search sports markets
+- `/bf market <id>` - get market details
+- `/bf prices <market>` - get market book/odds
+- `/bf book <market> <selection>` - view orderbook
+- `/bf back <market> <sel> <odds> <stake>` - place back bet
+- `/bf lay <market> <sel> <odds> <stake>` - place lay bet
+- `/bf orders` - view open orders
+- `/bf positions` - view current positions
+- `/bf balance` - check account funds
+
+**Smarkets Exchange:**
+- `/sm markets <query>` - search markets
+- `/sm market <id>` - get market details
+- `/sm quotes <market>` - get current quotes
+- `/sm book <market> <contract>` - view orderbook
+- `/sm buy <market> <contract> <price> <qty>` - place buy order
+- `/sm sell <market> <contract> <price> <qty>` - place sell order
+- `/sm orders` - view open orders
+- `/sm balance` - check account balance
+
+**Metaculus (Forecasting):**
+- `/mc search <query>` - search questions
+- `/mc question <id>` - get question details and community prediction
+- `/mc tournaments` - list tournaments
+- `/mc tournament <id>` - get tournament details
+
+**PredictIt (Political Markets):**
+- `/pi search <query>` - search markets
+- `/pi market <id>` - get market and contract details
+- `/pi all` - list all markets
 
 **Portfolio & Risk:**
 - `/portfolio` - show positions and P&L
@@ -118,6 +151,12 @@ Supported platforms:
 - Opinion.trade
 - Virtuals Protocol (AI agents)
 - Hyperliquid (perp DEX)
+- Drift Protocol (Solana perps)
+- Jupiter (Solana aggregator)
+- Raydium (Solana AMM)
+- Orca (Solana Whirlpools)
+- Meteora (Solana DLMM)
+- Pump.fun (Solana launchpad)
 
 These are stored encrypted in the database and loaded at runtime.
 
@@ -433,6 +472,93 @@ Trade on Uniswap/1inch across EVM chains:
 ```
 
 Supported chains: ethereum, arbitrum, optimism, base, polygon
+
+### Solana DEX Trading
+
+Trade on Solana DEXes via unified interface or direct DEX commands:
+
+**Unified Commands:**
+```
+/sol swap 1 SOL to USDC          Execute swap (uses Jupiter)
+/sol quote 100 USDC to JUP       Get quotes from all DEXes
+/sol pools BONK                  List all pools
+/sol route SOL USDC              Find best route
+/sol balance                     Check balance
+```
+
+**Jupiter Aggregator:**
+```
+/jup swap 1 SOL to USDC          Execute swap
+/jup quote 100 USDC to JUP       Get quote
+/jup route SOL BONK              Show route details
+```
+
+**Raydium DEX:**
+```
+/ray swap 1 SOL to USDC          Execute swap
+/ray pools SOL                   List pools
+```
+
+**Orca Whirlpools:**
+```
+/orca swap 1 SOL to USDC         Execute swap
+/orca pools SOL                  List Whirlpools
+```
+
+**Meteora DLMM:**
+```
+/met swap 1 SOL to USDC          Execute swap
+/met pools SOL                   List DLMM pools
+```
+
+**Pump.fun:**
+```
+/pump buy <mint> 0.1             Buy with 0.1 SOL
+/pump sell <mint> 1000           Sell 1000 tokens
+```
+
+**Drift Protocol (Perpetuals):**
+```
+/drift long SOL-PERP 0.5         Open long position
+/drift short BTC-PERP 0.01       Open short position
+/drift positions                 View open positions
+/drift orders                    View open orders
+/drift balance                   Check balance
+/drift leverage SOL 5            Set 5x leverage
+```
+
+**Bags.fm (Token Launchpad - Complete):**
+```
+# Trading
+/bags quote 1 SOL to USDC              Get swap quote
+/bags swap 0.5 SOL to BONK             Execute swap
+
+# Discovery
+/bags pools                            List all pools
+/bags trending                         Trending by volume
+/bags token <mint>                     Full token info
+/bags creators <mint>                  Get creators
+/bags lifetime-fees <mint>             Total fees collected
+
+# Fee Claiming
+/bags fees [wallet]                    Check claimable fees
+/bags claim [wallet]                   Claim all fees
+/bags claim-events <mint>              Claim history
+/bags stats <mint>                     Per-claimer stats
+
+# Token Launch
+/bags launch <name> <symbol> <desc>    Launch new token
+/bags fee-config <mint> <wallet:bps>   Set up fee shares
+
+# Wallet Lookup
+/bags wallet twitter <username>        Lookup by social
+/bags wallets github user1,user2       Bulk lookup
+
+# Partner System
+/bags partner-config <mint>            Create partner key
+/bags partner-claim                    Claim partner fees
+/bags partner-stats <key>              View partner stats
+```
 
 ### MEV Protection
 

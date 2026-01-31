@@ -1586,6 +1586,829 @@ const bybitFunding = db.getBybitFuturesFundingTotal('user123');
 
 ---
 
+## Jupiter Aggregator (Solana)
+
+Jupiter is Solana's leading DEX aggregator, finding the best swap routes across all DEXes.
+
+### CLI Commands
+
+```
+/jup swap <amount> <from> to <to>    Execute swap via Jupiter
+/jup quote <amount> <from> to <to>   Get quote without executing
+/jup route <from> <to> [amount]      Show detailed route info
+```
+
+### Examples
+
+```
+/jup swap 1 SOL to USDC
+/jup quote 100 USDC to JUP
+/jup route SOL BONK 1000000000
+```
+
+### Configuration
+
+```bash
+export SOLANA_PRIVATE_KEY="your-private-key"
+export SOLANA_RPC_URL="https://api.mainnet-beta.solana.com"  # Optional
+```
+
+### API Usage
+
+```typescript
+import { executeJupiterSwap } from 'clodds/solana/jupiter';
+
+const result = await executeJupiterSwap(connection, keypair, {
+  inputMint: 'So11111111111111111111111111111111111111112',  // SOL
+  outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  amount: '1000000000',  // 1 SOL in lamports
+  slippageBps: 50,       // 0.5% slippage
+});
+
+console.log(`TX: ${result.signature}`);
+```
+
+---
+
+## Raydium DEX (Solana)
+
+Raydium is a high-volume AMM on Solana with concentrated liquidity pools.
+
+### CLI Commands
+
+```
+/ray swap <amount> <from> to <to>    Execute swap on Raydium
+/ray quote <amount> <from> to <to>   Get quote
+/ray pools <token>                   List pools for token
+```
+
+### Examples
+
+```
+/ray swap 1 SOL to USDC
+/ray quote 100 USDC to RAY
+/ray pools SOL
+```
+
+### API Usage
+
+```typescript
+import { executeRaydiumSwap, listRaydiumPools } from 'clodds/solana/raydium';
+
+// Swap
+const result = await executeRaydiumSwap(connection, keypair, {
+  inputMint: 'SOL',
+  outputMint: 'USDC',
+  amount: '1000000000',
+  slippageBps: 50,
+});
+
+// List pools
+const pools = await listRaydiumPools({ tokenMints: [solMint], limit: 10 });
+```
+
+---
+
+## Orca Whirlpools (Solana)
+
+Orca provides concentrated liquidity pools (Whirlpools) on Solana.
+
+### CLI Commands
+
+```
+/orca swap <amount> <from> to <to>   Execute swap
+/orca quote <amount> <from> to <to>  Get quote
+/orca pools <token>                  List Whirlpools
+```
+
+### Examples
+
+```
+/orca swap 1 SOL to USDC
+/orca pools ORCA
+```
+
+### API Usage
+
+```typescript
+import { executeOrcaWhirlpoolSwap, listOrcaWhirlpoolPools } from 'clodds/solana/orca';
+
+// Find pool and swap
+const pools = await listOrcaWhirlpoolPools({ tokenMints: [solMint, usdcMint] });
+const result = await executeOrcaWhirlpoolSwap(connection, keypair, {
+  poolAddress: pools[0].address,
+  inputMint: solMint,
+  amount: '1000000000',
+  slippageBps: 50,
+});
+```
+
+---
+
+## Meteora DLMM (Solana)
+
+Meteora uses Dynamic Liquidity Market Maker (DLMM) pools with bin-based pricing.
+
+### CLI Commands
+
+```
+/met swap <amount> <from> to <to>    Execute swap
+/met quote <amount> <from> to <to>   Get quote
+/met pools <token>                   List DLMM pools
+```
+
+### Examples
+
+```
+/met swap 1 SOL to USDC
+/met pools SOL
+```
+
+### API Usage
+
+```typescript
+import { executeMeteoraDlmmSwap, listMeteoraDlmmPools } from 'clodds/solana/meteora';
+
+// Find pool
+const pools = await listMeteoraDlmmPools(connection, { tokenMints: [solMint] });
+
+// Swap
+const result = await executeMeteoraDlmmSwap(connection, keypair, {
+  poolAddress: pools[0].address,
+  inputMint: solMint,
+  outputMint: usdcMint,
+  inAmount: '1000000000',
+  slippageBps: 50,
+});
+```
+
+---
+
+## Pump.fun (Solana)
+
+Pump.fun is a token launchpad on Solana for trading new memecoins.
+
+### CLI Commands
+
+```
+/pump buy <mint> <amount>           Buy tokens (amount in SOL)
+/pump sell <mint> <amount>          Sell tokens
+```
+
+### Examples
+
+```
+/pump buy ABC123mintaddress... 0.1    Buy with 0.1 SOL
+/pump sell ABC123mintaddress... 1000  Sell 1000 tokens
+```
+
+### Notes
+
+- Use full mint address (not symbol)
+- High slippage (5-10%) recommended for volatile tokens
+- Amount for buy is in SOL
+- Amount for sell is in tokens
+
+### API Usage
+
+```typescript
+import { executePumpFunTrade } from 'clodds/solana/pumpapi';
+
+// Buy token
+const result = await executePumpFunTrade(connection, keypair, {
+  action: 'buy',
+  mint: 'token_mint_address',
+  amount: '0.1',
+  denominatedInSol: true,
+  slippageBps: 500,  // 5% for volatile tokens
+});
+```
+
+---
+
+## Bags.fm (Solana) - Complete Integration
+
+Bags.fm is a Solana token launchpad and trading platform with creator monetization. Creators earn 1% royalties on all trades of their tokens.
+
+### Quick Start
+
+```bash
+# Set credentials
+export BAGS_API_KEY="your-api-key"           # From dev.bags.fm
+export SOLANA_PRIVATE_KEY="your-private-key" # For signing transactions
+```
+
+### CLI Commands
+
+**Trading:**
+```
+/bags quote <amount> <from> to <to>      Get swap quote
+/bags swap <amount> <from> to <to>       Execute swap
+```
+
+**Discovery:**
+```
+/bags pools                              List all pools
+/bags trending                           Show trending by volume
+/bags token <mint>                       Full token info
+/bags creators <mint>                    Get token creators
+/bags lifetime-fees <mint>               Total fees collected
+```
+
+**Fee Claiming:**
+```
+/bags fees [wallet]                      Check claimable fees
+/bags claim [wallet]                     Claim all fees
+/bags claim-events <mint> [--from/--to]  Claim history
+/bags stats <mint>                       Per-claimer statistics
+```
+
+**Token Launch:**
+```
+/bags launch <name> <symbol> <desc> [options]  Launch new token
+/bags launch-info                              Launch requirements
+```
+
+**Fee Share Config:**
+```
+/bags fee-config <mint> <wallet:bps>...  Create fee distribution (bps sum to 10000)
+```
+
+**Wallet Lookup:**
+```
+/bags wallet <provider> <username>       Lookup by social (twitter/github/kick/tiktok)
+/bags wallets <provider> <user1,user2>   Bulk lookup
+```
+
+**Partner System:**
+```
+/bags partner-config <mint>              Create partner key
+/bags partner-claim [wallet]             Claim partner fees
+/bags partner-stats <key>                View partner stats
+```
+
+### Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| `bags_quote` | Get swap quote for token pair |
+| `bags_swap` | Execute token swap |
+| `bags_pools` | List all Bags pools |
+| `bags_trending` | Get trending tokens by volume |
+| `bags_token` | Get full token info (metadata, creators, fees, market) |
+| `bags_creators` | Get token creators and fee shares |
+| `bags_lifetime_fees` | Get total fees collected for token |
+| `bags_fees` | Check claimable fees (all positions) |
+| `bags_claim` | Claim accumulated fees |
+| `bags_claim_events` | Get claim history with time filters |
+| `bags_claim_stats` | Get per-claimer statistics |
+| `bags_launch` | Launch new token with metadata |
+| `bags_fee_config` | Create fee share configuration |
+| `bags_wallet_lookup` | Lookup wallet by social handle |
+| `bags_bulk_wallet_lookup` | Bulk wallet lookup |
+| `bags_partner_config` | Create partner referral key |
+| `bags_partner_claim` | Claim partner fees |
+| `bags_partner_stats` | Get partner statistics |
+
+### SDK Usage
+
+```typescript
+import { bagsQuote, bagsSwap, listBagsPools, bagsLaunch } from 'clodds/solana/bags';
+
+// Get quote
+const quote = await bagsQuote({
+  inputMint: 'So11....',
+  outputMint: 'USDC...',
+  amount: '1000000',
+});
+
+// Execute swap
+const result = await bagsSwap({
+  inputMint: quote.inputMint,
+  outputMint: quote.outputMint,
+  amount: '1000000',
+  slippageBps: 50,
+});
+
+// Launch a token
+const launch = await bagsLaunch({
+  name: 'My Token',
+  symbol: 'MTK',
+  description: 'A great token',
+  twitter: 'mytoken',
+  initialSol: 0.1,
+});
+```
+
+### Features
+
+- Token launching with 1% creator fees
+- Up to 100 fee claimers per token
+- Meteora DAMM v2 pool integration
+- Virtual pool and custom vault fee claiming
+- Partner referral system
+- Social wallet lookup (Twitter, GitHub, Kick, TikTok)
+- Jito bundle support for launches
+
+### API Details
+
+- Base URL: `https://public-api-v2.bags.fm/api/v1/`
+- Auth: `x-api-key` header
+- Rate limit: 1000 requests/hour
+- Get your API key at [dev.bags.fm](https://dev.bags.fm)
+
+---
+
+## Unified Solana Trading
+
+The `/sol` command provides a unified interface to all Solana DEXes.
+
+### CLI Commands
+
+```
+/sol swap <amount> <from> to <to>   Execute swap (uses Jupiter)
+/sol quote <amount> <from> to <to>  Get quotes from all DEXes
+/sol pools <token>                  List all pools
+/sol route <from> <to>              Find best route
+/sol balance                        Check SOL balance
+/sol address                        Show wallet address
+```
+
+### Examples
+
+```
+/sol swap 1 SOL to USDC
+/sol quote 100 USDC to JUP
+/sol pools BONK
+/sol route SOL USDC
+```
+
+---
+
+## Drift Protocol (Solana)
+
+Direct SDK-based trading on Drift Protocol, Solana's leading perpetual futures DEX. Bypass the gateway requirement with native SDK integration.
+
+### Quick Start
+
+```bash
+# Set credentials
+export DRIFT_PRIVATE_KEY="your-solana-private-key"
+export SOLANA_RPC_URL="https://api.mainnet-beta.solana.com"
+```
+
+### Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| `drift_direct_order` | Place perp/spot orders via SDK |
+| `drift_direct_cancel_order` | Cancel orders by ID, market, or all |
+| `drift_direct_orders` | Get open orders |
+| `drift_direct_positions` | Get positions with PnL |
+| `drift_direct_balance` | Get collateral, margin, health factor |
+| `drift_direct_modify_order` | Modify existing orders |
+| `drift_direct_set_leverage` | Set leverage per market |
+
+### Place Orders
+
+```typescript
+import { executeDriftDirectOrder } from './solana/drift';
+
+// Market buy
+const result = await executeDriftDirectOrder(connection, keypair, {
+  marketIndex: 0,       // BTC-PERP
+  marketType: 'perp',
+  direction: 'long',
+  baseAmount: 0.1,      // 0.1 BTC
+  orderType: 'market',
+});
+
+// Limit sell
+const result = await executeDriftDirectOrder(connection, keypair, {
+  marketIndex: 0,
+  marketType: 'perp',
+  direction: 'short',
+  baseAmount: 0.1,
+  price: 100000,        // Limit price
+  orderType: 'limit',
+});
+```
+
+### Manage Orders
+
+```typescript
+import { cancelDriftOrder, getDriftOrders, modifyDriftOrder } from './solana/drift';
+
+// Get open orders
+const orders = await getDriftOrders(connection, keypair);
+const perpOrders = await getDriftOrders(connection, keypair, 0, 'perp');
+
+// Cancel by ID
+await cancelDriftOrder(connection, keypair, { orderId: 12345 });
+
+// Cancel all for a market
+await cancelDriftOrder(connection, keypair, { marketIndex: 0, marketType: 'perp' });
+
+// Cancel all orders
+await cancelDriftOrder(connection, keypair, { all: true });
+
+// Modify an order
+await modifyDriftOrder(connection, keypair, {
+  orderId: 12345,
+  newPrice: 99000,
+  newBaseAmount: 0.2,
+});
+```
+
+### Positions & Balance
+
+```typescript
+import { getDriftPositions, getDriftBalance, setDriftLeverage } from './solana/drift';
+
+// Get all positions
+const positions = await getDriftPositions(connection, keypair);
+for (const pos of positions) {
+  console.log(`${pos.marketSymbol}: ${pos.baseAssetAmount} @ ${pos.entryPrice}`);
+  console.log(`  Unrealized PnL: $${pos.unrealizedPnl}`);
+}
+
+// Get account balance
+const balance = await getDriftBalance(connection, keypair);
+console.log(`Collateral: $${balance.totalCollateral}`);
+console.log(`Margin Used: $${balance.marginUsed}`);
+console.log(`Health: ${balance.healthFactor}%`);
+
+// Set leverage
+await setDriftLeverage(connection, keypair, {
+  marketIndex: 0,
+  leverage: 5,
+});
+```
+
+### Features
+
+- **Direct SDK** - No gateway server required
+- **Perp & Spot** - Trade both market types
+- **Order Types** - Market, limit, post-only, IOC, FOK
+- **Position Management** - Track unrealized PnL, entry prices
+- **Risk Metrics** - Health factor, margin usage, liquidation prices
+- **Leverage Control** - Set per-market leverage
+
+---
+
+## Predict.fun (BNB Chain)
+
+Full integration with Predict.fun, a BNB Chain prediction market with binary and categorical outcomes.
+
+### Quick Start
+
+```bash
+# Set credentials
+export PREDICTFUN_API_KEY="your-api-key"
+export PREDICTFUN_PRIVATE_KEY="0x..."
+```
+
+Or in `~/.clodds/clodds.json`:
+
+```json
+{
+  "trading": {
+    "predictfun": {
+      "apiKey": "${PREDICTFUN_API_KEY}",
+      "privateKey": "${PREDICTFUN_PRIVATE_KEY}"
+    }
+  }
+}
+```
+
+### Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| `predictfun_markets` | List available markets |
+| `predictfun_market` | Get market details |
+| `predictfun_orderbook` | Get orderbook |
+| `predictfun_create_order` | Place an order |
+| `predictfun_cancel_order` | Cancel an order |
+| `predictfun_cancel_all_orders` | Cancel all orders |
+| `predictfun_orders` | Get open orders |
+| `predictfun_positions` | Get positions |
+| `predictfun_balance` | Get account balance |
+| `predictfun_merge_positions` | Merge outcome tokens |
+| `predictfun_redeem` | Redeem settled positions |
+
+### Programmatic Usage
+
+```typescript
+import * as predictfun from './exchanges/predictfun';
+
+const config = {
+  apiKey: process.env.PREDICTFUN_API_KEY!,
+  privateKey: process.env.PREDICTFUN_PRIVATE_KEY!,
+};
+
+// Search markets
+const markets = await predictfun.getMarkets();
+
+// Place order
+const order = await predictfun.createOrder(config, {
+  marketId: 'market-123',
+  outcomeIndex: 0,     // YES = 0, NO = 1
+  side: 'BUY',
+  price: 0.55,
+  size: 100,
+});
+
+// Get positions
+const positions = await predictfun.getPositions(config);
+
+// Merge positions (convert YES + NO back to collateral)
+await predictfun.mergePositions(config, {
+  conditionId: '0x...',
+  amount: 100,
+});
+
+// Redeem after settlement
+await predictfun.redeemPositions(config, {
+  conditionId: '0x...',
+  indexSets: [1, 2],  // Which outcomes to redeem
+});
+```
+
+### Trading Notes
+
+1. **Chain**: BNB Chain (chainId 56)
+2. **Order Signing**: Uses wallet signatures via `@predictdotfun/sdk`
+3. **Index Sets**: Binary markets use `indexSet = 1` for YES, `indexSet = 2` for NO
+4. **Merging**: Requires equal amounts of all outcome tokens
+5. **Fees**: Check platform for current fee structure
+
+---
+
+## Betfair Exchange
+
+Sports betting exchange with back/lay trading.
+
+### Configuration
+
+```bash
+export BETFAIR_APP_KEY="your-app-key"
+export BETFAIR_SESSION_TOKEN="your-session-token"
+# Or use username/password
+export BETFAIR_USERNAME="your-username"
+export BETFAIR_PASSWORD="your-password"
+```
+
+### CLI Commands (`/bf`)
+
+| Command | Description |
+|---------|-------------|
+| `/bf markets [query]` | Search markets |
+| `/bf market <id>` | Get market details |
+| `/bf prices <id>` | Current prices |
+| `/bf book <id> <sel>` | Show orderbook |
+| `/bf back <id> <sel> <odds> <stake>` | Place back order |
+| `/bf lay <id> <sel> <odds> <stake>` | Place lay order |
+| `/bf orders [id]` | List open orders |
+| `/bf cancel <id> <betId>` | Cancel order |
+| `/bf balance` | Account balance |
+| `/bf positions` | Open positions |
+
+### API Usage
+
+```typescript
+import { createBetfairFeed } from './feeds/betfair';
+
+const feed = await createBetfairFeed({
+  appKey: process.env.BETFAIR_APP_KEY!,
+  sessionToken: process.env.BETFAIR_SESSION_TOKEN,
+});
+await feed.start();
+
+// Search markets
+const markets = await feed.searchMarkets('premier league');
+
+// Place back order (bet FOR outcome)
+const order = await feed.placeBackOrder(
+  marketId,      // '1.234567890'
+  selectionId,   // 12345678
+  2.5,           // Odds (decimal)
+  10             // Stake (GBP)
+);
+
+// Place lay order (bet AGAINST outcome)
+const layOrder = await feed.placeLayOrder(marketId, selectionId, 2.6, 10);
+
+// Get account funds
+const funds = await feed.getAccountFunds();
+```
+
+### Trading Notes
+
+1. **Odds Format**: Decimal odds (2.0 = evens, 3.0 = 2/1)
+2. **Back vs Lay**: Back = betting FOR, Lay = betting AGAINST
+3. **Liability**: Lay stake = liability / (odds - 1)
+4. **Commission**: 2-5% on net winnings
+
+---
+
+## Smarkets Exchange
+
+Betting exchange with lower fees (2% vs Betfair's 5%).
+
+### Configuration
+
+```bash
+export SMARKETS_SESSION_TOKEN="your-session-token"
+# Or API token for read-only access
+export SMARKETS_API_TOKEN="your-api-token"
+```
+
+### CLI Commands (`/sm`)
+
+| Command | Description |
+|---------|-------------|
+| `/sm markets [query]` | Search markets |
+| `/sm market <id>` | Get market details |
+| `/sm prices <id>` | Current prices |
+| `/sm book <id> <contract>` | Show orderbook |
+| `/sm buy <id> <cont> <price> <qty>` | Place buy order |
+| `/sm sell <id> <cont> <price> <qty>` | Place sell order |
+| `/sm orders [id]` | List open orders |
+| `/sm cancel <orderId>` | Cancel order |
+| `/sm balance` | Account balance |
+
+### API Usage
+
+```typescript
+import { createSmarketsFeed } from './feeds/smarkets';
+
+const feed = await createSmarketsFeed({
+  sessionToken: process.env.SMARKETS_SESSION_TOKEN,
+});
+await feed.start();
+
+// Search markets
+const markets = await feed.searchMarkets('election');
+
+// Place buy order
+const order = await feed.placeBuyOrder(
+  marketId,      // '12345'
+  contractId,    // '67890'
+  0.55,          // Price (0-1 probability)
+  10             // Quantity (GBP)
+);
+
+// Get balance
+const balance = await feed.getBalance();
+```
+
+### Trading Notes
+
+1. **Prices**: Expressed as probabilities (0.55 = 55%)
+2. **Low Fees**: 2% commission vs Betfair's 5%
+3. **Markets**: Politics, sports, entertainment
+
+---
+
+## Metaculus (Read-Only)
+
+Forecasting platform integration.
+
+### CLI Commands (`/mc`)
+
+| Command | Description |
+|---------|-------------|
+| `/mc search [query]` | Search questions |
+| `/mc question <id>` | Get question details |
+| `/mc tournaments` | List tournaments |
+| `/mc tournament <id>` | Tournament questions |
+
+### API Usage
+
+```typescript
+import { createMetaculusFeed } from './feeds/metaculus';
+
+const feed = await createMetaculusFeed();
+await feed.connect();
+
+// Search questions
+const markets = await feed.searchMarkets('AI safety');
+
+// Get question
+const question = await feed.getMarket('12345');
+console.log(`Probability: ${question.outcomes[0].price * 100}%`);
+
+// Get tournaments
+const tournaments = await feed.getTournaments();
+```
+
+### Notes
+
+- Read-only platform (no trading)
+- Shows community prediction probabilities
+- Volume = number of predictions
+
+---
+
+## PredictIt (Read-Only)
+
+US political prediction market.
+
+### CLI Commands (`/pi`)
+
+| Command | Description |
+|---------|-------------|
+| `/pi search [query]` | Search markets |
+| `/pi market <id>` | Get market details |
+| `/pi all` | List all markets |
+
+### API Usage
+
+```typescript
+import { createPredictItFeed } from './feeds/predictit';
+
+const feed = await createPredictItFeed();
+await feed.connect();
+
+// Search markets
+const markets = await feed.searchMarkets('president');
+
+// Get all markets
+const allMarkets = await feed.getAllMarkets();
+```
+
+### Notes
+
+- Read-only (no public trading API)
+- Prices shown in cents (55¢ = 55% probability)
+- US politics focused
+
+---
+
+## Virtuals Protocol
+
+AI Agent marketplace on Base chain.
+
+### Configuration
+
+```bash
+# Optional - custom RPC
+export BASE_RPC_URL="https://mainnet.base.org"
+```
+
+### CLI Commands (`/virt`)
+
+| Command | Description |
+|---------|-------------|
+| `/virt search [query]` | Search agents |
+| `/virt agent <id>` | Get agent details |
+| `/virt agents` | List all agents |
+| `/virt trending` | Trending by volume |
+| `/virt new` | Recently launched |
+| `/virt price <addr>` | Bonding curve price |
+| `/virt graduation <addr>` | Graduation progress |
+
+### API Usage
+
+```typescript
+import { createVirtualsFeed } from './feeds/virtuals';
+
+const feed = await createVirtualsFeed({
+  rpcUrl: process.env.BASE_RPC_URL,
+});
+await feed.connect();
+
+// Search agents
+const markets = await feed.searchMarkets('gaming');
+
+// Get trending agents
+const trending = await feed.getTrendingAgents(10);
+
+// Check graduation status
+const isGraduated = await feed.isAgentGraduated('0x...');
+const progress = await feed.getGraduationProgress('0x...');
+
+// Get bonding curve price
+const price = await feed.getBondingCurvePrice('0x...');
+```
+
+### Agent Lifecycle
+
+| Status | Description |
+|--------|-------------|
+| prototype | New, on bonding curve |
+| sentient | Active, growing |
+| graduated | Migrated to Uniswap |
+
+### Notes
+
+1. **Bonding Curves**: Price increases with demand
+2. **Graduation**: ~42K VIRTUAL triggers migration to Uniswap
+3. **Chain**: Base (chainId 8453)
+
+---
+
 ## API Reference
 
 See individual module docs:

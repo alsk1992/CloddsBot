@@ -71,6 +71,9 @@ import * as binanceFutures from '../exchanges/binance-futures';
 import * as bybit from '../exchanges/bybit';
 import * as mexc from '../exchanges/mexc';
 import * as hyperliquid from '../exchanges/hyperliquid';
+import * as opinion from '../exchanges/opinion';
+import * as predictfun from '../exchanges/predictfun';
+import { dispatchHandler, hasHandler } from './handlers';
 
 // Background process tracking
 const backgroundProcesses: Map<string, {
@@ -182,9 +185,45 @@ function isManifoldCredentials(creds: PolymarketCredentials | KalshiCredentials 
   return 'apiKey' in creds && !('privateKey' in creds);
 }
 
-// Generic API response type - uses any for dynamic API data
+// Generic API response types for common patterns
+interface KalshiBalanceResponse {
+  balance?: number;
+  portfolio_value?: number;
+  pnl?: number;
+}
+
+interface PolymarketBookResponse {
+  asks?: Array<{ price: string }>;
+  bids?: Array<{ price: string }>;
+}
+
+interface PolymarketMarketResponse {
+  tokens?: Array<{ token_id: string; outcome: string }>;
+  question?: string;
+}
+
+interface PolymarketTradeResponse {
+  id?: string;
+  price?: string;
+  size?: string;
+  outcome?: string;
+  asset_id?: string;
+}
+
+// EVM chain type for DEX operations
+type EvmChain = 'ethereum' | 'arbitrum' | 'optimism' | 'base' | 'polygon';
+const VALID_EVM_CHAINS = new Set<string>(['ethereum', 'arbitrum', 'optimism', 'base', 'polygon']);
+
+function toEvmChain(chain: string): EvmChain {
+  if (VALID_EVM_CHAINS.has(chain)) {
+    return chain as EvmChain;
+  }
+  return 'ethereum'; // Default to ethereum if invalid
+}
+
+// Generic API response wrapper - used for untyped API responses
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ApiResponse = any;
+type ApiResponse<T = Record<string, unknown>> = T;
 
 const STREAM_TOOL_CALLS_ENABLED = process.env.CLODDS_STREAM_TOOL_CALLS !== '0';
 const TOOL_STREAM_DELAY_MS = Math.max(0, Number(process.env.CLODDS_STREAM_TOOL_DELAY_MS || 750));
@@ -4761,6 +4800,228 @@ function buildTools(): ToolDefinition[] {
     },
 
     // ============================================
+    // BAGS.FM TOOLS (Solana Token Launchpad)
+    // ============================================
+
+    {
+      name: 'bags_quote',
+      description: 'Get swap quote on Bags.fm',
+      input_schema: {
+        type: 'object',
+        properties: {
+          input_mint: { type: 'string', description: 'Input token mint address' },
+          output_mint: { type: 'string', description: 'Output token mint address' },
+          amount: { type: 'string', description: 'Amount to swap' },
+        },
+        required: ['input_mint', 'output_mint', 'amount'],
+      },
+    },
+    {
+      name: 'bags_swap',
+      description: 'Execute swap on Bags.fm',
+      input_schema: {
+        type: 'object',
+        properties: {
+          input_mint: { type: 'string', description: 'Input token mint address' },
+          output_mint: { type: 'string', description: 'Output token mint address' },
+          amount: { type: 'string', description: 'Amount to swap' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['input_mint', 'output_mint', 'amount'],
+      },
+    },
+    {
+      name: 'bags_pools',
+      description: 'List all Bags.fm pools',
+      input_schema: {
+        type: 'object',
+        properties: {
+          sort: { type: 'string', description: 'Sort by field (e.g., volume24h, liquidity)' },
+          limit: { type: 'number', description: 'Max results (default 50)' },
+        },
+      },
+    },
+    {
+      name: 'bags_trending',
+      description: 'Get trending tokens on Bags.fm by volume',
+      input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'bags_token',
+      description: 'Get full token info (metadata, creators, fees, market data)',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'bags_creators',
+      description: 'Get token creators and fee shares',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'bags_lifetime_fees',
+      description: 'Get total fees collected for a token',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'bags_fees',
+      description: 'Check claimable fees for a wallet',
+      input_schema: {
+        type: 'object',
+        properties: {
+          wallet: { type: 'string', description: 'Wallet address' },
+        },
+        required: ['wallet'],
+      },
+    },
+    {
+      name: 'bags_claim',
+      description: 'Claim accumulated fees',
+      input_schema: {
+        type: 'object',
+        properties: {
+          wallet: { type: 'string', description: 'Wallet address (optional, uses configured wallet)' },
+        },
+      },
+    },
+    {
+      name: 'bags_claim_events',
+      description: 'Get claim history for a token',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          from: { type: 'number', description: 'Start timestamp (optional)' },
+          to: { type: 'number', description: 'End timestamp (optional)' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'bags_claim_stats',
+      description: 'Get per-claimer statistics for a token',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'bags_launch',
+      description: 'Launch a new token on Bags.fm',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Token name' },
+          symbol: { type: 'string', description: 'Token symbol' },
+          description: { type: 'string', description: 'Token description' },
+          image_url: { type: 'string', description: 'Token image URL (optional)' },
+          twitter: { type: 'string', description: 'Twitter handle (optional)' },
+          website: { type: 'string', description: 'Website URL (optional)' },
+          telegram: { type: 'string', description: 'Telegram URL (optional)' },
+          initial_sol: { type: 'number', description: 'Initial buy amount in SOL (optional)' },
+        },
+        required: ['name', 'symbol', 'description'],
+      },
+    },
+    {
+      name: 'bags_fee_config',
+      description: 'Create fee share configuration for a token',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          fee_claimers: {
+            type: 'array',
+            description: 'Array of { user: wallet, userBps: bps }. BPS must sum to 10000',
+            items: {
+              type: 'object',
+              properties: {
+                user: { type: 'string' },
+                userBps: { type: 'number' },
+              },
+            },
+          },
+        },
+        required: ['mint', 'fee_claimers'],
+      },
+    },
+    {
+      name: 'bags_wallet_lookup',
+      description: 'Lookup wallet by social handle',
+      input_schema: {
+        type: 'object',
+        properties: {
+          provider: { type: 'string', description: 'Social provider', enum: ['twitter', 'github', 'kick', 'tiktok'] },
+          username: { type: 'string', description: 'Username' },
+        },
+        required: ['provider', 'username'],
+      },
+    },
+    {
+      name: 'bags_bulk_wallet_lookup',
+      description: 'Bulk lookup wallets by social handles',
+      input_schema: {
+        type: 'object',
+        properties: {
+          provider: { type: 'string', description: 'Social provider', enum: ['twitter', 'github', 'kick', 'tiktok'] },
+          usernames: { type: 'array', items: { type: 'string' }, description: 'Usernames' },
+        },
+        required: ['provider', 'usernames'],
+      },
+    },
+    {
+      name: 'bags_partner_config',
+      description: 'Create partner referral key',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'bags_partner_claim',
+      description: 'Claim partner referral fees',
+      input_schema: {
+        type: 'object',
+        properties: {
+          wallet: { type: 'string', description: 'Wallet address (optional)' },
+        },
+      },
+    },
+    {
+      name: 'bags_partner_stats',
+      description: 'Get partner statistics',
+      input_schema: {
+        type: 'object',
+        properties: {
+          partner_key: { type: 'string', description: 'Partner key' },
+        },
+        required: ['partner_key'],
+      },
+    },
+
+    // ============================================
     // EVM DEX TRADING TOOLS
     // ============================================
 
@@ -6874,11 +7135,11 @@ async function executeTool(
                 if (!balRes.ok) {
                   throw new Error(`Kalshi API error: ${balRes.status}`);
                 }
-                const balData = await balRes.json() as any;
+                const balData = await balRes.json() as KalshiBalanceResponse;
                 pnlData = {
-                  balance: balData.balance ? `$${(balData.balance / 100).toFixed(2)}` : 'N/A',
-                  portfolioValue: balData.portfolio_value ? `$${(balData.portfolio_value / 100).toFixed(2)}` : 'N/A',
-                  pnl: balData.pnl ? `$${(balData.pnl / 100).toFixed(2)}` : 'N/A',
+                  balance: balData.balance !== undefined ? `$${(balData.balance / 100).toFixed(2)}` : 'N/A',
+                  portfolioValue: balData.portfolio_value !== undefined ? `$${(balData.portfolio_value / 100).toFixed(2)}` : 'N/A',
+                  pnl: balData.pnl !== undefined ? `$${(balData.pnl / 100).toFixed(2)}` : 'N/A',
                 };
                 await context.credentials.markSuccess(userId, 'kalshi');
               } else if (creds.email && creds.password) {
@@ -6892,11 +7153,11 @@ async function executeTool(
                   const balRes = await fetch(balanceUrl, {
                     headers: { Authorization: `Bearer ${loginData.token}` },
                   });
-                  const balData = await balRes.json() as any;
+                  const balData = await balRes.json() as KalshiBalanceResponse;
                   pnlData = {
-                    balance: balData.balance ? `$${(balData.balance / 100).toFixed(2)}` : 'N/A',
-                    portfolioValue: balData.portfolio_value ? `$${(balData.portfolio_value / 100).toFixed(2)}` : 'N/A',
-                    pnl: balData.pnl ? `$${(balData.pnl / 100).toFixed(2)}` : 'N/A',
+                    balance: balData.balance !== undefined ? `$${(balData.balance / 100).toFixed(2)}` : 'N/A',
+                    portfolioValue: balData.portfolio_value !== undefined ? `$${(balData.portfolio_value / 100).toFixed(2)}` : 'N/A',
+                    pnl: balData.pnl !== undefined ? `$${(balData.pnl / 100).toFixed(2)}` : 'N/A',
                   };
                   await context.credentials.markSuccess(userId, 'kalshi');
                 }
@@ -7034,7 +7295,7 @@ async function executeTool(
         try {
           // Fetch the original trade from the wallet
           const tradesRes = await fetchPolymarketClob(context, `https://clob.polymarket.com/trades?maker=${address}&limit=50`);
-          const tradesData = await tradesRes.json() as any[];
+          const tradesData = await tradesRes.json() as PolymarketTradeResponse[];
 
           // Find the specific trade
           const originalTrade = (tradesData || []).find((t: any) => t.id === tradeId || t.hash === tradeId);
@@ -7338,12 +7599,12 @@ async function executeTool(
           if (!marketRes.ok) {
             return JSON.stringify({ error: `Market ${marketId} not found` });
           }
-          const marketData = await marketRes.json() as any;
+          const marketData = await marketRes.json() as PolymarketMarketResponse;
 
           // Get YES and NO token IDs and prices
           const tokens = marketData.tokens || [];
-          const yesToken = tokens.find((t: any) => t.outcome === 'Yes');
-          const noToken = tokens.find((t: any) => t.outcome === 'No');
+          const yesToken = tokens.find((t) => t.outcome === 'Yes');
+          const noToken = tokens.find((t) => t.outcome === 'No');
 
           if (!yesToken || !noToken) {
             return JSON.stringify({ error: 'Could not find YES/NO tokens for this market' });
@@ -7354,8 +7615,8 @@ async function executeTool(
             fetchPolymarketClob(context, `https://clob.polymarket.com/book?token_id=${yesToken.token_id}`),
             fetchPolymarketClob(context, `https://clob.polymarket.com/book?token_id=${noToken.token_id}`),
           ]);
-          const yesBook = await yesBookRes.json() as any;
-          const noBook = await noBookRes.json() as any;
+          const yesBook = await yesBookRes.json() as PolymarketBookResponse;
+          const noBook = await noBookRes.json() as PolymarketBookResponse;
 
           const yesAsk = parseFloat(yesBook.asks?.[0]?.price || '0.99');
           const noAsk = parseFloat(noBook.asks?.[0]?.price || '0.99');
@@ -12825,63 +13086,185 @@ async function executeTool(
         }
       }
 
-      // Opinion.trade TRADING handlers (require SDK setup)
+      // Opinion.trade TRADING handlers (full SDK implementation)
       case 'opinion_place_order': {
-        // Note: Full implementation requires Opinion CLOB SDK with wallet
-        return JSON.stringify({
-          error: 'Opinion.trade trading requires SDK setup. Set OPINION_PRIVATE_KEY env var.',
-          hint: 'Use opinion_markets and opinion_orderbook for read-only data.',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({
+            error: 'Opinion.trade trading requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS env vars.',
+            docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
+          });
+        }
+
+        const marketId = toolInput.market_id as number;
+        const tokenId = toolInput.token_id as string;
+        const side = (toolInput.side as string).toUpperCase() as 'BUY' | 'SELL';
+        const price = toolInput.price as number;
+        const amount = toolInput.amount as number;
+        const orderType = ((toolInput.order_type as string) || 'LIMIT').toUpperCase() as 'LIMIT' | 'MARKET';
+
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const result = await opinion.placeOrder(config, marketId, tokenId, side, price, amount, orderType);
+
+          if (result.success) {
+            db.logOpinionTrade({
+              oddsUserId: vaultAddress.slice(0, 16),
+              orderId: result.orderId || '',
+              marketId: String(marketId),
+              tokenId,
+              side,
+              price,
+              size: amount,
+              orderType,
+              timestamp: new Date(),
+            });
+          }
+
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_cancel_order': {
-        return JSON.stringify({
-          error: 'Opinion.trade trading requires SDK setup',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const orderId = toolInput.order_id as string;
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const success = await opinion.cancelOrder(config, orderId);
+          return JSON.stringify({ success, orderId });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_cancel_all_orders': {
-        return JSON.stringify({
-          error: 'Opinion.trade trading requires SDK setup',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const marketId = toolInput.market_id as number | undefined;
+        const side = toolInput.side as string | undefined;
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const result = await opinion.cancelAllOrders(
+            config,
+            marketId,
+            side ? (side.toUpperCase() as 'BUY' | 'SELL') : undefined
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_orders': {
-        return JSON.stringify({
-          error: 'Opinion.trade trading requires SDK setup for authenticated endpoints',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const marketId = toolInput.market_id as number | undefined;
+        try {
+          const config = { apiKey, privateKey, vaultAddress };
+          const orders = await opinion.getOpenOrders(config, marketId);
+          return JSON.stringify({ orders, count: orders.length });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_positions': {
-        return JSON.stringify({
-          error: 'Opinion.trade trading requires SDK setup for authenticated endpoints',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const marketId = toolInput.market_id as number | undefined;
+        try {
+          const config = { apiKey, privateKey, vaultAddress };
+          const positions = await opinion.getPositions(config, marketId);
+          return JSON.stringify({ positions, count: positions.length });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_balances': {
-        return JSON.stringify({
-          error: 'Opinion.trade trading requires SDK setup for authenticated endpoints',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        try {
+          const config = { apiKey, privateKey, vaultAddress };
+          const balances = await opinion.getBalances(config);
+          return JSON.stringify({ balances });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_trades': {
-        return JSON.stringify({
-          error: 'Opinion.trade trading requires SDK setup for authenticated endpoints',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const marketId = toolInput.market_id as number | undefined;
+        try {
+          const config = { apiKey, privateKey, vaultAddress };
+          const trades = await opinion.getTrades(config, marketId);
+          return JSON.stringify({ trades, count: trades.length });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_redeem': {
-        return JSON.stringify({
-          error: 'Opinion.trade redemption requires SDK setup with wallet',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const marketId = toolInput.market_id as number;
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const result = await opinion.redeem(config, marketId);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       // Opinion.trade - Additional handlers for 100% API coverage
@@ -12897,7 +13280,23 @@ async function executeTool(
       }
 
       case 'opinion_fee_rates': {
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
         const tokenId = toolInput.token_id as string;
+
+        // Can use SDK if configured, otherwise fallback to public API
+        if (apiKey && privateKey && vaultAddress) {
+          try {
+            const config = { apiKey, privateKey, vaultAddress };
+            const rates = await opinion.getFeeRates(config, tokenId);
+            return JSON.stringify(rates);
+          } catch (err: unknown) {
+            return JSON.stringify({ error: (err as Error).message });
+          }
+        }
+
+        // Fallback to public API
         try {
           const response = await fetch(`https://api.opinion.trade/api/v1/fee-rates?token_id=${tokenId}`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
@@ -12908,51 +13307,133 @@ async function executeTool(
       }
 
       case 'opinion_order_by_id': {
-        return JSON.stringify({
-          error: 'Opinion.trade order lookup requires SDK setup',
-          hint: 'Use opinion_orders to list all your orders',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const orderId = toolInput.order_id as string;
+        try {
+          const config = { apiKey, privateKey, vaultAddress };
+          const order = await opinion.getOrderById(config, orderId);
+          if (!order) return JSON.stringify({ error: 'Order not found' });
+          return JSON.stringify(order);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_place_orders_batch': {
-        return JSON.stringify({
-          error: 'Opinion.trade batch orders require SDK setup with wallet',
-          hint: 'Use opinion_place_order for single orders',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const orders = toolInput.orders as Array<{
+          market_id: number;
+          token_id: string;
+          side: string;
+          price: number;
+          amount: number;
+        }>;
+
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const orderInputs = orders.map(o => ({
+            marketId: o.market_id,
+            tokenId: o.token_id,
+            side: o.side.toUpperCase() as 'BUY' | 'SELL',
+            price: o.price,
+            amount: o.amount,
+          }));
+          const results = await opinion.placeOrdersBatch(config, orderInputs);
+          return JSON.stringify({ results, count: results.length });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_cancel_orders_batch': {
-        return JSON.stringify({
-          error: 'Opinion.trade batch cancel requires SDK setup with wallet',
-          hint: 'Use opinion_cancel_order for single cancels',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const orderIds = toolInput.order_ids as string[];
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const results = await opinion.cancelOrdersBatch(config, orderIds);
+          return JSON.stringify({ results });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_enable_trading': {
-        return JSON.stringify({
-          error: 'Opinion.trade enable_trading requires SDK setup with wallet',
-          hint: 'This approves tokens for the exchange contract - one-time setup',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const result = await opinion.enableTrading(config);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_split': {
-        return JSON.stringify({
-          error: 'Opinion.trade split requires SDK setup with wallet',
-          hint: 'Split converts collateral (USDT) into YES+NO outcome tokens',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const marketId = toolInput.market_id as number;
+        const amount = toolInput.amount as number;
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const result = await opinion.split(config, marketId, amount);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'opinion_merge': {
-        return JSON.stringify({
-          error: 'Opinion.trade merge requires SDK setup with wallet',
-          hint: 'Merge converts YES+NO tokens back into collateral (USDT)',
-          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-        });
+        const apiKey = process.env.OPINION_API_KEY;
+        const privateKey = process.env.OPINION_PRIVATE_KEY;
+        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
+
+        if (!apiKey || !privateKey || !vaultAddress) {
+          return JSON.stringify({ error: 'Opinion.trade requires OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
+        }
+
+        const marketId = toolInput.market_id as number;
+        const amount = toolInput.amount as number;
+        try {
+          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
+          const result = await opinion.merge(config, marketId, amount);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       // ============================================
@@ -13077,21 +13558,91 @@ async function executeTool(
         }
       }
 
-      // Predict.fun TRADING handlers (require SDK/wallet)
+      // Predict.fun TRADING handlers (full SDK implementation)
       case 'predictfun_create_order': {
-        return JSON.stringify({
-          error: 'Predict.fun trading requires SDK setup with wallet signing',
-          hint: 'Use predictfun_markets and predictfun_orderbook for read-only data.',
-          docs: 'https://dev.predict.fun/how-to-create-or-cancel-orders-679306m0',
-          sdk: 'npm install @predictdotfun/sdk',
-        });
+        const privateKey = process.env.PREDICTFUN_PRIVATE_KEY;
+        const predictAccount = process.env.PREDICTFUN_PREDICT_ACCOUNT;
+
+        if (!privateKey) {
+          return JSON.stringify({
+            error: 'Predict.fun trading requires PREDICTFUN_PRIVATE_KEY env var',
+            docs: 'https://dev.predict.fun/how-to-create-or-cancel-orders-679306m0',
+          });
+        }
+
+        const marketId = toolInput.market_id as string;
+        const tokenId = toolInput.token_id as string;
+        const side = (toolInput.side as string).toUpperCase() as 'BUY' | 'SELL';
+        const price = toolInput.price as number;
+        const quantity = toolInput.quantity as number;
+        const feeRateBps = toolInput.fee_rate_bps as number | undefined;
+        const isNegRisk = toolInput.is_neg_risk as boolean | undefined;
+        const isYieldBearing = toolInput.is_yield_bearing as boolean | undefined;
+
+        try {
+          const config = {
+            privateKey,
+            predictAccount,
+            apiKey: process.env.PREDICTFUN_API_KEY,
+            dryRun: process.env.DRY_RUN === 'true',
+          };
+
+          const result = await predictfun.createOrder(config, {
+            marketId,
+            tokenId,
+            side,
+            price,
+            quantity,
+            feeRateBps,
+            isNegRisk,
+            isYieldBearing,
+          });
+
+          if (result.success) {
+            db.logPredictFunTrade({
+              oddsUserId: predictAccount || 'eoa',
+              orderHash: result.orderHash || '',
+              marketId,
+              tokenId,
+              side,
+              price,
+              quantity,
+              status: 'open',
+              timestamp: new Date(),
+            });
+          }
+
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'predictfun_cancel_orders': {
-        return JSON.stringify({
-          error: 'Predict.fun trading requires SDK setup',
-          docs: 'https://dev.predict.fun/',
-        });
+        const privateKey = process.env.PREDICTFUN_PRIVATE_KEY;
+        const predictAccount = process.env.PREDICTFUN_PREDICT_ACCOUNT;
+
+        if (!privateKey) {
+          return JSON.stringify({ error: 'Predict.fun requires PREDICTFUN_PRIVATE_KEY' });
+        }
+
+        const orderHashes = toolInput.order_hashes as string[];
+        const isNegRisk = (toolInput.is_neg_risk as boolean) || false;
+        const isYieldBearing = (toolInput.is_yield_bearing as boolean) ?? true;
+
+        try {
+          const config = {
+            privateKey,
+            predictAccount,
+            apiKey: process.env.PREDICTFUN_API_KEY,
+            dryRun: process.env.DRY_RUN === 'true',
+          };
+
+          const result = await predictfun.cancelOrders(config, orderHashes, { isNegRisk, isYieldBearing });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'predictfun_orders': {
@@ -13162,35 +13713,114 @@ async function executeTool(
       }
 
       case 'predictfun_redeem_positions': {
-        return JSON.stringify({
-          error: 'Predict.fun redemption requires SDK setup with wallet',
-          hint: 'Use OrderBuilder.redeem_positions() from @predictdotfun/sdk',
-          docs: 'https://dev.predict.fun/',
-        });
+        const privateKey = process.env.PREDICTFUN_PRIVATE_KEY;
+        const predictAccount = process.env.PREDICTFUN_PREDICT_ACCOUNT;
+
+        if (!privateKey) {
+          return JSON.stringify({ error: 'Predict.fun requires PREDICTFUN_PRIVATE_KEY' });
+        }
+
+        const conditionId = toolInput.condition_id as string;
+        const indexSetInput = toolInput.index_set as number;
+        const indexSet = (indexSetInput === 1 || indexSetInput === 2) ? indexSetInput : 1;
+        const isNegRisk = (toolInput.is_neg_risk as boolean) || false;
+        const isYieldBearing = (toolInput.is_yield_bearing as boolean) ?? true;
+        const amountStr = toolInput.amount as string | undefined;
+        const amount = amountStr ? BigInt(amountStr) : undefined;
+
+        try {
+          const config = {
+            privateKey,
+            predictAccount,
+            apiKey: process.env.PREDICTFUN_API_KEY,
+            dryRun: process.env.DRY_RUN === 'true',
+          };
+
+          const result = await predictfun.redeemPositions(config, conditionId, indexSet, {
+            isNegRisk,
+            isYieldBearing,
+            amount,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'predictfun_merge_positions': {
-        return JSON.stringify({
-          error: 'Predict.fun merge requires SDK setup with wallet',
-          hint: 'Use OrderBuilder.merge_positions() from @predictdotfun/sdk',
-          docs: 'https://dev.predict.fun/',
-        });
+        const privateKey = process.env.PREDICTFUN_PRIVATE_KEY;
+        const predictAccount = process.env.PREDICTFUN_PREDICT_ACCOUNT;
+
+        if (!privateKey) {
+          return JSON.stringify({ error: 'Predict.fun requires PREDICTFUN_PRIVATE_KEY' });
+        }
+
+        const conditionId = toolInput.condition_id as string;
+        const amount = toolInput.amount as number;
+        const isNegRisk = (toolInput.is_neg_risk as boolean) || false;
+        const isYieldBearing = (toolInput.is_yield_bearing as boolean) ?? true;
+
+        try {
+          const config = {
+            privateKey,
+            predictAccount,
+            apiKey: process.env.PREDICTFUN_API_KEY,
+            dryRun: process.env.DRY_RUN === 'true',
+          };
+
+          const result = await predictfun.mergePositions(config, conditionId, amount, {
+            isNegRisk,
+            isYieldBearing,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'predictfun_set_approvals': {
-        return JSON.stringify({
-          error: 'Predict.fun approvals require SDK setup with wallet',
-          hint: 'Use OrderBuilder.set_approvals() - one-time setup before trading',
-          docs: 'https://dev.predict.fun/',
-        });
+        const privateKey = process.env.PREDICTFUN_PRIVATE_KEY;
+        const predictAccount = process.env.PREDICTFUN_PREDICT_ACCOUNT;
+
+        if (!privateKey) {
+          return JSON.stringify({ error: 'Predict.fun requires PREDICTFUN_PRIVATE_KEY' });
+        }
+
+        try {
+          const config = {
+            privateKey,
+            predictAccount,
+            apiKey: process.env.PREDICTFUN_API_KEY,
+            dryRun: process.env.DRY_RUN === 'true',
+          };
+
+          const result = await predictfun.setApprovals(config);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'predictfun_balance': {
-        return JSON.stringify({
-          error: 'Predict.fun balance check requires SDK setup with wallet',
-          hint: 'Use OrderBuilder.balance_of() from @predictdotfun/sdk',
-          docs: 'https://dev.predict.fun/',
-        });
+        const privateKey = process.env.PREDICTFUN_PRIVATE_KEY;
+        const predictAccount = process.env.PREDICTFUN_PREDICT_ACCOUNT;
+
+        if (!privateKey) {
+          return JSON.stringify({ error: 'Predict.fun requires PREDICTFUN_PRIVATE_KEY' });
+        }
+
+        try {
+          const config = {
+            privateKey,
+            predictAccount,
+            apiKey: process.env.PREDICTFUN_API_KEY,
+          };
+
+          const balance = await predictfun.getBalance(config);
+          return JSON.stringify(balance);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
       }
 
       case 'predictfun_matches': {
@@ -14414,6 +15044,99 @@ async function executeTool(
         }
       }
 
+      case 'drift_direct_cancel_order': {
+        try {
+          const { cancelDriftOrder } = await import('../solana/drift');
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await cancelDriftOrder(connection, keypair, {
+            orderId: toolInput.order_id as number | undefined,
+            marketIndex: toolInput.market_index as number | undefined,
+            marketType: toolInput.market_type as 'perp' | 'spot' | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'drift_direct_orders': {
+        try {
+          const { getDriftOrders } = await import('../solana/drift');
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await getDriftOrders(
+            connection,
+            keypair,
+            toolInput.market_index as number | undefined,
+            toolInput.market_type as 'perp' | 'spot' | undefined
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'drift_direct_positions': {
+        try {
+          const { getDriftPositions } = await import('../solana/drift');
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await getDriftPositions(
+            connection,
+            keypair,
+            toolInput.market_index as number | undefined
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'drift_direct_balance': {
+        try {
+          const { getDriftBalance } = await import('../solana/drift');
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await getDriftBalance(connection, keypair);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'drift_direct_modify_order': {
+        try {
+          const { modifyDriftOrder } = await import('../solana/drift');
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await modifyDriftOrder(connection, keypair, {
+            orderId: toolInput.order_id as number,
+            newPrice: toolInput.new_price as string | undefined,
+            newBaseAmount: toolInput.new_base_amount as string | undefined,
+            reduceOnly: toolInput.reduce_only as boolean | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'drift_direct_set_leverage': {
+        try {
+          const { setDriftLeverage } = await import('../solana/drift');
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await setDriftLeverage(connection, keypair, {
+            marketIndex: toolInput.market_index as number,
+            leverage: toolInput.leverage as number,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
       case 'meteora_dlmm_pools': {
         try {
           const connection = getSolanaConnection();
@@ -14671,7 +15394,7 @@ async function executeTool(
           if (dex === 'auto') {
             // Compare routes and use best one
             const comparison = await compareDexRoutes({
-              chain: chain as any,
+              chain: toEvmChain(chain),
               fromToken: inputToken,
               toToken: outputToken,
               amount,
@@ -14679,7 +15402,7 @@ async function executeTool(
 
             if (comparison.best === 'uniswap' && comparison.uniswapQuote) {
               const result = await executeUniswapSwap({
-                chain: chain as any,
+                chain: toEvmChain(chain),
                 inputToken,
                 outputToken,
                 amount,
@@ -14688,7 +15411,7 @@ async function executeTool(
               return JSON.stringify({ ...result, routedVia: 'uniswap', comparison });
             } else if (comparison.oneInchQuote) {
               const result = await executeOneInchSwap({
-                chain: chain as any,
+                chain: toEvmChain(chain),
                 fromToken: inputToken,
                 toToken: outputToken,
                 amount,
@@ -14698,7 +15421,7 @@ async function executeTool(
             }
           } else if (dex === 'uniswap') {
             const result = await executeUniswapSwap({
-              chain: chain as any,
+              chain: toEvmChain(chain),
               inputToken,
               outputToken,
               amount,
@@ -14707,7 +15430,7 @@ async function executeTool(
             return JSON.stringify(result);
           } else if (dex === '1inch') {
             const result = await executeOneInchSwap({
-              chain: chain as any,
+              chain: toEvmChain(chain),
               fromToken: inputToken,
               toToken: outputToken,
               amount,
@@ -14734,7 +15457,7 @@ async function executeTool(
         try {
           const { compareDexRoutes } = await import('../evm');
           const comparison = await compareDexRoutes({
-            chain: chain as any,
+            chain: toEvmChain(chain),
             fromToken: inputToken,
             toToken: outputToken,
             amount,
@@ -14754,7 +15477,7 @@ async function executeTool(
           const balances: Record<string, string> = {};
           for (const token of tokens) {
             try {
-              const balance = await getEvmBalance(token, chain as any);
+              const balance = await getEvmBalance(token, toEvmChain(chain));
               balances[token] = balance;
             } catch {
               balances[token] = 'error';
@@ -16359,8 +17082,20 @@ async function executeTool(
         return JSON.stringify({ result: 'Progress updated', id });
       }
 
-      default:
+      default: {
+        // Try modular handlers (Solana DEX, Bags.fm, Betfair, Smarkets, Opinion, Virtuals, etc.)
+        if (hasHandler(toolName)) {
+          const result = await dispatchHandler(toolName, toolInput, {
+            db,
+            userId,
+            session,
+          });
+          if (result) {
+            return JSON.stringify(result);
+          }
+        }
         return JSON.stringify({ error: `Unknown tool: ${toolName}` });
+      }
     }
   } catch (error) {
     logger.error(`Tool execution error (${toolName}):`, error);

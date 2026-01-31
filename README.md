@@ -703,6 +703,58 @@ These commands work inside any chat interface (Telegram, Discord, WebChat, etc.)
 ```
 Shortcuts: `/hl b` (balance), `/hl l` (long), `/hl s` (short), `/hl p` (price), `/hl f` (funding)
 
+### Betfair Exchange
+```
+/bf markets trump                Search sports/political markets
+/bf market 1.234567              Get market details
+/bf prices 1.234567              Get odds/prices
+/bf book 1.234567 12345          View orderbook for selection
+/bf back 1.234567 12345 2.5 10   Back at 2.5 odds, £10 stake
+/bf lay 1.234567 12345 2.5 10    Lay at 2.5 odds, £10 stake
+/bf cancel 1.234567 bet123       Cancel order
+/bf orders                       View open orders
+/bf positions                    View positions
+/bf balance                      Check account funds
+```
+
+### Smarkets Exchange
+```
+/sm markets trump                Search markets
+/sm market abc123                Get market details
+/sm quotes abc123                Get current quotes
+/sm book abc123 xyz789           View orderbook
+/sm buy abc123 xyz789 0.55 100   Buy at 55%, 100 contracts
+/sm sell abc123 xyz789 0.55 100  Sell at 55%, 100 contracts
+/sm orders                       View open orders
+/sm balance                      Check balance
+```
+
+### Metaculus (Forecasting)
+```
+/mc search AI superintelligence  Search questions
+/mc question 12345               Get question details
+/mc tournaments                  List tournaments
+/mc tournament 789               Tournament details
+```
+
+### PredictIt (Political)
+```
+/pi search president             Search markets
+/pi market 7456                  Get market details
+/pi all                          List all markets
+```
+
+### Virtuals Protocol (AI Agents)
+```
+/virt search trading             Search AI agents
+/virt agent abc123               Get agent details
+/virt agents                     List all agents
+/virt trending 10                Top 10 by volume
+/virt new 10                     Recently launched
+/virt price 0x1234...            Bonding curve price
+/virt graduation 0x1234...       Graduation status
+```
+
 ### Solana DEX
 ```
 /swap sol 1 SOL to USDC          Swap on Solana (Jupiter)
@@ -1201,7 +1253,7 @@ Shortcuts: `/hl b` (balance), `/hl l` (long), `/hl s` (short), `/hl p` (price), 
 
 ## Skills System
 
-### Bundled Skills (64)
+### Bundled Skills (80)
 
 **Trading & Markets**
 - `trading-polymarket` — Polymarket trading
@@ -1209,7 +1261,23 @@ Shortcuts: `/hl b` (balance), `/hl l` (long), `/hl s` (short), `/hl p` (price), 
 - `trading-manifold` — Manifold trading
 - `trading-futures` — Perpetual futures (4 exchanges)
 - `hyperliquid` — Hyperliquid DEX (/hl commands, 130+ perps, spot, HLP, TWAP)
-- `trading-solana` — Solana DEX (Jupiter/Raydium/Orca)
+- `binance-futures` — Binance Futures (/bf commands, 125x leverage, DB tracking)
+- `bybit-futures` — Bybit Futures (/bb commands, 100x leverage, DB tracking)
+- `mexc-futures` — MEXC Futures (/mx commands, 200x leverage, No KYC)
+- `opinion` — Opinion.trade prediction market (/op commands, BNB Chain CLOB)
+- `betfair` — Betfair Exchange (/bf commands, sports betting, back/lay orders)
+- `smarkets` — Smarkets Exchange (/sm commands, sports markets, 2% fees)
+- `metaculus` — Metaculus forecasting (/mc commands, community predictions)
+- `predictit` — PredictIt markets (/pi commands, US political markets)
+- `virtuals` — Virtuals Protocol (/virt commands, AI Agent marketplace on Base)
+- `trading-solana` — Unified Solana DEX (/sol commands)
+- `jupiter` — Jupiter Aggregator (/jup commands, best routes)
+- `raydium` — Raydium AMM (/ray commands, high volume)
+- `orca` — Orca Whirlpools (/orca commands, concentrated liquidity)
+- `meteora` — Meteora DLMM (/met commands, dynamic pools)
+- `pumpfun` — Pump.fun (/pump commands, token launchpad)
+- `drift` — Drift Protocol (/drift commands, perps on Solana)
+- `bags` — Bags.fm (/bags commands, token launchpad with creator fees)
 - `trading-evm` — EVM DEX trading (Uniswap/1inch)
 - `trading-system` — Unified trading with bots
 - `execution` — Order execution with slippage protection
@@ -1340,7 +1408,7 @@ Shortcuts: `/hl b` (balance), `/hl l` (long), `/hl s` (short), `/hl p` (price), 
 │ Slack         │         │ Alerts        │         │ Manifold      │
 │ Teams         │         │               │         │ Crypto (10)   │
 │ Matrix        │         │ Tools (21)    │         │               │
-│ Signal        │         │ Skills (61)   │         │ Arbitrage     │
+│ Signal        │         │ Skills (80)   │         │ Arbitrage     │
 │ +15 more      │         │ Memory        │         │ Detector      │
 └───────────────┘         └───────────────┘         └───────────────┘
         │                         │                         │
@@ -1504,7 +1572,7 @@ docker compose up --build
 | Messaging Channels | **22** |
 | Prediction Markets | **9** |
 | AI Tools | **21** |
-| Skills | **64** |
+| Skills | **80** |
 | LLM Providers | **6** |
 | Solana DEX Protocols | **5** |
 | Trading Strategies | **3** |
