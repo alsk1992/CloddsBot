@@ -22,6 +22,10 @@ function formatPct(n: number): string {
   return (n >= 0 ? '+' : '') + (n * 100).toFixed(2) + '%';
 }
 
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleString();
+}
+
 function getConfig(): hl.HyperliquidConfig | null {
   const wallet = process.env.HYPERLIQUID_WALLET;
   const privateKey = process.env.HYPERLIQUID_PRIVATE_KEY;
@@ -36,7 +40,7 @@ function getConfig(): hl.HyperliquidConfig | null {
 }
 
 // =============================================================================
-// HANDLERS
+// MARKET DATA HANDLERS
 // =============================================================================
 
 async function handleStats(): Promise<string> {
@@ -51,7 +55,6 @@ async function handleStats(): Promise<string> {
     '',
     `HLP TVL: $${formatNumber(hlpStats.tvl)}`,
     `HLP APR: ${hlpStats.apr24h.toFixed(2)}%`,
-    `24h Volume: $${formatNumber(hlpStats.volume24h)}`,
     `24h PnL: $${formatNumber(hlpStats.pnl24h)}`,
     '',
     `Markets: ${meta.universe.length} perps`,
@@ -59,7 +62,6 @@ async function handleStats(): Promise<string> {
     '**Top Funding Rates:**',
   ];
 
-  // Sort by absolute funding
   const sorted = [...funding]
     .sort((a, b) => Math.abs(parseFloat(b.funding)) - Math.abs(parseFloat(a.funding)))
     .slice(0, 5);
@@ -82,7 +84,6 @@ async function handleMarkets(query?: string): Promise<string> {
 
   const lines = ['**Hyperliquid Markets**', ''];
 
-  // Filter if query provided
   let perps = perpMeta.universe;
   if (query) {
     const q = query.toLowerCase();
@@ -99,7 +100,6 @@ async function handleMarkets(query?: string): Promise<string> {
     lines.push(`  ...and ${perps.length - 15} more`);
   }
 
-  // Spot markets
   let spots = spotMeta.universe;
   if (query) {
     const q = query.toLowerCase();
@@ -118,6 +118,28 @@ async function handleMarkets(query?: string): Promise<string> {
   return lines.join('\n');
 }
 
+async function handlePrice(coin: string): Promise<string> {
+  const [mids, meta] = await Promise.all([
+    hl.getAllMids(),
+    hl.getPerpMeta(),
+  ]);
+
+  const coinUpper = coin.toUpperCase();
+  const price = mids[coinUpper];
+
+  if (!price) {
+    return `Market ${coinUpper} not found`;
+  }
+
+  const asset = meta.universe.find(a => a.name === coinUpper);
+
+  return [
+    `**${coinUpper}**`,
+    `Price: $${parseFloat(price).toFixed(2)}`,
+    asset ? `Max Leverage: ${asset.maxLeverage}x` : '',
+  ].filter(Boolean).join('\n');
+}
+
 async function handleOrderbook(coin: string): Promise<string> {
   const ob = await hl.getOrderbook(coin.toUpperCase());
 
@@ -127,14 +149,12 @@ async function handleOrderbook(coin: string): Promise<string> {
     'Asks:',
   ];
 
-  // Top 5 asks (reversed for display)
   for (const ask of ob.levels[1].slice(0, 5).reverse()) {
     lines.push(`  $${ask.price.toFixed(2)} | ${formatNumber(ask.size)} (${ask.numOrders})`);
   }
 
   lines.push('---');
 
-  // Top 5 bids
   for (const bid of ob.levels[0].slice(0, 5)) {
     lines.push(`  $${bid.price.toFixed(2)} | ${formatNumber(bid.size)} (${bid.numOrders})`);
   }
@@ -149,10 +169,97 @@ async function handleOrderbook(coin: string): Promise<string> {
   return lines.join('\n');
 }
 
+async function handleCandles(coin: string, interval?: string): Promise<string> {
+  const tf = (interval as '1m' | '5m' | '15m' | '1h' | '4h' | '1d') || '1h';
+  const candles = await hl.getCandles(coin.toUpperCase(), tf);
+
+  if (candles.length === 0) {
+    return `No candle data for ${coin}`;
+  }
+
+  const latest = candles[candles.length - 1];
+  const prev = candles[candles.length - 2];
+  const change = prev ? ((latest.close - prev.close) / prev.close * 100) : 0;
+
+  const lines = [
+    `**${coin.toUpperCase()} (${tf})**`,
+    '',
+    `Price: $${latest.close.toFixed(2)} (${change >= 0 ? '+' : ''}${change.toFixed(2)}%)`,
+    `High: $${latest.high.toFixed(2)}`,
+    `Low: $${latest.low.toFixed(2)}`,
+    `Volume: $${formatNumber(latest.volume)}`,
+    '',
+    '**Recent:**',
+  ];
+
+  for (const c of candles.slice(-5)) {
+    const time = new Date(c.time).toLocaleTimeString();
+    const chg = ((c.close - c.open) / c.open * 100);
+    lines.push(`  ${time}: $${c.close.toFixed(2)} (${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%)`);
+  }
+
+  return lines.join('\n');
+}
+
+async function handleFunding(coin?: string): Promise<string> {
+  if (coin) {
+    const now = Date.now();
+    const history = await hl.getFundingHistory(coin.toUpperCase(), now - 24 * 60 * 60 * 1000, now);
+
+    if (history.length === 0) {
+      return `No funding history for ${coin}`;
+    }
+
+    const lines = [
+      `**${coin.toUpperCase()} Funding History (24h)**`,
+      '',
+    ];
+
+    for (const f of history.slice(-8)) {
+      const time = new Date(f.time).toLocaleTimeString();
+      const rate = parseFloat(f.fundingRate) * 100;
+      lines.push(`  ${time}: ${rate >= 0 ? '+' : ''}${rate.toFixed(4)}%`);
+    }
+
+    return lines.join('\n');
+  }
+
+  // Show predicted funding
+  const [funding, predicted] = await Promise.all([
+    hl.getFundingRates(),
+    hl.getPredictedFundings(),
+  ]);
+
+  const lines = [
+    '**Current Funding Rates**',
+    '',
+  ];
+
+  const sorted = [...funding]
+    .sort((a, b) => Math.abs(parseFloat(b.funding)) - Math.abs(parseFloat(a.funding)))
+    .slice(0, 10);
+
+  for (const f of sorted) {
+    const rate = parseFloat(f.funding) * 100;
+    const pred = predicted.find(p => p.coin === f.coin);
+    const predRate = pred ? parseFloat(pred.predictedFunding) * 100 : 0;
+    lines.push(`  ${f.coin}: ${rate >= 0 ? '+' : ''}${rate.toFixed(4)}% (pred: ${predRate >= 0 ? '+' : ''}${predRate.toFixed(4)}%)`);
+  }
+
+  lines.push('');
+  lines.push('Use `/hl funding <coin>` for history');
+
+  return lines.join('\n');
+}
+
+// =============================================================================
+// ACCOUNT HANDLERS
+// =============================================================================
+
 async function handleBalance(): Promise<string> {
   const config = getConfig();
   if (!config) {
-    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
   }
 
   const [state, spotBalances, points] = await Promise.all([
@@ -166,7 +273,8 @@ async function handleBalance(): Promise<string> {
   const used = parseFloat(margin.totalMarginUsed);
 
   const lines = [
-    `**Hyperliquid Balance** (${config.walletAddress.slice(0, 6)}...${config.walletAddress.slice(-4)})`,
+    `**Hyperliquid Balance**`,
+    `Wallet: ${config.walletAddress.slice(0, 6)}...${config.walletAddress.slice(-4)}`,
     '',
     '**Perps Account:**',
     `  Total: $${formatNumber(total)}`,
@@ -174,7 +282,6 @@ async function handleBalance(): Promise<string> {
     `  Margin Used: $${formatNumber(used)}`,
   ];
 
-  // Positions
   const positions = state.assetPositions.filter(ap => parseFloat(ap.position.szi) !== 0);
   if (positions.length > 0) {
     lines.push('');
@@ -188,7 +295,6 @@ async function handleBalance(): Promise<string> {
     }
   }
 
-  // Spot balances
   const nonZeroSpot = spotBalances.filter(b => parseFloat(b.total) > 0);
   if (nonZeroSpot.length > 0) {
     lines.push('');
@@ -198,79 +304,375 @@ async function handleBalance(): Promise<string> {
     }
   }
 
-  // Points
   if (points.total > 0) {
     lines.push('');
-    lines.push('**Points:**');
-    lines.push(`  Total: ${formatNumber(points.total)} (Rank #${points.rank || 'N/A'})`);
-    lines.push(`  Today: ${formatNumber(points.daily)}`);
+    lines.push(`**Points:** ${formatNumber(points.total)} (Rank #${points.rank || 'N/A'})`);
   }
 
   return lines.join('\n');
 }
 
-async function handleHlp(action?: string, amount?: string): Promise<string> {
+async function handlePortfolio(): Promise<string> {
   const config = getConfig();
-
-  // Info only - no auth needed
-  if (!action || action === 'info') {
-    const stats = await hl.getHlpStats();
-    return [
-      '**HLP Vault**',
-      '',
-      `TVL: $${formatNumber(stats.tvl)}`,
-      `APR (24h): ${stats.apr24h.toFixed(2)}%`,
-      `24h PnL: $${formatNumber(stats.pnl24h)}`,
-      '',
-      'Use `/hl hlp deposit <amount>` to deposit',
-      'Use `/hl hlp withdraw <amount>` to withdraw',
-    ].join('\n');
-  }
-
   if (!config) {
-    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
   }
 
-  const amountNum = parseFloat(amount || '0');
-  if (amountNum <= 0) {
-    return 'Invalid amount';
-  }
+  const portfolio = await hl.getUserPortfolio(config.walletAddress);
 
-  if (action === 'deposit') {
-    const result = await hl.depositToHlp(config, amountNum);
-    if (result.success) {
-      return `Deposited $${formatNumber(amountNum)} to HLP vault`;
-    }
-    return `Deposit failed: ${result.error}`;
-  }
-
-  if (action === 'withdraw') {
-    const result = await hl.withdrawFromHlp(config, amountNum);
-    if (result.success) {
-      return `Withdrew $${formatNumber(amountNum)} from HLP vault`;
-    }
-    return `Withdraw failed: ${result.error}`;
-  }
-
-  return 'Unknown action. Use: info, deposit, withdraw';
+  return [
+    '**Portfolio Summary**',
+    '',
+    `Account Value: $${formatNumber(parseFloat(portfolio.accountValue))}`,
+    '',
+    '**PnL:**',
+    `  All Time: $${formatNumber(parseFloat(portfolio.pnl.allTime))}`,
+    `  30 Days: $${formatNumber(parseFloat(portfolio.pnl.month))}`,
+    `  7 Days: $${formatNumber(parseFloat(portfolio.pnl.week))}`,
+    `  Today: $${formatNumber(parseFloat(portfolio.pnl.day))}`,
+    '',
+    '**Volume:**',
+    `  All Time: $${formatNumber(parseFloat(portfolio.vlm.allTime))}`,
+    `  30 Days: $${formatNumber(parseFloat(portfolio.vlm.month))}`,
+  ].join('\n');
 }
 
-async function handleLeaderboard(timeframe?: string): Promise<string> {
-  const tf = (timeframe as 'day' | 'week' | 'month' | 'allTime') || 'day';
-  const leaders = await hl.getLeaderboard(tf);
+async function handleOrders(action?: string, ...args: string[]): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
 
-  const lines = [
-    `**Hyperliquid Leaderboard (${tf})**`,
-    '',
-  ];
+  if (action === 'cancel' && args[0]) {
+    const [coin, oid] = args;
+    if (!oid) {
+      // Cancel all for coin
+      const result = await hl.cancelAllOrders(config, coin.toUpperCase());
+      return result.success ? `All ${coin.toUpperCase()} orders cancelled` : `Failed: ${result.error}`;
+    }
+    const result = await hl.cancelOrder(config, coin.toUpperCase(), parseInt(oid));
+    return result.success ? `Order ${oid} cancelled` : `Failed: ${result.error}`;
+  }
 
-  for (let i = 0; i < Math.min(10, leaders.length); i++) {
-    const l = leaders[i];
-    lines.push(`${i + 1}. ${l.address.slice(0, 8)}... PnL: $${formatNumber(l.pnl)} (${formatPct(l.roi)})`);
+  if (action === 'cancelall') {
+    const result = await hl.cancelAllOrders(config);
+    return result.success ? 'All orders cancelled' : `Failed: ${result.error}`;
+  }
+
+  // List open orders
+  const orders = await hl.getFrontendOpenOrders(config.walletAddress);
+
+  if (orders.length === 0) {
+    return 'No open orders';
+  }
+
+  const lines = ['**Open Orders**', ''];
+  for (const o of orders.slice(0, 15)) {
+    const time = formatTime(o.timestamp);
+    const trigger = o.triggerPx ? ` trigger:$${o.triggerPx}` : '';
+    lines.push(`  ${o.coin} ${o.side} ${o.sz}/${o.origSz} @ $${o.limitPx}${trigger}`);
+    lines.push(`    ID: ${o.oid} | ${time}`);
+  }
+
+  if (orders.length > 15) {
+    lines.push(`...and ${orders.length - 15} more`);
+  }
+
+  lines.push('');
+  lines.push('Cancel: `/hl orders cancel <coin> [orderId]`');
+  lines.push('Cancel all: `/hl orders cancelall`');
+
+  return lines.join('\n');
+}
+
+async function handleFills(coin?: string): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  const fills = await hl.getUserFills(config.walletAddress);
+
+  let filtered = fills;
+  if (coin) {
+    filtered = fills.filter(f => f.coin.toLowerCase() === coin.toLowerCase());
+  }
+
+  if (filtered.length === 0) {
+    return coin ? `No fills for ${coin}` : 'No recent fills';
+  }
+
+  const lines = ['**Recent Fills**', ''];
+  for (const f of filtered.slice(0, 10)) {
+    const time = formatTime(f.time);
+    const pnl = parseFloat(f.closedPnl);
+    const pnlStr = pnl !== 0 ? ` PnL: ${pnl >= 0 ? '+' : ''}$${formatNumber(pnl)}` : '';
+    lines.push(`  ${f.coin} ${f.side} ${f.sz} @ $${f.px}${pnlStr}`);
+    lines.push(`    ${time} | Fee: $${f.fee}`);
   }
 
   return lines.join('\n');
 }
+
+async function handleHistory(): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  const orders = await hl.getHistoricalOrders(config.walletAddress);
+
+  if (orders.length === 0) {
+    return 'No order history found';
+  }
+
+  const lines = ['**Order History**', ''];
+  for (const o of orders.slice(0, 15)) {
+    const time = formatTime(o.timestamp);
+    lines.push(`  ${o.coin} ${o.side} ${o.sz} @ $${o.limitPx} - ${o.status}`);
+    lines.push(`    ${time}`);
+  }
+
+  return lines.join('\n');
+}
+
+// =============================================================================
+// TRADING HANDLERS
+// =============================================================================
+
+async function handleLong(coin: string, size: string, price?: string): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  if (!coin || !size) {
+    return 'Usage: /hl long <coin> <size> [price]\nExample: /hl long BTC 0.1 45000';
+  }
+
+  const result = await hl.placePerpOrder(config, {
+    coin: coin.toUpperCase(),
+    side: 'BUY',
+    size: parseFloat(size),
+    price: price ? parseFloat(price) : undefined,
+    type: price ? 'LIMIT' : 'MARKET',
+  });
+
+  if (result.success) {
+    return `LONG ${coin.toUpperCase()} ${size} ${price ? `@ $${price}` : 'MARKET'} (ID: ${result.orderId})`;
+  }
+  return `Order failed: ${result.error}`;
+}
+
+async function handleShort(coin: string, size: string, price?: string): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  if (!coin || !size) {
+    return 'Usage: /hl short <coin> <size> [price]\nExample: /hl short ETH 1 3000';
+  }
+
+  const result = await hl.placePerpOrder(config, {
+    coin: coin.toUpperCase(),
+    side: 'SELL',
+    size: parseFloat(size),
+    price: price ? parseFloat(price) : undefined,
+    type: price ? 'LIMIT' : 'MARKET',
+  });
+
+  if (result.success) {
+    return `SHORT ${coin.toUpperCase()} ${size} ${price ? `@ $${price}` : 'MARKET'} (ID: ${result.orderId})`;
+  }
+  return `Order failed: ${result.error}`;
+}
+
+async function handleClose(coin: string): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  if (!coin) {
+    return 'Usage: /hl close <coin>\nExample: /hl close BTC';
+  }
+
+  const state = await hl.getUserState(config.walletAddress);
+  const position = state.assetPositions.find(
+    ap => ap.position.coin.toLowerCase() === coin.toLowerCase() && parseFloat(ap.position.szi) !== 0
+  );
+
+  if (!position) {
+    return `No open position for ${coin.toUpperCase()}`;
+  }
+
+  const size = Math.abs(parseFloat(position.position.szi));
+  const isLong = parseFloat(position.position.szi) > 0;
+
+  const result = await hl.placePerpOrder(config, {
+    coin: coin.toUpperCase(),
+    side: isLong ? 'SELL' : 'BUY',
+    size,
+    type: 'MARKET',
+    reduceOnly: true,
+  });
+
+  if (result.success) {
+    return `Closed ${coin.toUpperCase()} position (${size} ${isLong ? 'LONG' : 'SHORT'})`;
+  }
+  return `Close failed: ${result.error}`;
+}
+
+async function handleCloseAll(): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  const state = await hl.getUserState(config.walletAddress);
+  const positions = state.assetPositions.filter(ap => parseFloat(ap.position.szi) !== 0);
+
+  if (positions.length === 0) {
+    return 'No open positions';
+  }
+
+  const results: string[] = [];
+  for (const ap of positions) {
+    const p = ap.position;
+    const size = Math.abs(parseFloat(p.szi));
+    const isLong = parseFloat(p.szi) > 0;
+
+    const result = await hl.placePerpOrder(config, {
+      coin: p.coin,
+      side: isLong ? 'SELL' : 'BUY',
+      size,
+      type: 'MARKET',
+      reduceOnly: true,
+    });
+
+    results.push(`${p.coin}: ${result.success ? 'closed' : result.error}`);
+  }
+
+  return ['**Closed Positions:**', '', ...results].join('\n');
+}
+
+async function handleLeverage(coin?: string, leverage?: string): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  if (!coin || !leverage) {
+    return 'Usage: /hl leverage <coin> <leverage>\nExample: /hl leverage BTC 10';
+  }
+
+  const lev = parseInt(leverage);
+  if (lev < 1 || lev > 50) {
+    return 'Leverage must be between 1 and 50';
+  }
+
+  const result = await hl.updateLeverage(config, coin.toUpperCase(), lev);
+  if (result.success) {
+    return `${coin.toUpperCase()} leverage set to ${lev}x`;
+  }
+  return `Failed: ${result.error}`;
+}
+
+async function handleMargin(coin: string, amount: string): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  if (!coin || !amount) {
+    return 'Usage: /hl margin <coin> <amount>\nPositive to add, negative to remove\nExample: /hl margin BTC 100';
+  }
+
+  const state = await hl.getUserState(config.walletAddress);
+  const position = state.assetPositions.find(
+    ap => ap.position.coin.toLowerCase() === coin.toLowerCase()
+  );
+
+  if (!position) {
+    return `No position for ${coin.toUpperCase()}`;
+  }
+
+  const isBuy = parseFloat(position.position.szi) > 0;
+  const result = await hl.updateIsolatedMargin(config, coin.toUpperCase(), isBuy, parseFloat(amount));
+
+  if (result.success) {
+    return `Margin ${parseFloat(amount) >= 0 ? 'added' : 'removed'} for ${coin.toUpperCase()}`;
+  }
+  return `Failed: ${result.error}`;
+}
+
+// =============================================================================
+// TWAP HANDLERS
+// =============================================================================
+
+async function handleTwap(action?: string, ...args: string[]): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  if (action === 'buy' || action === 'sell') {
+    const [coin, size, duration] = args;
+    if (!coin || !size || !duration) {
+      return `Usage: /hl twap ${action} <coin> <size> <minutes>\nExample: /hl twap buy BTC 1 60`;
+    }
+
+    const result = await hl.placeTwapOrder(config, {
+      coin: coin.toUpperCase(),
+      side: action === 'buy' ? 'BUY' : 'SELL',
+      size: parseFloat(size),
+      durationMinutes: parseInt(duration),
+    });
+
+    if (result.success) {
+      return `TWAP ${action.toUpperCase()} ${coin.toUpperCase()} ${size} over ${duration}min (ID: ${result.twapId})`;
+    }
+    return `TWAP failed: ${result.error}`;
+  }
+
+  if (action === 'cancel' && args[0] && args[1]) {
+    const [coin, twapId] = args;
+    const result = await hl.cancelTwap(config, coin.toUpperCase(), twapId);
+    if (result.success) {
+      return `TWAP ${twapId} cancelled`;
+    }
+    return `Cancel failed: ${result.error}`;
+  }
+
+  if (action === 'status') {
+    const fills = await hl.getUserTwapSliceFills(config.walletAddress);
+    if (fills.length === 0) {
+      return 'No active TWAP orders';
+    }
+
+    const lines = ['**TWAP Fills**', ''];
+    for (const f of fills.slice(0, 10)) {
+      lines.push(`  ${f.coin} ${f.side} ${f.sz} @ $${f.px} (ID: ${f.twapId})`);
+    }
+    return lines.join('\n');
+  }
+
+  return [
+    '**TWAP Commands**',
+    '',
+    '/hl twap buy <coin> <size> <minutes>',
+    '/hl twap sell <coin> <size> <minutes>',
+    '/hl twap cancel <coin> <twapId>',
+    '/hl twap status',
+    '',
+    'Example: /hl twap buy BTC 1 60',
+  ].join('\n');
+}
+
+// =============================================================================
+// SPOT HANDLERS
+// =============================================================================
 
 async function handleSpot(subcommand?: string, ...args: string[]): Promise<string> {
   const config = getConfig();
@@ -279,7 +681,7 @@ async function handleSpot(subcommand?: string, ...args: string[]): Promise<strin
     const meta = await hl.getSpotMeta();
     const mids = await hl.getAllMids();
 
-    const lines = ['**Hyperliquid Spot Markets**', ''];
+    const lines = ['**Spot Markets**', ''];
     for (const m of meta.universe.slice(0, 20)) {
       const price = parseFloat(mids[m.name] || '0');
       lines.push(`  ${m.name}: $${price.toFixed(4)}`);
@@ -293,7 +695,7 @@ async function handleSpot(subcommand?: string, ...args: string[]): Promise<strin
 
   if (subcommand === 'buy' || subcommand === 'sell') {
     if (!config) {
-      return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+      return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
     }
 
     const [coin, amount, price] = args;
@@ -310,249 +712,140 @@ async function handleSpot(subcommand?: string, ...args: string[]): Promise<strin
     });
 
     if (result.success) {
-      return `Spot ${subcommand} order placed (ID: ${result.orderId})`;
+      return `Spot ${subcommand} ${coin.toUpperCase()} ${amount} ${price ? `@ $${price}` : 'MARKET'} (ID: ${result.orderId})`;
     }
     return `Order failed: ${result.error}`;
   }
 
   return [
-    '**Hyperliquid Spot Commands**',
+    '**Spot Commands**',
     '',
-    '/hl spot markets       - List spot markets',
-    '/hl spot book <coin>   - Show orderbook',
+    '/hl spot markets',
+    '/hl spot book <coin>',
     '/hl spot buy <coin> <amount> [price]',
     '/hl spot sell <coin> <amount> [price]',
   ].join('\n');
 }
 
-async function handleTwap(action?: string, ...args: string[]): Promise<string> {
-  const config = getConfig();
-  if (!config) {
-    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
-  }
-
-  if (action === 'buy' || action === 'sell') {
-    const [coin, size, duration] = args;
-    if (!coin || !size || !duration) {
-      return `Usage: /hl twap ${action} <coin> <size> <duration_minutes>`;
-    }
-
-    const result = await hl.placeTwapOrder(config, {
-      coin: coin.toUpperCase(),
-      side: action === 'buy' ? 'BUY' : 'SELL',
-      size: parseFloat(size),
-      durationMinutes: parseInt(duration),
-    });
-
-    if (result.success) {
-      return `TWAP order started (ID: ${result.twapId})`;
-    }
-    return `TWAP failed: ${result.error}`;
-  }
-
-  if (action === 'cancel' && args[0] && args[1]) {
-    const [coin, twapId] = args;
-    const result = await hl.cancelTwap(config, coin.toUpperCase(), twapId);
-    if (result.success) {
-      return `TWAP ${twapId} for ${coin.toUpperCase()} cancelled`;
-    }
-    return `Cancel failed: ${result.error}`;
-  }
-
-  return [
-    '**Hyperliquid TWAP Commands**',
-    '',
-    '/hl twap buy <coin> <size> <minutes>   - Start TWAP buy',
-    '/hl twap sell <coin> <size> <minutes>  - Start TWAP sell',
-    '/hl twap cancel <coin> <id>            - Cancel TWAP',
-  ].join('\n');
-}
-
-async function handlePoints(): Promise<string> {
-  const config = getConfig();
-  if (!config) {
-    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
-  }
-
-  const points = await hl.getUserPoints(config.walletAddress);
-
-  return [
-    '**Hyperliquid Points**',
-    '',
-    `Total: ${formatNumber(points.total)}`,
-    `Today: ${formatNumber(points.daily)}`,
-    `Rank: #${points.rank || 'N/A'}`,
-    '',
-    '**Breakdown:**',
-    `  Trading: ${formatNumber(points.breakdown.trading)}`,
-    `  Referrals: ${formatNumber(points.breakdown.referrals)}`,
-    `  HLP: ${formatNumber(points.breakdown.hlp)}`,
-    `  Staking: ${formatNumber(points.breakdown.staking)}`,
-  ].join('\n');
-}
-
 // =============================================================================
-// NEW HANDLERS
+// VAULT HANDLERS
 // =============================================================================
 
-async function handleCandles(coin: string, interval?: string): Promise<string> {
-  const tf = (interval as '1m' | '5m' | '15m' | '1h' | '4h' | '1d') || '1h';
-  const candles = await hl.getCandles(coin.toUpperCase(), tf);
+async function handleHlp(action?: string, amount?: string): Promise<string> {
+  const config = getConfig();
 
-  if (candles.length === 0) {
-    return `No candle data for ${coin}`;
+  if (!action || action === 'info') {
+    const stats = await hl.getHlpStats();
+    return [
+      '**HLP Vault**',
+      '',
+      `TVL: $${formatNumber(stats.tvl)}`,
+      `APR: ${stats.apr24h.toFixed(2)}%`,
+      `24h PnL: $${formatNumber(stats.pnl24h)}`,
+      '',
+      '/hl hlp deposit <amount>',
+      '/hl hlp withdraw <amount>',
+    ].join('\n');
   }
 
-  const lines = [
-    `**${coin.toUpperCase()} Candles (${tf})**`,
-    '',
-    'Time | Open | High | Low | Close | Vol',
-    '--- | --- | --- | --- | --- | ---',
-  ];
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
 
-  for (const c of candles.slice(-10)) {
-    const time = new Date(c.time).toLocaleTimeString();
-    lines.push(`${time} | ${c.open.toFixed(2)} | ${c.high.toFixed(2)} | ${c.low.toFixed(2)} | ${c.close.toFixed(2)} | ${formatNumber(c.volume)}`);
+  const amountNum = parseFloat(amount || '0');
+  if (amountNum <= 0) {
+    return 'Invalid amount';
+  }
+
+  if (action === 'deposit') {
+    const result = await hl.depositToHlp(config, amountNum);
+    return result.success ? `Deposited $${formatNumber(amountNum)} to HLP` : `Failed: ${result.error}`;
+  }
+
+  if (action === 'withdraw') {
+    const result = await hl.withdrawFromHlp(config, amountNum);
+    return result.success ? `Withdrew $${formatNumber(amountNum)} from HLP` : `Failed: ${result.error}`;
+  }
+
+  return 'Use: /hl hlp [deposit|withdraw] <amount>';
+}
+
+async function handleVaults(): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  const equities = await hl.getUserVaultEquities(config.walletAddress);
+
+  if (equities.length === 0) {
+    return 'No vault positions. Use `/hl hlp deposit <amount>` to invest.';
+  }
+
+  const lines = ['**Your Vault Positions**', ''];
+  for (const v of equities) {
+    lines.push(`  ${v.vaultName}: $${formatNumber(parseFloat(v.equity))}`);
   }
 
   return lines.join('\n');
 }
 
-async function handlePerp(action?: string, ...args: string[]): Promise<string> {
+// =============================================================================
+// TRANSFER HANDLERS
+// =============================================================================
+
+async function handleTransfer(action?: string, ...args: string[]): Promise<string> {
   const config = getConfig();
-
-  if (action === 'buy' || action === 'sell' || action === 'long' || action === 'short') {
-    if (!config) {
-      return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
-    }
-
-    const [coin, size, price] = args;
-    if (!coin || !size) {
-      return `Usage: /hl perp ${action} <coin> <size> [price]`;
-    }
-
-    const side = (action === 'buy' || action === 'long') ? 'BUY' : 'SELL';
-    const result = await hl.placePerpOrder(config, {
-      coin: coin.toUpperCase(),
-      side,
-      size: parseFloat(size),
-      price: price ? parseFloat(price) : undefined,
-      type: price ? 'LIMIT' : 'MARKET',
-    });
-
-    if (result.success) {
-      return `Perp ${action} order placed (ID: ${result.orderId})`;
-    }
-    return `Order failed: ${result.error}`;
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
   }
 
-  if (action === 'cancel') {
-    if (!config) {
-      return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
-    }
+  if (action === 'spot2perp') {
+    const [amount] = args;
+    if (!amount) return 'Usage: /hl transfer spot2perp <amount>';
+    const result = await hl.transferBetweenSpotAndPerp(config, parseFloat(amount), true);
+    return result.success ? `Transferred $${amount} to perps` : `Failed: ${result.error}`;
+  }
 
-    const [coin, oid] = args;
-    if (!coin || !oid) {
-      return 'Usage: /hl perp cancel <coin> <orderId>';
-    }
+  if (action === 'perp2spot') {
+    const [amount] = args;
+    if (!amount) return 'Usage: /hl transfer perp2spot <amount>';
+    const result = await hl.transferBetweenSpotAndPerp(config, parseFloat(amount), false);
+    return result.success ? `Transferred $${amount} to spot` : `Failed: ${result.error}`;
+  }
 
-    const result = await hl.cancelOrder(config, coin.toUpperCase(), parseInt(oid));
-    if (result.success) {
-      return `Order ${oid} cancelled`;
-    }
-    return `Cancel failed: ${result.error}`;
+  if (action === 'send') {
+    const [address, amount] = args;
+    if (!address || !amount) return 'Usage: /hl transfer send <address> <amount>';
+    const result = await hl.usdTransfer(config, address, parseFloat(amount));
+    return result.success ? `Sent $${amount} to ${address.slice(0, 8)}...` : `Failed: ${result.error}`;
+  }
+
+  if (action === 'withdraw') {
+    const [address, amount] = args;
+    if (!address || !amount) return 'Usage: /hl transfer withdraw <address> <amount>';
+    const result = await hl.withdrawToL1(config, address, parseFloat(amount));
+    return result.success ? `Withdrawal of $${amount} initiated` : `Failed: ${result.error}`;
   }
 
   return [
-    '**Hyperliquid Perp Commands**',
+    '**Transfer Commands**',
     '',
-    '/hl perp long <coin> <size> [price]   - Open long',
-    '/hl perp short <coin> <size> [price]  - Open short',
-    '/hl perp cancel <coin> <orderId>      - Cancel order',
+    '/hl transfer spot2perp <amount>  - Move to perps',
+    '/hl transfer perp2spot <amount>  - Move to spot',
+    '/hl transfer send <addr> <amt>   - Send USDC on HL',
+    '/hl transfer withdraw <addr> <amt> - Withdraw to L1',
   ].join('\n');
 }
 
-async function handleLeverage(coin?: string, leverage?: string): Promise<string> {
-  const config = getConfig();
-  if (!config) {
-    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
-  }
-
-  if (!coin || !leverage) {
-    return 'Usage: /hl leverage <coin> <leverage>\nExample: /hl leverage BTC 10';
-  }
-
-  const lev = parseInt(leverage);
-  if (lev < 1 || lev > 50) {
-    return 'Leverage must be between 1 and 50';
-  }
-
-  const result = await hl.updateLeverage(config, coin.toUpperCase(), lev);
-  if (result.success) {
-    return `Leverage for ${coin.toUpperCase()} set to ${lev}x`;
-  }
-  return `Failed: ${result.error}`;
-}
-
-async function handleBorrowLend(): Promise<string> {
-  const config = getConfig();
-  if (!config) {
-    // Show reserves without auth
-    const reserves = await hl.getAllBorrowLendReserves();
-
-    if (!reserves || reserves.length === 0) {
-      return 'Borrow/Lend not available or no reserves found';
-    }
-
-    const lines = ['**Hyperliquid Borrow/Lend Reserves**', ''];
-    for (const r of reserves) {
-      lines.push(`**${r.token}**`);
-      lines.push(`  Deposit APY: ${parseFloat(r.depositApy).toFixed(2)}%`);
-      lines.push(`  Borrow APY: ${parseFloat(r.borrowApy).toFixed(2)}%`);
-      lines.push(`  Utilization: ${(parseFloat(r.utilizationRate) * 100).toFixed(1)}%`);
-      lines.push('');
-    }
-    return lines.join('\n');
-  }
-
-  const [reserves, userState] = await Promise.all([
-    hl.getAllBorrowLendReserves(),
-    hl.getBorrowLendState(config.walletAddress),
-  ]);
-
-  const lines = ['**Hyperliquid Borrow/Lend**', ''];
-
-  if (userState.deposits.length > 0) {
-    lines.push('**Your Deposits:**');
-    for (const d of userState.deposits) {
-      lines.push(`  ${d.token}: ${d.amount} (${d.apy}% APY)`);
-    }
-    lines.push('');
-  }
-
-  if (userState.borrows.length > 0) {
-    lines.push('**Your Borrows:**');
-    for (const b of userState.borrows) {
-      lines.push(`  ${b.token}: ${b.amount} (${b.apy}% APY)`);
-    }
-    lines.push(`Health Factor: ${userState.healthFactor.toFixed(2)}`);
-    lines.push('');
-  }
-
-  if (reserves && reserves.length > 0) {
-    lines.push('**Available Reserves:**');
-    for (const r of reserves.slice(0, 5)) {
-      lines.push(`  ${r.token}: Deposit ${parseFloat(r.depositApy).toFixed(2)}% / Borrow ${parseFloat(r.borrowApy).toFixed(2)}%`);
-    }
-  }
-
-  return lines.join('\n');
-}
+// =============================================================================
+// INFO HANDLERS
+// =============================================================================
 
 async function handleFees(): Promise<string> {
   const config = getConfig();
   if (!config) {
-    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
   }
 
   const [fees, rateLimit] = await Promise.all([
@@ -561,34 +854,131 @@ async function handleFees(): Promise<string> {
   ]);
 
   return [
-    '**Your Hyperliquid Fees & Limits**',
+    '**Fees & Limits**',
     '',
-    `Maker Fee: ${(fees.makerRate * 100).toFixed(4)}%`,
-    `Taker Fee: ${(fees.takerRate * 100).toFixed(4)}%`,
-    `30d Volume: $${formatNumber(fees.volume30d)}`,
+    `Maker: ${(fees.makerRate * 100).toFixed(4)}%`,
+    `Taker: ${(fees.takerRate * 100).toFixed(4)}%`,
     '',
     '**Rate Limits:**',
-    `  Requests Used: ${rateLimit.nRequestsUsed}/${rateLimit.nRequestsCap}`,
-    `  Cumulative Volume: $${formatNumber(rateLimit.cumVlm)}`,
+    `  ${rateLimit.nRequestsUsed}/${rateLimit.nRequestsCap} requests`,
+    `  Volume: $${formatNumber(rateLimit.cumVlm)}`,
   ].join('\n');
 }
 
-async function handleHistory(): Promise<string> {
+async function handlePoints(): Promise<string> {
   const config = getConfig();
   if (!config) {
-    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
   }
 
-  const orders = await hl.getHistoricalOrders(config.walletAddress);
+  const points = await hl.getUserPoints(config.walletAddress);
 
-  if (orders.length === 0) {
-    return 'No order history found';
+  return [
+    '**Points**',
+    '',
+    `Total: ${formatNumber(points.total)}`,
+    `Today: ${formatNumber(points.daily)}`,
+    `Rank: #${points.rank || 'N/A'}`,
+  ].join('\n');
+}
+
+async function handleReferral(): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
   }
 
-  const lines = ['**Recent Orders**', ''];
-  for (const o of orders.slice(0, 10)) {
-    const time = new Date(o.timestamp).toLocaleString();
-    lines.push(`${o.coin} ${o.side} ${o.sz} @ $${o.limitPx} - ${o.status} (${time})`);
+  const ref = await hl.getUserReferral(config.walletAddress);
+
+  const lines = ['**Referral Info**', ''];
+
+  if (ref.referralCode) {
+    lines.push(`Your Code: ${ref.referralCode}`);
+  }
+
+  if (ref.referredBy) {
+    lines.push(`Referred By: ${ref.referredBy.slice(0, 8)}...`);
+  }
+
+  lines.push('');
+  lines.push(`Rebates Earned: $${formatNumber(parseFloat(ref.cumReferrerRebate))}`);
+  lines.push(`Discount Received: $${formatNumber(parseFloat(ref.cumRefereeDiscount))}`);
+  lines.push(`Unclaimed: $${formatNumber(parseFloat(ref.unclaimedRewards))}`);
+
+  if (parseFloat(ref.unclaimedRewards) > 0) {
+    lines.push('');
+    lines.push('Use `/hl claim` to claim rewards');
+  }
+
+  return lines.join('\n');
+}
+
+async function handleClaim(): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  const result = await hl.claimRewards(config);
+  return result.success ? 'Rewards claimed!' : `Failed: ${result.error}`;
+}
+
+async function handleLeaderboard(timeframe?: string): Promise<string> {
+  const tf = (timeframe as 'day' | 'week' | 'month' | 'allTime') || 'day';
+  const leaders = await hl.getLeaderboard(tf);
+
+  const lines = [
+    `**Leaderboard (${tf})**`,
+    '',
+  ];
+
+  for (let i = 0; i < Math.min(10, leaders.length); i++) {
+    const l = leaders[i];
+    lines.push(`${i + 1}. ${l.address.slice(0, 8)}... $${formatNumber(l.pnl)} (${formatPct(l.roi)})`);
+  }
+
+  return lines.join('\n');
+}
+
+async function handleSubaccounts(action?: string, ...args: string[]): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY';
+  }
+
+  if (action === 'create' && args[0]) {
+    const result = await hl.createSubAccount(config, args[0]);
+    return result.success ? `Subaccount created: ${result.subAccountUser}` : `Failed: ${result.error}`;
+  }
+
+  const subs = await hl.getSubAccounts(config.walletAddress);
+
+  if (subs.length === 0) {
+    return 'No subaccounts. Use `/hl sub create <name>` to create one.';
+  }
+
+  const lines = ['**Subaccounts**', ''];
+  for (const s of subs) {
+    lines.push(`  ${s.name}: ${s.subAccountUser.slice(0, 10)}...`);
+  }
+
+  return lines.join('\n');
+}
+
+async function handleBorrowLend(): Promise<string> {
+  const reserves = await hl.getAllBorrowLendReserves();
+
+  if (!reserves || reserves.length === 0) {
+    return 'Borrow/Lend not available';
+  }
+
+  const lines = ['**Borrow/Lend Rates**', ''];
+  for (const r of reserves.slice(0, 8)) {
+    lines.push(`**${r.token}**`);
+    lines.push(`  Supply: ${parseFloat(r.depositApy).toFixed(2)}% APY`);
+    lines.push(`  Borrow: ${parseFloat(r.borrowApy).toFixed(2)}% APY`);
+    lines.push(`  Util: ${(parseFloat(r.utilizationRate) * 100).toFixed(1)}%`);
+    lines.push('');
   }
 
   return lines.join('\n');
@@ -605,94 +995,149 @@ export const skill = {
     {
       name: 'hl',
       description: 'Hyperliquid commands',
-      usage: '/hl <stats|markets|book|balance|hlp|leaderboard|spot|twap|points>',
+      usage: '/hl <command>',
     },
   ],
 
   async handler(args: string): Promise<string> {
     const parts = args.trim().split(/\s+/);
-    const subcommand = parts[0]?.toLowerCase();
+    const cmd = parts[0]?.toLowerCase();
 
     try {
-      switch (subcommand) {
+      switch (cmd) {
+        // Market Data
         case 'stats':
         case '':
         case undefined:
           return handleStats();
-
         case 'markets':
+        case 'm':
           return handleMarkets(parts[1]);
-
+        case 'price':
+        case 'p':
+          return parts[1] ? handlePrice(parts[1]) : 'Usage: /hl price <coin>';
         case 'book':
-        case 'orderbook':
-          if (!parts[1]) return 'Usage: /hl book <coin>';
-          return handleOrderbook(parts[1]);
-
-        case 'balance':
-        case 'bal':
-          return handleBalance();
-
-        case 'hlp':
-        case 'vault':
-          return handleHlp(parts[1], parts[2]);
-
-        case 'leaderboard':
-        case 'lb':
-          return handleLeaderboard(parts[1]);
-
-        case 'spot':
-          return handleSpot(parts[1], ...parts.slice(2));
-
-        case 'twap':
-          return handleTwap(parts[1], ...parts.slice(2));
-
-        case 'points':
-          return handlePoints();
-
+        case 'ob':
+          return parts[1] ? handleOrderbook(parts[1]) : 'Usage: /hl book <coin>';
         case 'candles':
         case 'chart':
-          if (!parts[1]) return 'Usage: /hl candles <coin> [1m|5m|15m|1h|4h|1d]';
-          return handleCandles(parts[1], parts[2]);
+        case 'c':
+          return parts[1] ? handleCandles(parts[1], parts[2]) : 'Usage: /hl candles <coin> [interval]';
+        case 'funding':
+        case 'f':
+          return handleFunding(parts[1]);
 
-        case 'perp':
-        case 'trade':
-          return handlePerp(parts[1], ...parts.slice(2));
+        // Account
+        case 'balance':
+        case 'bal':
+        case 'b':
+          return handleBalance();
+        case 'portfolio':
+        case 'pf':
+          return handlePortfolio();
+        case 'orders':
+        case 'o':
+          return handleOrders(parts[1], ...parts.slice(2));
+        case 'fills':
+          return handleFills(parts[1]);
+        case 'history':
+        case 'h':
+          return handleHistory();
 
+        // Trading
+        case 'long':
+        case 'l':
+          return handleLong(parts[1], parts[2], parts[3]);
+        case 'short':
+        case 's':
+          return handleShort(parts[1], parts[2], parts[3]);
+        case 'close':
+          return parts[1] ? handleClose(parts[1]) : 'Usage: /hl close <coin>';
+        case 'closeall':
+          return handleCloseAll();
         case 'leverage':
         case 'lev':
           return handleLeverage(parts[1], parts[2]);
+        case 'margin':
+          return handleMargin(parts[1], parts[2]);
 
+        // TWAP
+        case 'twap':
+          return handleTwap(parts[1], ...parts.slice(2));
+
+        // Spot
+        case 'spot':
+          return handleSpot(parts[1], ...parts.slice(2));
+
+        // Vaults
+        case 'hlp':
+        case 'vault':
+          return handleHlp(parts[1], parts[2]);
+        case 'vaults':
+          return handleVaults();
+
+        // Transfers
+        case 'transfer':
+        case 'send':
+          return handleTransfer(parts[1], ...parts.slice(2));
+
+        // Info
+        case 'fees':
+          return handleFees();
+        case 'points':
+          return handlePoints();
+        case 'referral':
+        case 'ref':
+          return handleReferral();
+        case 'claim':
+          return handleClaim();
+        case 'leaderboard':
+        case 'lb':
+          return handleLeaderboard(parts[1]);
+        case 'sub':
+        case 'subaccounts':
+          return handleSubaccounts(parts[1], ...parts.slice(2));
         case 'lend':
         case 'borrow':
           return handleBorrowLend();
-
-        case 'fees':
-          return handleFees();
-
-        case 'history':
-        case 'orders':
-          return handleHistory();
 
         case 'help':
         default:
           return [
             '**Hyperliquid Commands**',
             '',
-            '/hl stats              - HLP TVL, APR, funding rates',
-            '/hl markets [query]    - List perp/spot markets',
-            '/hl book <coin>        - Show orderbook',
-            '/hl candles <coin>     - OHLCV candle data',
-            '/hl balance            - Your positions & balances',
-            '/hl perp [long|short]  - Place perp orders',
-            '/hl leverage <coin> <x> - Set leverage',
-            '/hl hlp [deposit|withdraw] - HLP vault',
-            '/hl spot [buy|sell]    - Spot trading',
-            '/hl twap [buy|sell]    - TWAP orders',
-            '/hl lend               - Borrow/lend rates',
-            '/hl fees               - Your fee tier',
-            '/hl history            - Order history',
-            '/hl leaderboard        - Top traders',
-            '/hl points             - Points breakdown',
+            '**Market Data:**',
+            '  /hl stats          - HLP stats, funding rates',
+            '  /hl markets [q]    - List markets',
+            '  /hl price <coin>   - Get price',
+            '  /hl book <coin>    - Orderbook',
+            '  /hl candles <coin> - OHLCV data',
+            '  /hl funding [coin] - Funding rates',
+            '',
+            '**Account:**',
+            '  /hl balance        - Positions & balances',
+            '  /hl portfolio      - PnL summary',
+            '  /hl orders         - Open orders',
+            '  /hl fills          - Recent fills',
+            '  /hl history        - Order history',
+            '',
+            '**Trading:**',
+            '  /hl long <coin> <size> [price]',
+            '  /hl short <coin> <size> [price]',
+            '  /hl close <coin>   - Close position',
+            '  /hl closeall       - Close all positions',
+            '  /hl leverage <coin> <x>',
+            '  /hl twap [buy|sell] <coin> <size> <mins>',
+            '',
+            '**Transfers:**',
+            '  /hl transfer spot2perp <amt>',
+            '  /hl transfer send <addr> <amt>',
+            '  /hl transfer withdraw <addr> <amt>',
+            '',
+            '**Other:**',
+            '  /hl hlp [deposit|withdraw]',
+            '  /hl spot [buy|sell]',
+            '  /hl fees, points, referral, lb',
           ].join('\n');
       }
     } catch (error) {
