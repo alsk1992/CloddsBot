@@ -14,6 +14,9 @@ export interface RaydiumSwapParams {
 export interface RaydiumSwapResult {
   signature: string;
   routeSummary?: unknown;
+  inputAmount?: string;
+  outputAmount?: string;
+  txId?: string;
 }
 
 export interface RaydiumPoolInfo {
@@ -26,6 +29,7 @@ export interface RaydiumPoolInfo {
   type?: string;
   liquidity?: number;
   volume24h?: number;
+  address?: string;
 }
 
 export interface RaydiumQuote {

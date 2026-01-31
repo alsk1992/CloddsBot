@@ -17,6 +17,7 @@ export interface DriftDirectOrderParams {
 
 export interface DriftDirectOrderResult {
   orderId: string | number;
+  txSig?: string;
 }
 
 // =============================================================================
@@ -106,11 +107,20 @@ export interface DriftLiquidationMonitor extends EventEmitter {
   isActive(): boolean;
 }
 
-export async function executeDriftDirectOrder(
+// =============================================================================
+// DRIFT CLIENT HELPER
+// =============================================================================
+
+interface DriftClientWrapper {
+  client: any;
+  sdk: any;
+  unsubscribe: () => Promise<void>;
+}
+
+async function createDriftClient(
   connection: Connection,
-  keypair: Keypair,
-  params: DriftDirectOrderParams
-): Promise<DriftDirectOrderResult> {
+  keypair: Keypair
+): Promise<DriftClientWrapper> {
   const driftSdk = await import('@drift-labs/sdk') as any;
   const anchor = await import('@coral-xyz/anchor');
 
@@ -124,36 +134,379 @@ export async function executeDriftDirectOrder(
 
   await driftClient.subscribe();
 
-  const direction = params.side === 'buy' ? driftSdk.PositionDirection.LONG : driftSdk.PositionDirection.SHORT;
-  const orderType = params.orderType === 'market' ? driftSdk.OrderType.MARKET : driftSdk.OrderType.LIMIT;
+  return {
+    client: driftClient,
+    sdk: driftSdk,
+    unsubscribe: async () => {
+      await driftClient.unsubscribe();
+    },
+  };
+}
 
-  const baseAmount = new driftSdk.BN(params.baseAmount);
-  const price = params.price ? new driftSdk.BN(params.price) : undefined;
+// =============================================================================
+// DRIFT DIRECT ORDER EXECUTION
+// =============================================================================
 
-  let orderId: string | number;
-  if (params.marketType === 'perp') {
-    const txSig = await driftClient.placePerpOrder({
-      marketIndex: params.marketIndex,
-      direction,
-      baseAssetAmount: baseAmount,
-      orderType,
-      price,
-    });
-    orderId = txSig;
-  } else {
-    const txSig = await driftClient.placeSpotOrder({
-      marketIndex: params.marketIndex,
-      direction,
-      baseAssetAmount: baseAmount,
-      orderType,
-      price,
-    });
-    orderId = txSig;
+export async function executeDriftDirectOrder(
+  connection: Connection,
+  keypair: Keypair,
+  params: DriftDirectOrderParams
+): Promise<DriftDirectOrderResult> {
+  const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
+
+  try {
+    const direction = params.side === 'buy' ? sdk.PositionDirection.LONG : sdk.PositionDirection.SHORT;
+    const orderType = params.orderType === 'market' ? sdk.OrderType.MARKET : sdk.OrderType.LIMIT;
+
+    const baseAmount = new sdk.BN(params.baseAmount);
+    const price = params.price ? new sdk.BN(params.price) : undefined;
+
+    let orderId: string | number;
+    if (params.marketType === 'perp') {
+      const txSig = await client.placePerpOrder({
+        marketIndex: params.marketIndex,
+        direction,
+        baseAssetAmount: baseAmount,
+        orderType,
+        price,
+      });
+      orderId = txSig;
+    } else {
+      const txSig = await client.placeSpotOrder({
+        marketIndex: params.marketIndex,
+        direction,
+        baseAssetAmount: baseAmount,
+        orderType,
+        price,
+      });
+      orderId = txSig;
+    }
+
+    return { orderId };
+  } finally {
+    await unsubscribe();
   }
+}
 
-  await driftClient.unsubscribe();
+// =============================================================================
+// DRIFT DIRECT CANCEL ORDER
+// =============================================================================
 
-  return { orderId };
+export interface DriftCancelOrderParams {
+  orderId?: number;
+  marketIndex?: number;
+  marketType?: 'perp' | 'spot';
+}
+
+export interface DriftCancelOrderResult {
+  txSig: string;
+  cancelled: number[];
+}
+
+export async function cancelDriftOrder(
+  connection: Connection,
+  keypair: Keypair,
+  params: DriftCancelOrderParams
+): Promise<DriftCancelOrderResult> {
+  const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
+
+  try {
+    let txSig: string;
+    const cancelled: number[] = [];
+
+    if (params.orderId !== undefined) {
+      // Cancel specific order
+      txSig = await client.cancelOrder(params.orderId);
+      cancelled.push(params.orderId);
+    } else if (params.marketIndex !== undefined) {
+      // Cancel all orders for a market
+      const user = client.getUser();
+      const orders = user.getOpenOrders();
+      const marketType = params.marketType === 'spot' ? sdk.MarketType.SPOT : sdk.MarketType.PERP;
+
+      for (const order of orders) {
+        if (order.marketIndex === params.marketIndex && order.marketType === marketType) {
+          cancelled.push(order.orderId);
+        }
+      }
+
+      if (cancelled.length > 0) {
+        txSig = await client.cancelOrders(cancelled.map((id) => ({ orderId: id })));
+      } else {
+        txSig = '';
+      }
+    } else {
+      // Cancel all orders
+      txSig = await client.cancelAllOrders();
+      const user = client.getUser();
+      const orders = user.getOpenOrders();
+      for (const order of orders) {
+        cancelled.push(order.orderId);
+      }
+    }
+
+    return { txSig, cancelled };
+  } finally {
+    await unsubscribe();
+  }
+}
+
+// =============================================================================
+// DRIFT DIRECT GET ORDERS
+// =============================================================================
+
+export interface DriftOrderInfo {
+  orderId: number;
+  marketIndex: number;
+  marketType: 'perp' | 'spot';
+  direction: 'long' | 'short';
+  orderType: string;
+  baseAssetAmount: string;
+  baseAssetAmountFilled?: string;
+  price: string;
+  status: string;
+}
+
+export async function getDriftOrders(
+  connection: Connection,
+  keypair: Keypair,
+  marketIndex?: number,
+  marketType?: 'perp' | 'spot'
+): Promise<DriftOrderInfo[]> {
+  const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
+
+  try {
+    const user = client.getUser();
+    const orders = user.getOpenOrders();
+
+    const result: DriftOrderInfo[] = [];
+    const mType = marketType === 'spot' ? sdk.MarketType.SPOT : sdk.MarketType.PERP;
+
+    for (const order of orders) {
+      // Filter by market if specified
+      if (marketIndex !== undefined && order.marketIndex !== marketIndex) continue;
+      if (marketType && order.marketType !== mType) continue;
+
+      result.push({
+        orderId: order.orderId,
+        marketIndex: order.marketIndex,
+        marketType: order.marketType === sdk.MarketType.SPOT ? 'spot' : 'perp',
+        direction: order.direction === sdk.PositionDirection.LONG ? 'long' : 'short',
+        orderType: Object.keys(sdk.OrderType).find((k) => sdk.OrderType[k] === order.orderType) || 'unknown',
+        baseAssetAmount: order.baseAssetAmount.toString(),
+        price: order.price.toString(),
+        status: Object.keys(sdk.OrderStatus).find((k) => sdk.OrderStatus[k] === order.status) || 'unknown',
+      });
+    }
+
+    return result;
+  } finally {
+    await unsubscribe();
+  }
+}
+
+// =============================================================================
+// DRIFT DIRECT GET POSITIONS
+// =============================================================================
+
+export interface DriftPositionInfo {
+  marketIndex: number;
+  marketType: 'perp' | 'spot';
+  baseAssetAmount: string;
+  quoteAssetAmount: string;
+  entryPrice: string;
+  unrealizedPnl: string;
+  direction: 'long' | 'short' | 'neutral';
+}
+
+export async function getDriftPositions(
+  connection: Connection,
+  keypair: Keypair,
+  marketIndex?: number
+): Promise<DriftPositionInfo[]> {
+  const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
+
+  try {
+    const user = client.getUser();
+    const perpPositions = user.getPerpPositions();
+    const spotPositions = user.getSpotPositions();
+
+    const result: DriftPositionInfo[] = [];
+
+    for (const pos of perpPositions) {
+      if (pos.baseAssetAmount.isZero()) continue;
+      if (marketIndex !== undefined && pos.marketIndex !== marketIndex) continue;
+
+      const baseAmount = pos.baseAssetAmount.toNumber();
+      const quoteAmount = pos.quoteAssetAmount.toNumber();
+      const entryPrice = baseAmount !== 0 ? Math.abs(quoteAmount / baseAmount) : 0;
+
+      // Get unrealized PnL
+      const oraclePrice = client.getOracleDataForPerpMarket(pos.marketIndex);
+      const currentPrice = oraclePrice?.price.toNumber() / 1e6 || 0;
+      const positionValue = Math.abs(baseAmount / 1e9) * currentPrice;
+      const costBasis = Math.abs(quoteAmount / 1e6);
+      const unrealizedPnl = baseAmount > 0
+        ? positionValue - costBasis
+        : costBasis - positionValue;
+
+      result.push({
+        marketIndex: pos.marketIndex,
+        marketType: 'perp',
+        baseAssetAmount: pos.baseAssetAmount.toString(),
+        quoteAssetAmount: pos.quoteAssetAmount.toString(),
+        entryPrice: entryPrice.toFixed(6),
+        unrealizedPnl: unrealizedPnl.toFixed(2),
+        direction: baseAmount > 0 ? 'long' : baseAmount < 0 ? 'short' : 'neutral',
+      });
+    }
+
+    for (const pos of spotPositions) {
+      if (pos.scaledBalance.isZero()) continue;
+      if (marketIndex !== undefined && pos.marketIndex !== marketIndex) continue;
+
+      result.push({
+        marketIndex: pos.marketIndex,
+        marketType: 'spot',
+        baseAssetAmount: pos.scaledBalance.toString(),
+        quoteAssetAmount: '0',
+        entryPrice: '0',
+        unrealizedPnl: '0',
+        direction: pos.scaledBalance.gt(new sdk.BN(0)) ? 'long' : 'short',
+      });
+    }
+
+    return result;
+  } finally {
+    await unsubscribe();
+  }
+}
+
+// =============================================================================
+// DRIFT DIRECT GET BALANCE
+// =============================================================================
+
+export interface DriftBalanceInfo {
+  totalCollateral: string;
+  freeCollateral: string;
+  maintenanceMargin: string;
+  healthFactor: number;
+  accountEquity: string;
+  marginRatio?: string;
+  unrealizedPnl?: string;
+}
+
+export async function getDriftBalance(
+  connection: Connection,
+  keypair: Keypair
+): Promise<DriftBalanceInfo> {
+  const { client, unsubscribe } = await createDriftClient(connection, keypair);
+
+  try {
+    const user = client.getUser();
+
+    const totalCollateral = user.getTotalCollateral().toNumber() / 1e6;
+    const freeCollateral = user.getFreeCollateral().toNumber() / 1e6;
+    const maintenanceMargin = user.getMaintenanceMarginRequirement().toNumber() / 1e6;
+    const healthFactor = maintenanceMargin > 0 ? totalCollateral / maintenanceMargin : Infinity;
+
+    // Calculate account equity (collateral + unrealized PnL)
+    const unrealizedPnl = user.getUnrealizedPNL(true).toNumber() / 1e6;
+    const accountEquity = totalCollateral + unrealizedPnl;
+
+    return {
+      totalCollateral: totalCollateral.toFixed(2),
+      freeCollateral: freeCollateral.toFixed(2),
+      maintenanceMargin: maintenanceMargin.toFixed(2),
+      healthFactor: parseFloat(healthFactor.toFixed(4)),
+      accountEquity: accountEquity.toFixed(2),
+    };
+  } finally {
+    await unsubscribe();
+  }
+}
+
+// =============================================================================
+// DRIFT DIRECT MODIFY ORDER
+// =============================================================================
+
+export interface DriftModifyOrderParams {
+  orderId: number;
+  newPrice?: string;
+  newBaseAmount?: string;
+  reduceOnly?: boolean;
+}
+
+export interface DriftModifyOrderResult {
+  txSig: string;
+  orderId: number;
+}
+
+export async function modifyDriftOrder(
+  connection: Connection,
+  keypair: Keypair,
+  params: DriftModifyOrderParams
+): Promise<DriftModifyOrderResult> {
+  const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
+
+  try {
+    const modifyParams: any = {
+      orderId: params.orderId,
+    };
+
+    if (params.newPrice !== undefined) {
+      modifyParams.price = new sdk.BN(params.newPrice);
+    }
+    if (params.newBaseAmount !== undefined) {
+      modifyParams.baseAssetAmount = new sdk.BN(params.newBaseAmount);
+    }
+    if (params.reduceOnly !== undefined) {
+      modifyParams.reduceOnly = params.reduceOnly;
+    }
+
+    const txSig = await client.modifyOrder(modifyParams);
+
+    return {
+      txSig,
+      orderId: params.orderId,
+    };
+  } finally {
+    await unsubscribe();
+  }
+}
+
+// =============================================================================
+// DRIFT DIRECT SET LEVERAGE
+// =============================================================================
+
+export interface DriftSetLeverageParams {
+  marketIndex: number;
+  leverage: number;
+}
+
+export async function setDriftLeverage(
+  connection: Connection,
+  keypair: Keypair,
+  params: DriftSetLeverageParams
+): Promise<{ txSig: string; leverage: number }> {
+  const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
+
+  try {
+    // Convert leverage to margin ratio (1/leverage)
+    const marginRatio = Math.floor((1 / params.leverage) * 10000); // In basis points
+
+    const txSig = await client.updatePerpMarketMarginRatio(
+      params.marketIndex,
+      marginRatio
+    );
+
+    return {
+      txSig,
+      leverage: params.leverage,
+    };
+  } finally {
+    await unsubscribe();
+  }
 }
 
 // =============================================================================

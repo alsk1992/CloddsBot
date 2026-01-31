@@ -148,7 +148,7 @@ async function bagsRequest<T>(
     throw new Error(`Bags API error: ${response.status} - ${error}`);
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 // ============================================================================
@@ -166,8 +166,8 @@ async function handleQuote(args: string[]): Promise<string> {
   const toToken = args.slice(toIndex + 1).join('');
 
   try {
-    const { tokenlist } = await import('../../../solana/tokenlist');
-    const [fromMint, toMint] = await tokenlist.resolveTokenMints([fromToken, toToken]);
+    const { resolveTokenMints } = await import('../../../solana/tokenlist');
+    const [fromMint, toMint] = await resolveTokenMints([fromToken, toToken]);
 
     if (!fromMint || !toMint) {
       return `Could not resolve tokens: ${fromToken}, ${toToken}`;
@@ -198,15 +198,15 @@ async function handleSwap(args: string[]): Promise<string> {
   const toToken = args.slice(toIndex + 1).join('');
 
   try {
-    const { tokenlist } = await import('../../../solana/tokenlist');
-    const { wallet } = await import('../../../solana/wallet');
+    const { resolveTokenMints } = await import('../../../solana/tokenlist');
+    const { loadSolanaKeypair, getSolanaConnection, signAndSendVersionedTransaction } = await import('../../../solana/wallet');
 
-    const [fromMint, toMint] = await tokenlist.resolveTokenMints([fromToken, toToken]);
+    const [fromMint, toMint] = await resolveTokenMints([fromToken, toToken]);
     if (!fromMint || !toMint) {
       return `Could not resolve tokens: ${fromToken}, ${toToken}`;
     }
 
-    const keypair = wallet.loadSolanaKeypair();
+    const keypair = loadSolanaKeypair();
     const walletAddress = keypair.publicKey.toBase58();
 
     // Get quote first
@@ -227,7 +227,7 @@ async function handleSwap(args: string[]): Promise<string> {
     });
 
     // Sign and send transaction
-    const connection = wallet.getSolanaConnection();
+    const connection = getSolanaConnection();
     const txBuffer = Buffer.from(txResponse.transaction, 'base64');
     const { VersionedTransaction } = await import('@solana/web3.js');
     const tx = VersionedTransaction.deserialize(txBuffer);
@@ -421,8 +421,8 @@ async function handleFees(walletArg: string): Promise<string> {
   if (!walletAddress) {
     // Use configured wallet if not provided
     try {
-      const { wallet } = await import('../../../solana/wallet');
-      const keypair = wallet.loadSolanaKeypair();
+      const { loadSolanaKeypair } = await import('../../../solana/wallet');
+      const keypair = loadSolanaKeypair();
       walletAddress = keypair.publicKey.toBase58();
     } catch {
       return 'Usage: /bags fees <wallet>\nOr configure SOLANA_PRIVATE_KEY to use your wallet.';
@@ -470,8 +470,8 @@ async function handleFees(walletArg: string): Promise<string> {
 
 async function handleClaim(walletArg: string): Promise<string> {
   try {
-    const { wallet: solWallet } = await import('../../../solana/wallet');
-    const keypair = solWallet.loadSolanaKeypair();
+    const { loadSolanaKeypair, getSolanaConnection } = await import('../../../solana/wallet');
+    const keypair = loadSolanaKeypair();
     const walletAddress = walletArg || keypair.publicKey.toBase58();
 
     // Verify wallet matches if specified
@@ -501,7 +501,7 @@ async function handleClaim(walletArg: string): Promise<string> {
       return 'No claim transactions generated. Fees may already be claimed.';
     }
 
-    const connection = solWallet.getSolanaConnection();
+    const connection = getSolanaConnection();
     const { VersionedTransaction } = await import('@solana/web3.js');
     const signatures: string[] = [];
 
@@ -665,8 +665,8 @@ Example:
   }
 
   try {
-    const { wallet } = await import('../../../solana/wallet');
-    const keypair = wallet.loadSolanaKeypair();
+    const { loadSolanaKeypair, getSolanaConnection } = await import('../../../solana/wallet');
+    const keypair = loadSolanaKeypair();
     const walletAddress = keypair.publicKey.toBase58();
 
     // Step 1: Create token info and metadata
@@ -700,7 +700,7 @@ Example:
     );
 
     // Sign and send fee config transactions
-    const connection = wallet.getSolanaConnection();
+    const connection = getSolanaConnection();
     const { VersionedTransaction } = await import('@solana/web3.js');
 
     for (const txBase64 of feeConfig.transactions) {
@@ -814,8 +814,8 @@ Examples:
   }
 
   try {
-    const { wallet } = await import('../../../solana/wallet');
-    const keypair = wallet.loadSolanaKeypair();
+    const { loadSolanaKeypair, getSolanaConnection } = await import('../../../solana/wallet');
+    const keypair = loadSolanaKeypair();
     const walletAddress = keypair.publicKey.toBase58();
 
     const result = await bagsRequest<{ configKey: string; transactions: string[] }>(
@@ -831,7 +831,7 @@ Examples:
     );
 
     // Sign and send transactions
-    const connection = wallet.getSolanaConnection();
+    const connection = getSolanaConnection();
     const { VersionedTransaction } = await import('@solana/web3.js');
     const signatures: string[] = [];
 
@@ -939,8 +939,8 @@ async function handlePartnerConfig(mint: string): Promise<string> {
   }
 
   try {
-    const { wallet } = await import('../../../solana/wallet');
-    const keypair = wallet.loadSolanaKeypair();
+    const { loadSolanaKeypair, getSolanaConnection } = await import('../../../solana/wallet');
+    const keypair = loadSolanaKeypair();
     const walletAddress = keypair.publicKey.toBase58();
 
     const result = await bagsRequest<{ partnerKey: string; transaction: string }>(
@@ -955,7 +955,7 @@ async function handlePartnerConfig(mint: string): Promise<string> {
     );
 
     // Sign and send transaction
-    const connection = wallet.getSolanaConnection();
+    const connection = getSolanaConnection();
     const { VersionedTransaction } = await import('@solana/web3.js');
     const txBuffer = Buffer.from(result.transaction, 'base64');
     const tx = VersionedTransaction.deserialize(txBuffer);
@@ -975,8 +975,8 @@ async function handlePartnerConfig(mint: string): Promise<string> {
 
 async function handlePartnerClaim(walletArg: string): Promise<string> {
   try {
-    const { wallet: solWallet } = await import('../../../solana/wallet');
-    const keypair = solWallet.loadSolanaKeypair();
+    const { loadSolanaKeypair, getSolanaConnection } = await import('../../../solana/wallet');
+    const keypair = loadSolanaKeypair();
     const walletAddress = walletArg || keypair.publicKey.toBase58();
 
     const claimTxs = await bagsRequest<{ transactions: string[] }>(
@@ -991,7 +991,7 @@ async function handlePartnerClaim(walletArg: string): Promise<string> {
       return 'No partner fees to claim.';
     }
 
-    const connection = solWallet.getSolanaConnection();
+    const connection = getSolanaConnection();
     const { VersionedTransaction } = await import('@solana/web3.js');
     const signatures: string[] = [];
 

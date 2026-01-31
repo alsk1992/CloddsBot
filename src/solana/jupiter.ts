@@ -15,6 +15,10 @@ export interface JupiterSwapResult {
   signature: string;
   quote: unknown;
   endpoint: string;
+  inAmount?: string;
+  outAmount?: string;
+  priceImpactPct?: string;
+  routePlan?: Array<{ swapInfo?: { label?: string; inputMint?: string; outputMint?: string } }>;
 }
 
 const DEFAULT_JUPITER_BASE = 'https://lite-api.jup.ag/swap/v1';

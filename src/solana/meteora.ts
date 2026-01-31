@@ -15,6 +15,9 @@ export interface MeteoraDlmmSwapParams {
 export interface MeteoraDlmmSwapResult {
   signature: string;
   poolAddress: string;
+  inAmount?: string;
+  outAmount?: string;
+  txId?: string;
 }
 
 export interface MeteoraDlmmPoolInfo {

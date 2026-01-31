@@ -144,9 +144,12 @@ const PLATFORM_RISK_SCORES: Record<Platform, number> = {
   manifold: 35,     // Play money / smaller
   metaculus: 40,    // Forecasting focus, less liquid
   predictit: 30,    // CFTC regulated but older
+  predictfun: 35,   // Solana-based prediction market
   drift: 45,        // Solana-based, newer
   betfair: 10,      // Highly established
   smarkets: 15,     // Established, lower fees
+  opinion: 40,      // BNB Chain, newer platform
+  virtuals: 50,     // Base chain AI agents, high volatility
 };
 
 // =============================================================================

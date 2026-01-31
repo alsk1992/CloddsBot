@@ -11,6 +11,9 @@ export interface OrcaWhirlpoolSwapParams {
 export interface OrcaWhirlpoolSwapResult {
   signature: string;
   poolAddress: string;
+  inputAmount?: string;
+  outputAmount?: string;
+  txId?: string;
 }
 
 export interface OrcaWhirlpoolPoolInfo {
@@ -21,12 +24,15 @@ export interface OrcaWhirlpoolPoolInfo {
   price?: number;
   tvl?: number;
   volume24h?: number;
+  liquidity?: number;
+  tickSpacing?: number;
 }
 
 export interface OrcaWhirlpoolQuote {
   amountOut: string;
   amountIn: string;
   otherAmountThreshold: string;
+  outAmount?: string;
 }
 
 export async function executeOrcaWhirlpoolSwap(

@@ -321,6 +321,267 @@ export interface MexcFuturesStats {
   }>;
 }
 
+// Opinion.trade types
+export interface OpinionTrade {
+  id?: number;
+  oddsUserId: string;
+  orderId: string;
+  marketId: string;
+  tokenId: string;
+  side: 'BUY' | 'SELL';
+  price: number;
+  size: number;
+  orderType: 'LIMIT' | 'MARKET';
+  status?: string;
+  filledSize?: number;
+  avgFillPrice?: number;
+  fee?: number;
+  txHash?: string;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+// Predict.fun types
+export interface PredictFunTrade {
+  id?: number;
+  oddsUserId: string;
+  orderHash: string;
+  marketId: string;
+  tokenId: string;
+  side: 'BUY' | 'SELL';
+  price: number;
+  quantity: number;
+  status?: string;
+  filledQuantity?: number;
+  avgFillPrice?: number;
+  fee?: number;
+  txHash?: string;
+  isNegRisk?: boolean;
+  isYieldBearing?: boolean;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+// Polymarket types
+export interface PolymarketTrade {
+  id?: number;
+  oddsUserId: string;
+  orderId: string;
+  marketId: string;
+  tokenId: string;
+  conditionId?: string;
+  side: 'BUY' | 'SELL';
+  price: number;
+  size: number;
+  orderType: 'LIMIT' | 'MARKET';
+  status?: string;
+  filledSize?: number;
+  avgFillPrice?: number;
+  fee?: number;
+  txHash?: string;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+// Kalshi types
+export interface KalshiTrade {
+  id?: number;
+  oddsUserId: string;
+  orderId: string;
+  marketId: string;
+  ticker: string;
+  side: 'yes' | 'no';
+  price: number;
+  count: number;
+  orderType: 'limit' | 'market';
+  status?: string;
+  filledCount?: number;
+  avgFillPrice?: number;
+  fee?: number;
+  action?: string;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+// Drift Protocol types
+export interface DriftTrade {
+  id?: number;
+  oddsUserId: string;
+  orderId?: string;
+  marketIndex: number;
+  marketType: 'perp' | 'spot';
+  direction: 'long' | 'short';
+  baseAmount: number;
+  quoteAmount?: number;
+  price?: number;
+  orderType: 'market' | 'limit' | 'postOnly';
+  status?: string;
+  filledAmount?: number;
+  avgFillPrice?: number;
+  leverage?: number;
+  txSig?: string;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+// Manifold types
+export interface ManifoldTrade {
+  id?: number;
+  oddsUserId: string;
+  betId: string;
+  contractId: string;
+  outcome: string;
+  amount: number;
+  shares: number;
+  probabilityBefore?: number;
+  probabilityAfter?: number;
+  status?: string;
+  fee?: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+// Solana DEX types
+export interface SolanaDexTrade {
+  id?: number;
+  oddsUserId: string;
+  txSig: string;
+  dex: 'jupiter' | 'raydium' | 'orca' | 'meteora';
+  inputMint: string;
+  outputMint: string;
+  inputAmount: number;
+  outputAmount: number;
+  inputSymbol?: string;
+  outputSymbol?: string;
+  priceImpact?: number;
+  slippage?: number;
+  fee?: number;
+  route?: string;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+// Jupiter-specific swap tracking
+export interface JupiterSwap {
+  id?: number;
+  oddsUserId: string;
+  txSig: string;
+  inputMint: string;
+  outputMint: string;
+  inputAmount: string;
+  outputAmount: string;
+  inputSymbol?: string;
+  outputSymbol?: string;
+  priceImpactPct?: number;
+  slippageBps?: number;
+  routePlan?: string;
+  numHops?: number;
+  priorityFee?: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+// Raydium pool tracking
+export interface RaydiumPool {
+  id?: number;
+  poolId: string;
+  baseMint: string;
+  quoteMint: string;
+  baseSymbol?: string;
+  quoteSymbol?: string;
+  liquidity?: number;
+  volume24h?: number;
+  feeRate?: number;
+  version?: string;
+  lastUpdated: Date;
+}
+
+// Orca Whirlpool position
+export interface OrcaPosition {
+  id?: number;
+  oddsUserId: string;
+  positionAddress: string;
+  poolAddress: string;
+  tokenAMint: string;
+  tokenBMint: string;
+  tickLower?: number;
+  tickUpper?: number;
+  liquidity?: string;
+  feeOwedA?: string;
+  feeOwedB?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Meteora DLMM pool
+export interface MeteoraPool {
+  id?: number;
+  poolAddress: string;
+  tokenXMint: string;
+  tokenYMint: string;
+  tokenXSymbol?: string;
+  tokenYSymbol?: string;
+  binStep?: number;
+  activeId?: number;
+  liquidity?: number;
+  feeRate?: number;
+  lastUpdated: Date;
+}
+
+// Pump.fun token
+export interface PumpToken {
+  id?: number;
+  mint: string;
+  name?: string;
+  symbol?: string;
+  creator?: string;
+  bondingCurve?: string;
+  marketCap?: number;
+  virtualSolReserves?: number;
+  virtualTokenReserves?: number;
+  totalSupply?: string;
+  holderCount?: number;
+  isGraduated?: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Drift position
+export interface DriftPosition {
+  id?: number;
+  oddsUserId: string;
+  marketIndex: number;
+  marketType: 'perp' | 'spot';
+  baseAssetAmount: string;
+  quoteAssetAmount?: string;
+  entryPrice?: string;
+  unrealizedPnl?: string;
+  liquidationPrice?: string;
+  leverage?: number;
+  updatedAt: Date;
+}
+
+// EVM swap types
+export interface EvmSwapTrade {
+  id?: number;
+  oddsUserId: string;
+  txHash: string;
+  chainId: number;
+  dex: 'uniswap' | 'sushiswap' | '1inch' | 'pancakeswap' | 'other';
+  tokenIn: string;
+  tokenOut: string;
+  amountIn: number;
+  amountOut: number;
+  tokenInSymbol?: string;
+  tokenOutSymbol?: string;
+  priceImpact?: number;
+  slippage?: number;
+  gasUsed?: number;
+  gasPrice?: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
 export interface Database {
   close(): void;
   save(): void;
@@ -603,6 +864,89 @@ export interface Database {
     symbol?: string;
     since?: number;
   }): number;
+
+  // Opinion.trade trades
+  logOpinionTrade(trade: OpinionTrade): void;
+  getOpinionTrades(userId: string, options?: {
+    marketId?: string;
+    limit?: number;
+    since?: number;
+  }): OpinionTrade[];
+
+  // Predict.fun trades
+  logPredictFunTrade(trade: PredictFunTrade): void;
+  getPredictFunTrades(userId: string, options?: {
+    marketId?: string;
+    limit?: number;
+    since?: number;
+  }): PredictFunTrade[];
+
+  // Polymarket trades
+  logPolymarketTrade(trade: PolymarketTrade): void;
+  getPolymarketTrades(userId: string, options?: {
+    marketId?: string;
+    limit?: number;
+    since?: number;
+  }): PolymarketTrade[];
+
+  // Kalshi trades
+  logKalshiTrade(trade: KalshiTrade): void;
+  getKalshiTrades(userId: string, options?: {
+    marketId?: string;
+    ticker?: string;
+    limit?: number;
+    since?: number;
+  }): KalshiTrade[];
+
+  // Drift trades
+  logDriftTrade(trade: DriftTrade): void;
+  getDriftTrades(userId: string, options?: {
+    marketIndex?: number;
+    marketType?: string;
+    limit?: number;
+    since?: number;
+  }): DriftTrade[];
+
+  // Manifold trades
+  logManifoldTrade(trade: ManifoldTrade): void;
+  getManifoldTrades(userId: string, options?: {
+    contractId?: string;
+    limit?: number;
+    since?: number;
+  }): ManifoldTrade[];
+
+  // Solana DEX trades
+  logSolanaDexTrade(trade: SolanaDexTrade): void;
+  getSolanaDexTrades(userId: string, options?: {
+    dex?: string;
+    limit?: number;
+    since?: number;
+  }): SolanaDexTrade[];
+
+  // EVM swap trades
+  logEvmSwapTrade(trade: EvmSwapTrade): void;
+  getEvmSwapTrades(userId: string, options?: {
+    chainId?: number;
+    dex?: string;
+    limit?: number;
+    since?: number;
+  }): EvmSwapTrade[];
+
+  // Jupiter swaps
+  logJupiterSwap(swap: JupiterSwap): void;
+  getJupiterSwaps(userId: string, limit?: number): JupiterSwap[];
+
+  // Drift trades
+  logDriftTrade(trade: DriftTrade): void;
+  getDriftTrades(userId: string, options?: { marketIndex?: number; limit?: number }): DriftTrade[];
+
+  // Drift positions
+  upsertDriftPosition(position: DriftPosition): void;
+  getDriftPositions(userId: string): DriftPosition[];
+
+  // Pump.fun tokens
+  upsertPumpToken(token: PumpToken): void;
+  getPumpToken(mint: string): PumpToken | null;
 }
 
 let dbInstance: Database | null = null;
@@ -1183,6 +1527,343 @@ export async function initDatabase(): Promise<Database> {
     CREATE INDEX IF NOT EXISTS idx_mexc_funding_user ON mexc_futures_funding(user_id);
     CREATE INDEX IF NOT EXISTS idx_mexc_funding_symbol ON mexc_futures_funding(symbol);
     CREATE INDEX IF NOT EXISTS idx_mexc_funding_timestamp ON mexc_futures_funding(timestamp);
+
+    -- Opinion.trade trades table
+    CREATE TABLE IF NOT EXISTS opinion_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      market_id TEXT NOT NULL,
+      token_id TEXT NOT NULL,
+      side TEXT NOT NULL,
+      price REAL NOT NULL,
+      size REAL NOT NULL,
+      order_type TEXT NOT NULL,
+      status TEXT DEFAULT 'open',
+      filled_size REAL DEFAULT 0,
+      avg_fill_price REAL,
+      fee REAL DEFAULT 0,
+      tx_hash TEXT,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_opinion_trades_user ON opinion_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_opinion_trades_market ON opinion_trades(market_id);
+    CREATE INDEX IF NOT EXISTS idx_opinion_trades_timestamp ON opinion_trades(timestamp);
+
+    -- Predict.fun trades table
+    CREATE TABLE IF NOT EXISTS predictfun_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      order_hash TEXT NOT NULL,
+      market_id TEXT NOT NULL,
+      token_id TEXT NOT NULL,
+      side TEXT NOT NULL,
+      price REAL NOT NULL,
+      quantity REAL NOT NULL,
+      status TEXT DEFAULT 'open',
+      filled_quantity REAL DEFAULT 0,
+      avg_fill_price REAL,
+      fee REAL DEFAULT 0,
+      tx_hash TEXT,
+      is_neg_risk INTEGER DEFAULT 0,
+      is_yield_bearing INTEGER DEFAULT 1,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_predictfun_trades_user ON predictfun_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_predictfun_trades_market ON predictfun_trades(market_id);
+    CREATE INDEX IF NOT EXISTS idx_predictfun_trades_timestamp ON predictfun_trades(timestamp);
+
+    -- Polymarket trades table
+    CREATE TABLE IF NOT EXISTS polymarket_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      market_id TEXT NOT NULL,
+      token_id TEXT NOT NULL,
+      condition_id TEXT,
+      side TEXT NOT NULL,
+      price REAL NOT NULL,
+      size REAL NOT NULL,
+      order_type TEXT NOT NULL,
+      status TEXT DEFAULT 'open',
+      filled_size REAL DEFAULT 0,
+      avg_fill_price REAL,
+      fee REAL DEFAULT 0,
+      tx_hash TEXT,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_polymarket_trades_user ON polymarket_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_polymarket_trades_market ON polymarket_trades(market_id);
+    CREATE INDEX IF NOT EXISTS idx_polymarket_trades_timestamp ON polymarket_trades(timestamp);
+
+    -- Kalshi trades table
+    CREATE TABLE IF NOT EXISTS kalshi_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      market_id TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      side TEXT NOT NULL,
+      price REAL NOT NULL,
+      count INTEGER NOT NULL,
+      order_type TEXT NOT NULL,
+      status TEXT DEFAULT 'open',
+      filled_count INTEGER DEFAULT 0,
+      avg_fill_price REAL,
+      fee REAL DEFAULT 0,
+      action TEXT,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_kalshi_trades_user ON kalshi_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_kalshi_trades_market ON kalshi_trades(market_id);
+    CREATE INDEX IF NOT EXISTS idx_kalshi_trades_ticker ON kalshi_trades(ticker);
+    CREATE INDEX IF NOT EXISTS idx_kalshi_trades_timestamp ON kalshi_trades(timestamp);
+
+    -- Drift Protocol trades table
+    CREATE TABLE IF NOT EXISTS drift_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      order_id TEXT,
+      market_index INTEGER NOT NULL,
+      market_type TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      base_amount REAL NOT NULL,
+      quote_amount REAL,
+      price REAL,
+      order_type TEXT NOT NULL,
+      status TEXT DEFAULT 'open',
+      filled_amount REAL DEFAULT 0,
+      avg_fill_price REAL,
+      leverage REAL,
+      tx_sig TEXT,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_drift_trades_user ON drift_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_drift_trades_market ON drift_trades(market_index);
+    CREATE INDEX IF NOT EXISTS idx_drift_trades_timestamp ON drift_trades(timestamp);
+
+    -- Manifold Markets trades table
+    CREATE TABLE IF NOT EXISTS manifold_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      bet_id TEXT NOT NULL,
+      contract_id TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      amount REAL NOT NULL,
+      shares REAL NOT NULL,
+      probability_before REAL,
+      probability_after REAL,
+      status TEXT DEFAULT 'filled',
+      fee REAL DEFAULT 0,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_manifold_trades_user ON manifold_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_manifold_trades_contract ON manifold_trades(contract_id);
+    CREATE INDEX IF NOT EXISTS idx_manifold_trades_timestamp ON manifold_trades(timestamp);
+
+    -- Solana DEX trades table (Jupiter, Raydium, Orca, Meteora)
+    CREATE TABLE IF NOT EXISTS solana_dex_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      tx_sig TEXT NOT NULL,
+      dex TEXT NOT NULL,
+      input_mint TEXT NOT NULL,
+      output_mint TEXT NOT NULL,
+      input_amount REAL NOT NULL,
+      output_amount REAL NOT NULL,
+      input_symbol TEXT,
+      output_symbol TEXT,
+      price_impact REAL,
+      slippage REAL,
+      fee REAL DEFAULT 0,
+      route TEXT,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_solana_dex_trades_user ON solana_dex_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_solana_dex_trades_dex ON solana_dex_trades(dex);
+    CREATE INDEX IF NOT EXISTS idx_solana_dex_trades_timestamp ON solana_dex_trades(timestamp);
+
+    -- Jupiter swaps table (detailed route tracking)
+    CREATE TABLE IF NOT EXISTS jupiter_swaps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      tx_sig TEXT NOT NULL UNIQUE,
+      input_mint TEXT NOT NULL,
+      output_mint TEXT NOT NULL,
+      input_amount TEXT NOT NULL,
+      output_amount TEXT NOT NULL,
+      input_symbol TEXT,
+      output_symbol TEXT,
+      price_impact_pct REAL,
+      slippage_bps INTEGER,
+      route_plan TEXT,
+      num_hops INTEGER,
+      priority_fee INTEGER,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_jupiter_swaps_user ON jupiter_swaps(user_id);
+    CREATE INDEX IF NOT EXISTS idx_jupiter_swaps_timestamp ON jupiter_swaps(timestamp);
+
+    -- Raydium pools tracking
+    CREATE TABLE IF NOT EXISTS raydium_pools (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pool_id TEXT NOT NULL UNIQUE,
+      base_mint TEXT NOT NULL,
+      quote_mint TEXT NOT NULL,
+      base_symbol TEXT,
+      quote_symbol TEXT,
+      liquidity REAL,
+      volume_24h REAL,
+      fee_rate REAL,
+      version TEXT,
+      last_updated INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_raydium_pools_mints ON raydium_pools(base_mint, quote_mint);
+
+    -- Orca Whirlpool positions
+    CREATE TABLE IF NOT EXISTS orca_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      position_address TEXT NOT NULL,
+      pool_address TEXT NOT NULL,
+      token_a_mint TEXT NOT NULL,
+      token_b_mint TEXT NOT NULL,
+      tick_lower INTEGER,
+      tick_upper INTEGER,
+      liquidity TEXT,
+      fee_owed_a TEXT,
+      fee_owed_b TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_orca_positions_user ON orca_positions(user_id);
+
+    -- Meteora DLMM pools
+    CREATE TABLE IF NOT EXISTS meteora_pools (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pool_address TEXT NOT NULL UNIQUE,
+      token_x_mint TEXT NOT NULL,
+      token_y_mint TEXT NOT NULL,
+      token_x_symbol TEXT,
+      token_y_symbol TEXT,
+      bin_step INTEGER,
+      active_id INTEGER,
+      liquidity REAL,
+      fee_rate REAL,
+      last_updated INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_meteora_pools_mints ON meteora_pools(token_x_mint, token_y_mint);
+
+    -- Pump.fun tokens
+    CREATE TABLE IF NOT EXISTS pump_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mint TEXT NOT NULL UNIQUE,
+      name TEXT,
+      symbol TEXT,
+      creator TEXT,
+      bonding_curve TEXT,
+      market_cap REAL,
+      virtual_sol_reserves REAL,
+      virtual_token_reserves REAL,
+      total_supply TEXT,
+      holder_count INTEGER,
+      is_graduated INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pump_tokens_symbol ON pump_tokens(symbol);
+    CREATE INDEX IF NOT EXISTS idx_pump_tokens_market_cap ON pump_tokens(market_cap);
+
+    -- Drift trades (perpetuals)
+    CREATE TABLE IF NOT EXISTS drift_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      tx_sig TEXT NOT NULL,
+      market_index INTEGER NOT NULL,
+      market_type TEXT NOT NULL,
+      order_id INTEGER,
+      direction TEXT NOT NULL,
+      base_asset_amount TEXT NOT NULL,
+      quote_asset_amount TEXT,
+      price TEXT,
+      fee TEXT,
+      pnl TEXT,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_drift_trades_user ON drift_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_drift_trades_market ON drift_trades(market_index);
+    CREATE INDEX IF NOT EXISTS idx_drift_trades_timestamp ON drift_trades(timestamp);
+
+    -- Drift positions
+    CREATE TABLE IF NOT EXISTS drift_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      market_index INTEGER NOT NULL,
+      market_type TEXT NOT NULL,
+      base_asset_amount TEXT NOT NULL,
+      quote_asset_amount TEXT,
+      entry_price TEXT,
+      unrealized_pnl TEXT,
+      liquidation_price TEXT,
+      leverage REAL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(user_id, market_index, market_type),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_drift_positions_user ON drift_positions(user_id);
+
+    -- EVM swap trades table (Uniswap, Sushiswap, 1inch, etc.)
+    CREATE TABLE IF NOT EXISTS evm_swap_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      tx_hash TEXT NOT NULL,
+      chain_id INTEGER NOT NULL,
+      dex TEXT NOT NULL,
+      token_in TEXT NOT NULL,
+      token_out TEXT NOT NULL,
+      amount_in REAL NOT NULL,
+      amount_out REAL NOT NULL,
+      token_in_symbol TEXT,
+      token_out_symbol TEXT,
+      price_impact REAL,
+      slippage REAL,
+      gas_used REAL,
+      gas_price REAL,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_evm_swap_trades_user ON evm_swap_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_evm_swap_trades_chain ON evm_swap_trades(chain_id);
+    CREATE INDEX IF NOT EXISTS idx_evm_swap_trades_dex ON evm_swap_trades(dex);
+    CREATE INDEX IF NOT EXISTS idx_evm_swap_trades_timestamp ON evm_swap_trades(timestamp);
 
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id);
@@ -3376,6 +4057,686 @@ export async function initDatabase(): Promise<Database> {
         params
       );
       return row?.total || 0;
+    },
+
+    // Opinion.trade trades
+    logOpinionTrade(trade: OpinionTrade): void {
+      run(
+        `INSERT INTO opinion_trades (
+          user_id, order_id, market_id, token_id, side, price, size, order_type,
+          status, filled_size, avg_fill_price, fee, tx_hash, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.oddsUserId,
+          trade.orderId,
+          trade.marketId,
+          trade.tokenId,
+          trade.side,
+          trade.price,
+          trade.size,
+          trade.orderType,
+          trade.status || 'open',
+          trade.filledSize || 0,
+          trade.avgFillPrice || trade.price,
+          trade.fee || 0,
+          trade.txHash || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getOpinionTrades(userId: string, options: { marketId?: string; limit?: number; since?: number } = {}): OpinionTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM opinion_trades WHERE user_id = ?';
+
+      if (options.marketId) {
+        sql += ' AND market_id = ?';
+        params.push(options.marketId);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        oddsUserId: row.user_id as string,
+        orderId: row.order_id as string,
+        marketId: row.market_id as string,
+        tokenId: row.token_id as string,
+        side: row.side as 'BUY' | 'SELL',
+        price: row.price as number,
+        size: row.size as number,
+        orderType: row.order_type as 'LIMIT' | 'MARKET',
+        status: row.status as string,
+        filledSize: row.filled_size as number,
+        avgFillPrice: row.avg_fill_price as number,
+        fee: row.fee as number,
+        txHash: row.tx_hash as string | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    // Predict.fun trades
+    logPredictFunTrade(trade: PredictFunTrade): void {
+      run(
+        `INSERT INTO predictfun_trades (
+          user_id, order_hash, market_id, token_id, side, price, quantity,
+          status, filled_quantity, avg_fill_price, fee, tx_hash,
+          is_neg_risk, is_yield_bearing, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.oddsUserId,
+          trade.orderHash,
+          trade.marketId,
+          trade.tokenId,
+          trade.side,
+          trade.price,
+          trade.quantity,
+          trade.status || 'open',
+          trade.filledQuantity || 0,
+          trade.avgFillPrice || trade.price,
+          trade.fee || 0,
+          trade.txHash || null,
+          trade.isNegRisk ? 1 : 0,
+          trade.isYieldBearing !== false ? 1 : 0,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getPredictFunTrades(userId: string, options: { marketId?: string; limit?: number; since?: number } = {}): PredictFunTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM predictfun_trades WHERE user_id = ?';
+
+      if (options.marketId) {
+        sql += ' AND market_id = ?';
+        params.push(options.marketId);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        oddsUserId: row.user_id as string,
+        orderHash: row.order_hash as string,
+        marketId: row.market_id as string,
+        tokenId: row.token_id as string,
+        side: row.side as 'BUY' | 'SELL',
+        price: row.price as number,
+        quantity: row.quantity as number,
+        status: row.status as string,
+        filledQuantity: row.filled_quantity as number,
+        avgFillPrice: row.avg_fill_price as number,
+        fee: row.fee as number,
+        txHash: row.tx_hash as string | undefined,
+        isNegRisk: row.is_neg_risk === 1,
+        isYieldBearing: row.is_yield_bearing === 1,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    // Polymarket trades
+    logPolymarketTrade(trade: PolymarketTrade): void {
+      run(
+        `INSERT INTO polymarket_trades (
+          user_id, order_id, market_id, token_id, condition_id, side, price, size, order_type,
+          status, filled_size, avg_fill_price, fee, tx_hash, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.oddsUserId,
+          trade.orderId,
+          trade.marketId,
+          trade.tokenId,
+          trade.conditionId || null,
+          trade.side,
+          trade.price,
+          trade.size,
+          trade.orderType,
+          trade.status || 'open',
+          trade.filledSize || 0,
+          trade.avgFillPrice || trade.price,
+          trade.fee || 0,
+          trade.txHash || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getPolymarketTrades(userId: string, options: { marketId?: string; limit?: number; since?: number } = {}): PolymarketTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM polymarket_trades WHERE user_id = ?';
+
+      if (options.marketId) {
+        sql += ' AND market_id = ?';
+        params.push(options.marketId);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        oddsUserId: row.user_id as string,
+        orderId: row.order_id as string,
+        marketId: row.market_id as string,
+        tokenId: row.token_id as string,
+        conditionId: row.condition_id as string | undefined,
+        side: row.side as 'BUY' | 'SELL',
+        price: row.price as number,
+        size: row.size as number,
+        orderType: row.order_type as 'LIMIT' | 'MARKET',
+        status: row.status as string,
+        filledSize: row.filled_size as number,
+        avgFillPrice: row.avg_fill_price as number,
+        fee: row.fee as number,
+        txHash: row.tx_hash as string | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    // Kalshi trades
+    logKalshiTrade(trade: KalshiTrade): void {
+      run(
+        `INSERT INTO kalshi_trades (
+          user_id, order_id, market_id, ticker, side, price, count, order_type,
+          status, filled_count, avg_fill_price, fee, action, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.oddsUserId,
+          trade.orderId,
+          trade.marketId,
+          trade.ticker,
+          trade.side,
+          trade.price,
+          trade.count,
+          trade.orderType,
+          trade.status || 'open',
+          trade.filledCount || 0,
+          trade.avgFillPrice || trade.price,
+          trade.fee || 0,
+          trade.action || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getKalshiTrades(userId: string, options: { marketId?: string; ticker?: string; limit?: number; since?: number } = {}): KalshiTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM kalshi_trades WHERE user_id = ?';
+
+      if (options.marketId) {
+        sql += ' AND market_id = ?';
+        params.push(options.marketId);
+      }
+      if (options.ticker) {
+        sql += ' AND ticker = ?';
+        params.push(options.ticker);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        oddsUserId: row.user_id as string,
+        orderId: row.order_id as string,
+        marketId: row.market_id as string,
+        ticker: row.ticker as string,
+        side: row.side as 'yes' | 'no',
+        price: row.price as number,
+        count: row.count as number,
+        orderType: row.order_type as 'limit' | 'market',
+        status: row.status as string,
+        filledCount: row.filled_count as number,
+        avgFillPrice: row.avg_fill_price as number,
+        fee: row.fee as number,
+        action: row.action as string | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    // Drift trades
+    logDriftTrade(trade: DriftTrade): void {
+      run(
+        `INSERT INTO drift_trades (
+          user_id, order_id, market_index, market_type, direction, base_amount, quote_amount,
+          price, order_type, status, filled_amount, avg_fill_price, leverage, tx_sig, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.oddsUserId,
+          trade.orderId || null,
+          trade.marketIndex,
+          trade.marketType,
+          trade.direction,
+          trade.baseAmount,
+          trade.quoteAmount || null,
+          trade.price || null,
+          trade.orderType,
+          trade.status || 'open',
+          trade.filledAmount || 0,
+          trade.avgFillPrice || trade.price || null,
+          trade.leverage || null,
+          trade.txSig || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getDriftTrades(userId: string, options: { marketIndex?: number; marketType?: string; limit?: number; since?: number } = {}): DriftTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM drift_trades WHERE user_id = ?';
+
+      if (options.marketIndex !== undefined) {
+        sql += ' AND market_index = ?';
+        params.push(options.marketIndex);
+      }
+      if (options.marketType) {
+        sql += ' AND market_type = ?';
+        params.push(options.marketType);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        oddsUserId: row.user_id as string,
+        orderId: row.order_id as string | undefined,
+        marketIndex: row.market_index as number,
+        marketType: row.market_type as 'perp' | 'spot',
+        direction: row.direction as 'long' | 'short',
+        baseAmount: row.base_amount as number,
+        quoteAmount: row.quote_amount as number | undefined,
+        price: row.price as number | undefined,
+        orderType: row.order_type as 'market' | 'limit' | 'postOnly',
+        status: row.status as string,
+        filledAmount: row.filled_amount as number,
+        avgFillPrice: row.avg_fill_price as number | undefined,
+        leverage: row.leverage as number | undefined,
+        txSig: row.tx_sig as string | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    // Manifold trades
+    logManifoldTrade(trade: ManifoldTrade): void {
+      run(
+        `INSERT INTO manifold_trades (
+          user_id, bet_id, contract_id, outcome, amount, shares,
+          probability_before, probability_after, status, fee, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.oddsUserId,
+          trade.betId,
+          trade.contractId,
+          trade.outcome,
+          trade.amount,
+          trade.shares,
+          trade.probabilityBefore || null,
+          trade.probabilityAfter || null,
+          trade.status || 'filled',
+          trade.fee || 0,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getManifoldTrades(userId: string, options: { contractId?: string; limit?: number; since?: number } = {}): ManifoldTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM manifold_trades WHERE user_id = ?';
+
+      if (options.contractId) {
+        sql += ' AND contract_id = ?';
+        params.push(options.contractId);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        oddsUserId: row.user_id as string,
+        betId: row.bet_id as string,
+        contractId: row.contract_id as string,
+        outcome: row.outcome as string,
+        amount: row.amount as number,
+        shares: row.shares as number,
+        probabilityBefore: row.probability_before as number | undefined,
+        probabilityAfter: row.probability_after as number | undefined,
+        status: row.status as string,
+        fee: row.fee as number,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    // Solana DEX trades
+    logSolanaDexTrade(trade: SolanaDexTrade): void {
+      run(
+        `INSERT INTO solana_dex_trades (
+          user_id, tx_sig, dex, input_mint, output_mint, input_amount, output_amount,
+          input_symbol, output_symbol, price_impact, slippage, fee, route, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.oddsUserId,
+          trade.txSig,
+          trade.dex,
+          trade.inputMint,
+          trade.outputMint,
+          trade.inputAmount,
+          trade.outputAmount,
+          trade.inputSymbol || null,
+          trade.outputSymbol || null,
+          trade.priceImpact || null,
+          trade.slippage || null,
+          trade.fee || 0,
+          trade.route || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getSolanaDexTrades(userId: string, options: { dex?: string; limit?: number; since?: number } = {}): SolanaDexTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM solana_dex_trades WHERE user_id = ?';
+
+      if (options.dex) {
+        sql += ' AND dex = ?';
+        params.push(options.dex);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        oddsUserId: row.user_id as string,
+        txSig: row.tx_sig as string,
+        dex: row.dex as 'jupiter' | 'raydium' | 'orca' | 'meteora',
+        inputMint: row.input_mint as string,
+        outputMint: row.output_mint as string,
+        inputAmount: row.input_amount as number,
+        outputAmount: row.output_amount as number,
+        inputSymbol: row.input_symbol as string | undefined,
+        outputSymbol: row.output_symbol as string | undefined,
+        priceImpact: row.price_impact as number | undefined,
+        slippage: row.slippage as number | undefined,
+        fee: row.fee as number,
+        route: row.route as string | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    // EVM swap trades
+    logEvmSwapTrade(trade: EvmSwapTrade): void {
+      run(
+        `INSERT INTO evm_swap_trades (
+          user_id, tx_hash, chain_id, dex, token_in, token_out, amount_in, amount_out,
+          token_in_symbol, token_out_symbol, price_impact, slippage, gas_used, gas_price, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.oddsUserId,
+          trade.txHash,
+          trade.chainId,
+          trade.dex,
+          trade.tokenIn,
+          trade.tokenOut,
+          trade.amountIn,
+          trade.amountOut,
+          trade.tokenInSymbol || null,
+          trade.tokenOutSymbol || null,
+          trade.priceImpact || null,
+          trade.slippage || null,
+          trade.gasUsed || null,
+          trade.gasPrice || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getEvmSwapTrades(userId: string, options: { chainId?: number; dex?: string; limit?: number; since?: number } = {}): EvmSwapTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM evm_swap_trades WHERE user_id = ?';
+
+      if (options.chainId !== undefined) {
+        sql += ' AND chain_id = ?';
+        params.push(options.chainId);
+      }
+      if (options.dex) {
+        sql += ' AND dex = ?';
+        params.push(options.dex);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        oddsUserId: row.user_id as string,
+        txHash: row.tx_hash as string,
+        chainId: row.chain_id as number,
+        dex: row.dex as 'uniswap' | 'sushiswap' | '1inch' | 'pancakeswap' | 'other',
+        tokenIn: row.token_in as string,
+        tokenOut: row.token_out as string,
+        amountIn: row.amount_in as number,
+        amountOut: row.amount_out as number,
+        tokenInSymbol: row.token_in_symbol as string | undefined,
+        tokenOutSymbol: row.token_out_symbol as string | undefined,
+        priceImpact: row.price_impact as number | undefined,
+        slippage: row.slippage as number | undefined,
+        gasUsed: row.gas_used as number | undefined,
+        gasPrice: row.gas_price as number | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    // Jupiter swaps
+    logJupiterSwap(swap: JupiterSwap): void {
+      run(
+        `INSERT OR REPLACE INTO jupiter_swaps (
+          user_id, tx_sig, input_mint, output_mint, input_amount, output_amount,
+          input_symbol, output_symbol, price_impact_pct, slippage_bps, route_plan,
+          num_hops, priority_fee, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          swap.oddsUserId, swap.txSig, swap.inputMint, swap.outputMint,
+          swap.inputAmount, swap.outputAmount, swap.inputSymbol || null,
+          swap.outputSymbol || null, swap.priceImpactPct || null,
+          swap.slippageBps || null, swap.routePlan || null, swap.numHops || null,
+          swap.priorityFee || null, swap.timestamp.getTime(), Date.now(),
+        ]
+      );
+    },
+
+    getJupiterSwaps(userId: string, limit = 50): JupiterSwap[] {
+      const rows = getAll<Record<string, unknown>>(
+        'SELECT * FROM jupiter_swaps WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?',
+        [userId, limit]
+      );
+      return rows.map((r) => ({
+        id: r.id as number,
+        oddsUserId: r.user_id as string,
+        txSig: r.tx_sig as string,
+        inputMint: r.input_mint as string,
+        outputMint: r.output_mint as string,
+        inputAmount: r.input_amount as string,
+        outputAmount: r.output_amount as string,
+        inputSymbol: r.input_symbol as string | undefined,
+        outputSymbol: r.output_symbol as string | undefined,
+        priceImpactPct: r.price_impact_pct as number | undefined,
+        slippageBps: r.slippage_bps as number | undefined,
+        routePlan: r.route_plan as string | undefined,
+        numHops: r.num_hops as number | undefined,
+        priorityFee: r.priority_fee as number | undefined,
+        timestamp: new Date(r.timestamp as number),
+        createdAt: new Date(r.created_at as number),
+      }));
+    },
+
+    // Drift positions
+    upsertDriftPosition(position: DriftPosition): void {
+      run(
+        `INSERT OR REPLACE INTO drift_positions (
+          user_id, market_index, market_type, base_asset_amount, quote_asset_amount,
+          entry_price, unrealized_pnl, liquidation_price, leverage, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          position.oddsUserId, position.marketIndex, position.marketType,
+          position.baseAssetAmount, position.quoteAssetAmount || null,
+          position.entryPrice || null, position.unrealizedPnl || null,
+          position.liquidationPrice || null, position.leverage || null, Date.now(),
+        ]
+      );
+    },
+
+    getDriftPositions(userId: string): DriftPosition[] {
+      const rows = getAll<Record<string, unknown>>(
+        'SELECT * FROM drift_positions WHERE user_id = ? ORDER BY market_index',
+        [userId]
+      );
+      return rows.map((r) => ({
+        id: r.id as number,
+        oddsUserId: r.user_id as string,
+        marketIndex: r.market_index as number,
+        marketType: r.market_type as 'perp' | 'spot',
+        baseAssetAmount: r.base_asset_amount as string,
+        quoteAssetAmount: r.quote_asset_amount as string | undefined,
+        entryPrice: r.entry_price as string | undefined,
+        unrealizedPnl: r.unrealized_pnl as string | undefined,
+        liquidationPrice: r.liquidation_price as string | undefined,
+        leverage: r.leverage as number | undefined,
+        updatedAt: new Date(r.updated_at as number),
+      }));
+    },
+
+    // Pump.fun tokens
+    upsertPumpToken(token: PumpToken): void {
+      run(
+        `INSERT OR REPLACE INTO pump_tokens (
+          mint, name, symbol, creator, bonding_curve, market_cap,
+          virtual_sol_reserves, virtual_token_reserves, total_supply,
+          holder_count, is_graduated, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          token.mint, token.name || null, token.symbol || null, token.creator || null,
+          token.bondingCurve || null, token.marketCap || null,
+          token.virtualSolReserves || null, token.virtualTokenReserves || null,
+          token.totalSupply || null, token.holderCount || null,
+          token.isGraduated ? 1 : 0, token.createdAt.getTime(), Date.now(),
+        ]
+      );
+    },
+
+    getPumpToken(mint: string): PumpToken | null {
+      const row = getOne<Record<string, unknown>>(
+        'SELECT * FROM pump_tokens WHERE mint = ?',
+        [mint]
+      );
+      if (!row) return null;
+      return {
+        id: row.id as number,
+        mint: row.mint as string,
+        name: row.name as string | undefined,
+        symbol: row.symbol as string | undefined,
+        creator: row.creator as string | undefined,
+        bondingCurve: row.bonding_curve as string | undefined,
+        marketCap: row.market_cap as number | undefined,
+        virtualSolReserves: row.virtual_sol_reserves as number | undefined,
+        virtualTokenReserves: row.virtual_token_reserves as number | undefined,
+        totalSupply: row.total_supply as string | undefined,
+        holderCount: row.holder_count as number | undefined,
+        isGraduated: (row.is_graduated as number) === 1,
+        createdAt: new Date(row.created_at as number),
+        updatedAt: new Date(row.updated_at as number),
+      };
     },
 
     // Raw SQL access

@@ -204,10 +204,13 @@ interface PolymarketMarketResponse {
 
 interface PolymarketTradeResponse {
   id?: string;
+  hash?: string;
   price?: string;
   size?: string;
   outcome?: string;
   asset_id?: string;
+  token_id?: string;
+  side?: string;
 }
 
 // EVM chain type for DEX operations
@@ -422,7 +425,7 @@ async function driftGatewayRequest(
     throw new Error(`Gateway error: ${response.status}`);
   }
 
-  return await response.json();
+  return await response.json() as ApiResponse;
 }
 
 function buildKalshiEnv(creds: KalshiCredentials): NodeJS.ProcessEnv {
@@ -4897,6 +4900,7 @@ function buildTools(): ToolDefinition[] {
           execution_mode: { type: 'string', enum: ['parallel', 'bundle', 'multi-bundle', 'sequential'], description: 'Execution mode: parallel (fastest), bundle (atomic ≤5), multi-bundle (atomic >5), sequential (stealthy)' },
           slippage_bps: { type: 'number', description: 'Slippage in basis points' },
           pool: { type: 'string', description: 'Pool: pump, raydium, auto' },
+          preset: { type: 'string', description: 'Preset name to apply (fast, atomic, stealth, aggressive, safe, or custom)' },
         },
         required: ['mint', 'amount_per_wallet'],
       },
@@ -4913,6 +4917,7 @@ function buildTools(): ToolDefinition[] {
           execution_mode: { type: 'string', enum: ['parallel', 'bundle', 'multi-bundle', 'sequential'], description: 'Execution mode: parallel (fastest), bundle (atomic ≤5), multi-bundle (atomic >5), sequential (stealthy)' },
           slippage_bps: { type: 'number', description: 'Slippage in basis points' },
           pool: { type: 'string', description: 'Pool: pump, raydium, auto' },
+          preset: { type: 'string', description: 'Preset name to apply (fast, atomic, stealth, aggressive, safe, or custom)' },
         },
         required: ['mint', 'amount_per_wallet'],
       },
@@ -4959,6 +4964,69 @@ function buildTools(): ToolDefinition[] {
           wallet_id: { type: 'string', description: 'Wallet ID to disable' },
         },
         required: ['wallet_id'],
+      },
+    },
+    // Swarm Presets
+    {
+      name: 'swarm_preset_save',
+      description: 'Save a swarm trading preset for reuse. Presets store execution settings that can be applied to trades.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Preset name (unique per user, case-insensitive)' },
+          type: { type: 'string', enum: ['strategy', 'token', 'wallet_group'], description: 'Preset type: strategy (trading settings), token (mint-specific), wallet_group (wallet combinations)' },
+          description: { type: 'string', description: 'Optional description' },
+          config: {
+            type: 'object',
+            description: 'Preset configuration',
+            properties: {
+              mint: { type: 'string', description: 'Token mint address (for token presets)' },
+              amountPerWallet: { type: 'number', description: 'Default SOL amount per wallet' },
+              slippageBps: { type: 'number', description: 'Slippage in basis points (500 = 5%)' },
+              pool: { type: 'string', enum: ['pump', 'raydium', 'auto'], description: 'Pool preference' },
+              executionMode: { type: 'string', enum: ['parallel', 'bundle', 'multi-bundle', 'sequential'], description: 'Execution mode' },
+              walletIds: { type: 'array', items: { type: 'string' }, description: 'Wallet IDs for wallet_group presets' },
+              amountVariancePct: { type: 'number', description: 'Random variance percentage for amounts' },
+            },
+          },
+          user_id: { type: 'string', description: 'User ID (optional, defaults to agent_user)' },
+        },
+        required: ['name', 'type', 'config'],
+      },
+    },
+    {
+      name: 'swarm_preset_list',
+      description: 'List saved swarm presets. Includes both user presets and built-in presets (fast, atomic, stealth, aggressive, safe).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ['strategy', 'token', 'wallet_group'], description: 'Filter by preset type' },
+          user_id: { type: 'string', description: 'User ID (optional, defaults to agent_user)' },
+        },
+      },
+    },
+    {
+      name: 'swarm_preset_get',
+      description: 'Get a specific swarm preset by name. Returns full configuration details.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Preset name to retrieve' },
+          user_id: { type: 'string', description: 'User ID (optional, defaults to agent_user)' },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'swarm_preset_delete',
+      description: 'Delete a saved swarm preset. Built-in presets cannot be deleted.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Preset name to delete' },
+          user_id: { type: 'string', description: 'User ID (optional, defaults to agent_user)' },
+        },
+        required: ['name'],
       },
     },
     {
@@ -7216,7 +7284,7 @@ async function executeTool(
 
         if (platform === 'polymarket') {
           const response = await fetchPolymarketClob(context, `https://clob.polymarket.com/trades?maker=${address}&limit=${limit}`);
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as unknown[];
           trades = (data || []).slice(0, limit).map((t: any) => ({
             market: t.market || 'Unknown',
             side: t.side,
@@ -7282,20 +7350,20 @@ async function executeTool(
           }
         } else if (platform === 'manifold') {
           const response = await fetch(`https://api.manifold.markets/v0/bets?userId=${address}&limit=${limit}`);
-          const data = await response.json() as ApiResponse;
-          trades = (data || []).slice(0, limit).map((t: any) => ({
+          const data = await response.json() as Array<Record<string, unknown>>;
+          trades = data.slice(0, limit).map((t) => ({
             market: t.contractSlug || 'Unknown',
             side: t.outcome,
             size: t.amount,
-            price: `${Math.round((t.probAfter || 0) * 100)}¢`,
+            price: `${Math.round(((t.probAfter as number) || 0) * 100)}¢`,
             timestamp: t.createdTime,
           }));
         } else if (platform === 'metaculus') {
           const response = await fetch(`https://www.metaculus.com/api2/users/${address}/predictions/?limit=${limit}`);
-          const data = await response.json() as ApiResponse;
-          trades = (data?.results || []).slice(0, limit).map((t: any) => ({
+          const data = await response.json() as { results?: Array<Record<string, unknown>> };
+          trades = (data.results || []).slice(0, limit).map((t) => ({
             question: t.question_title || 'Unknown',
-            prediction: `${Math.round((t.prediction || 0) * 100)}%`,
+            prediction: `${Math.round(((t.prediction as number) || 0) * 100)}%`,
             timestamp: t.created_time,
           }));
         } else if (platform === 'predictit') {
@@ -7306,12 +7374,12 @@ async function executeTool(
           }];
         } else if (platform === 'drift') {
           const response = await fetch(`https://bet.drift.trade/api/users/${address}/trades?limit=${limit}`);
-          const data = await response.json() as ApiResponse;
-          trades = (data || []).slice(0, limit).map((t: any) => ({
+          const data = await response.json() as Array<Record<string, unknown>>;
+          trades = data.slice(0, limit).map((t) => ({
             market: t.marketName || 'Unknown',
             side: t.side,
             size: t.size,
-            price: `${Math.round(parseFloat(t.price || 0) * 100)}¢`,
+            price: `${Math.round(parseFloat(String(t.price) || '0') * 100)}¢`,
             timestamp: t.timestamp,
           }));
         }
@@ -7333,14 +7401,14 @@ async function executeTool(
 
         if (platform === 'polymarket') {
           const response = await fetch(`https://data-api.polymarket.com/positions?user=${address}`);
-          const data = await response.json() as ApiResponse;
-          positions = (data || []).map((p: any) => ({
+          const data = await response.json() as Array<Record<string, unknown>>;
+          positions = data.map((p) => ({
             market: p.title || p.market || 'Unknown',
             outcome: p.outcome,
             size: p.size,
-            avgPrice: `${Math.round(parseFloat(p.avgPrice || 0) * 100)}¢`,
-            currentPrice: `${Math.round(parseFloat(p.currentPrice || 0) * 100)}¢`,
-            pnl: p.pnl ? `$${parseFloat(p.pnl).toFixed(2)}` : 'N/A',
+            avgPrice: `${Math.round(parseFloat(String(p.avgPrice) || '0') * 100)}¢`,
+            currentPrice: `${Math.round(parseFloat(String(p.currentPrice) || '0') * 100)}¢`,
+            pnl: p.pnl ? `$${parseFloat(String(p.pnl)).toFixed(2)}` : 'N/A',
           }));
         } else if (platform === 'kalshi') {
           // Try to use authenticated API if user has credentials
@@ -7399,23 +7467,25 @@ async function executeTool(
           }
         } else if (platform === 'manifold') {
           const response = await fetch(`https://api.manifold.markets/v0/bets?userId=${address}`);
-          const data = await response.json() as ApiResponse;
-          const byMarket = new Map<string, any>();
-          for (const bet of (data || [])) {
-            if (!byMarket.has(bet.contractId)) {
+          const data = await response.json() as Array<{ contractId?: string; contractSlug?: string; shares?: number; amount?: number }>;
+          const byMarket = new Map<string, { market: string | undefined; shares: number; totalCost: number }>();
+          for (const bet of data) {
+            if (bet.contractId && !byMarket.has(bet.contractId)) {
               byMarket.set(bet.contractId, { market: bet.contractSlug, shares: 0, totalCost: 0 });
             }
-            const pos = byMarket.get(bet.contractId);
-            pos.shares += bet.shares || 0;
-            pos.totalCost += bet.amount || 0;
+            const pos = bet.contractId ? byMarket.get(bet.contractId) : undefined;
+            if (pos) {
+              pos.shares += bet.shares || 0;
+              pos.totalCost += bet.amount || 0;
+            }
           }
           positions = Array.from(byMarket.values()).filter(p => p.shares > 0);
         } else if (platform === 'metaculus') {
           const response = await fetch(`https://www.metaculus.com/api2/users/${address}/predictions/`);
-          const data = await response.json() as ApiResponse;
-          positions = (data?.results || []).slice(0, 20).map((p: any) => ({
+          const data = await response.json() as { results?: Array<Record<string, unknown>> };
+          positions = (data.results || []).slice(0, 20).map((p) => ({
             question: p.question_title || 'Unknown',
-            prediction: `${Math.round((p.prediction || 0) * 100)}%`,
+            prediction: `${Math.round(((p.prediction as number) || 0) * 100)}%`,
             status: p.question_status,
           }));
         } else if (platform === 'predictit') {
@@ -7426,12 +7496,12 @@ async function executeTool(
           }];
         } else if (platform === 'drift') {
           const response = await fetch(`https://bet.drift.trade/api/users/${address}/positions`);
-          const data = await response.json() as ApiResponse;
-          positions = (data || []).map((p: any) => ({
+          const data = await response.json() as Array<Record<string, unknown>>;
+          positions = data.map((p) => ({
             market: p.marketName || 'Unknown',
             side: p.side,
             size: p.size,
-            entryPrice: `${Math.round(parseFloat(p.entryPrice || 0) * 100)}¢`,
+            entryPrice: `${Math.round(parseFloat(String(p.entryPrice || 0)) * 100)}¢`,
           }));
         }
 
@@ -7452,13 +7522,13 @@ async function executeTool(
 
         if (platform === 'polymarket') {
           const response = await fetch(`https://data-api.polymarket.com/pnl?user=${address}`);
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { totalPnl?: string; realizedPnl?: string; unrealizedPnl?: string; winRate?: string; tradesCount?: number };
           pnlData = {
-            totalPnl: data?.totalPnl ? `$${parseFloat(data.totalPnl).toFixed(2)}` : 'N/A',
-            realizedPnl: data?.realizedPnl ? `$${parseFloat(data.realizedPnl).toFixed(2)}` : 'N/A',
-            unrealizedPnl: data?.unrealizedPnl ? `$${parseFloat(data.unrealizedPnl).toFixed(2)}` : 'N/A',
-            winRate: data?.winRate ? `${(parseFloat(data.winRate) * 100).toFixed(1)}%` : 'N/A',
-            tradesCount: data?.tradesCount || 'N/A',
+            totalPnl: data.totalPnl ? `$${parseFloat(data.totalPnl).toFixed(2)}` : 'N/A',
+            realizedPnl: data.realizedPnl ? `$${parseFloat(data.realizedPnl).toFixed(2)}` : 'N/A',
+            unrealizedPnl: data.unrealizedPnl ? `$${parseFloat(data.unrealizedPnl).toFixed(2)}` : 'N/A',
+            winRate: data.winRate ? `${(parseFloat(data.winRate) * 100).toFixed(1)}%` : 'N/A',
+            tradesCount: data.tradesCount || 'N/A',
           };
         } else if (platform === 'kalshi') {
           // Try to use authenticated API if user has credentials
@@ -7513,20 +7583,20 @@ async function executeTool(
           }
         } else if (platform === 'manifold') {
           const response = await fetch(`https://api.manifold.markets/v0/user/${address}`);
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { profitCached?: { allTime?: number }; balance?: number; creatorTraders?: { allTime?: number } };
           pnlData = {
-            totalPnl: data?.profitCached ? `M$${parseFloat(data.profitCached.allTime || 0).toFixed(0)}` : 'N/A',
-            balance: data?.balance ? `M$${parseFloat(data.balance).toFixed(0)}` : 'N/A',
-            tradesCount: data?.creatorTraders?.allTime || 'N/A',
+            totalPnl: data.profitCached ? `M$${(data.profitCached.allTime || 0).toFixed(0)}` : 'N/A',
+            balance: data.balance !== undefined ? `M$${data.balance.toFixed(0)}` : 'N/A',
+            tradesCount: data.creatorTraders?.allTime || 'N/A',
           };
         } else if (platform === 'metaculus') {
           const response = await fetch(`https://www.metaculus.com/api2/users/${address}/`);
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { score?: number; question_count?: number; rank?: number; points?: number };
           pnlData = {
-            accuracy: data?.score ? `${data.score.toFixed(2)}` : 'N/A',
-            questionsAnswered: data?.question_count || 'N/A',
-            rank: data?.rank || 'N/A',
-            points: data?.points || 'N/A',
+            accuracy: data.score !== undefined ? `${data.score.toFixed(2)}` : 'N/A',
+            questionsAnswered: data.question_count || 'N/A',
+            rank: data.rank || 'N/A',
+            points: data.points || 'N/A',
           };
         } else if (platform === 'predictit') {
           pnlData = {
@@ -7536,11 +7606,11 @@ async function executeTool(
           };
         } else if (platform === 'drift') {
           const response = await fetch(`https://bet.drift.trade/api/users/${address}/pnl`);
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { totalPnl?: string; realizedPnl?: string; tradesCount?: number };
           pnlData = {
-            totalPnl: data?.totalPnl ? `$${parseFloat(data.totalPnl).toFixed(2)}` : 'N/A',
-            realizedPnl: data?.realizedPnl ? `$${parseFloat(data.realizedPnl).toFixed(2)}` : 'N/A',
-            tradesCount: data?.tradesCount || 'N/A',
+            totalPnl: data.totalPnl ? `$${parseFloat(data.totalPnl).toFixed(2)}` : 'N/A',
+            realizedPnl: data.realizedPnl ? `$${parseFloat(data.realizedPnl).toFixed(2)}` : 'N/A',
+            tradesCount: data.tradesCount || 'N/A',
           };
         }
 
@@ -7563,35 +7633,35 @@ async function executeTool(
 
         if (platform === 'polymarket') {
           const response = await fetch(`https://data-api.polymarket.com/leaderboard?period=${period}&limit=${limit}`);
-          const data = await response.json() as ApiResponse;
-          traders = (data || []).slice(0, limit).map((t: any, i: number) => ({
+          const data = await response.json() as Array<Record<string, unknown>>;
+          traders = data.slice(0, limit).map((t, i) => ({
             rank: i + 1,
-            address: `${t.address?.slice(0,6)}...${t.address?.slice(-4)}`,
+            address: `${String(t.address || '').slice(0,6)}...${String(t.address || '').slice(-4)}`,
             fullAddress: t.address,
-            profit: `$${parseFloat(t.profit || 0).toFixed(2)}`,
-            roi: `${(parseFloat(t.roi || 0) * 100).toFixed(1)}%`,
-            volume: `$${parseFloat(t.volume || 0).toFixed(0)}`,
-            winRate: `${(parseFloat(t.winRate || 0) * 100).toFixed(1)}%`,
+            profit: `$${parseFloat(String(t.profit || 0)).toFixed(2)}`,
+            roi: `${(parseFloat(String(t.roi || 0)) * 100).toFixed(1)}%`,
+            volume: `$${parseFloat(String(t.volume || 0)).toFixed(0)}`,
+            winRate: `${(parseFloat(String(t.winRate || 0)) * 100).toFixed(1)}%`,
           }));
         } else if (platform === 'kalshi') {
           traders = [{ message: 'Kalshi leaderboard not publicly available.' }];
         } else if (platform === 'manifold') {
           const response = await fetch(`https://api.manifold.markets/v0/users?limit=${limit}`);
-          const data = await response.json() as ApiResponse;
-          traders = (data || []).slice(0, limit).map((t: any, i: number) => ({
+          const data = await response.json() as Array<{ username?: string; name?: string; profitCached?: { allTime?: number }; balance?: number }>;
+          traders = data.slice(0, limit).map((t, i) => ({
             rank: i + 1,
             username: t.username,
             name: t.name,
-            profit: t.profitCached?.allTime ? `M$${parseFloat(t.profitCached.allTime).toFixed(0)}` : 'N/A',
-            balance: t.balance ? `M$${parseFloat(t.balance).toFixed(0)}` : 'N/A',
+            profit: t.profitCached?.allTime !== undefined ? `M$${t.profitCached.allTime.toFixed(0)}` : 'N/A',
+            balance: t.balance !== undefined ? `M$${t.balance.toFixed(0)}` : 'N/A',
           }));
         } else if (platform === 'metaculus') {
           const response = await fetch(`https://www.metaculus.com/api2/users/?order_by=-score&limit=${limit}`);
-          const data = await response.json() as ApiResponse;
-          traders = (data?.results || []).slice(0, limit).map((t: any, i: number) => ({
+          const data = await response.json() as { results?: Array<{ username?: string; score?: number; question_count?: number; points?: number }> };
+          traders = (data.results || []).slice(0, limit).map((t, i) => ({
             rank: i + 1,
             username: t.username,
-            score: t.score?.toFixed(2) || 'N/A',
+            score: t.score !== undefined ? t.score.toFixed(2) : 'N/A',
             questionsAnswered: t.question_count || 0,
             points: t.points || 0,
           }));
@@ -7599,13 +7669,13 @@ async function executeTool(
           traders = [{ message: 'PredictIt does not have a public leaderboard.' }];
         } else if (platform === 'drift') {
           const response = await fetch(`https://bet.drift.trade/api/leaderboard?limit=${limit}`);
-          const data = await response.json() as ApiResponse;
-          traders = (data || []).slice(0, limit).map((t: any, i: number) => ({
+          const data = await response.json() as Array<Record<string, unknown>>;
+          traders = data.slice(0, limit).map((t, i) => ({
             rank: i + 1,
-            address: `${t.address?.slice(0,6)}...${t.address?.slice(-4)}`,
+            address: `${String(t.address || '').slice(0,6)}...${String(t.address || '').slice(-4)}`,
             fullAddress: t.address,
-            profit: `$${parseFloat(t.profit || 0).toFixed(2)}`,
-            volume: `$${parseFloat(t.volume || 0).toFixed(0)}`,
+            profit: `$${parseFloat(String(t.profit || 0)).toFixed(2)}`,
+            volume: `$${parseFloat(String(t.volume || 0)).toFixed(0)}`,
           }));
         }
 
@@ -8781,7 +8851,7 @@ async function executeTool(
           if (!response.ok) {
             return JSON.stringify({ error: `Failed to get fee rate: ${response.status}` });
           }
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { fee_rate_bps?: number; base_fee?: number };
           const feeRateBps = data.fee_rate_bps || data.base_fee || 0;
           const hasFeesMessage = feeRateBps > 0
             ? `This market has FEES. Taker fee: ~${(feeRateBps / 100).toFixed(1)}% base rate. Use maker_buy/maker_sell to avoid fees.`
@@ -8808,11 +8878,11 @@ async function executeTool(
           if (!response.ok) {
             return JSON.stringify({ error: `Failed to get midpoint: ${response.status}` });
           }
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { mid?: string };
           return JSON.stringify({
             token_id: tokenId,
             midpoint: data.mid,
-            message: `Current midpoint price: ${(parseFloat(data.mid) * 100).toFixed(1)}¢`,
+            message: `Current midpoint price: ${(parseFloat(data.mid || '0') * 100).toFixed(1)}¢`,
           });
         } catch (err: unknown) {
           const error = err as { message?: string };
@@ -8829,12 +8899,12 @@ async function executeTool(
           if (!response.ok) {
             return JSON.stringify({ error: `Failed to get spread: ${response.status}` });
           }
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { spread?: string };
           return JSON.stringify({
             token_id: tokenId,
             spread: data.spread,
-            spread_pct: (parseFloat(data.spread) * 100).toFixed(2) + '%',
-            message: `Bid-ask spread: ${(parseFloat(data.spread) * 100).toFixed(2)}%`,
+            spread_pct: (parseFloat(data.spread || '0') * 100).toFixed(2) + '%',
+            message: `Bid-ask spread: ${(parseFloat(data.spread || '0') * 100).toFixed(2)}%`,
           });
         } catch (err: unknown) {
           const error = err as { message?: string };
@@ -8851,11 +8921,11 @@ async function executeTool(
           if (!response.ok) {
             return JSON.stringify({ error: `Failed to get last trade: ${response.status}` });
           }
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { price?: string };
           return JSON.stringify({
             token_id: tokenId,
             last_trade_price: data.price,
-            message: `Last trade: ${(parseFloat(data.price) * 100).toFixed(1)}¢`,
+            message: `Last trade: ${(parseFloat(data.price || '0') * 100).toFixed(1)}¢`,
           });
         } catch (err: unknown) {
           const error = err as { message?: string };
@@ -9005,7 +9075,17 @@ async function executeTool(
           if (!response.ok) {
             return JSON.stringify({ error: `Failed to get market info: ${response.status}` });
           }
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as {
+            condition_id?: string;
+            question?: string;
+            description?: string;
+            volume?: number;
+            liquidity?: number;
+            active?: boolean;
+            closed?: boolean;
+            end_date_iso?: string;
+            tokens?: Array<{ token_id: string; outcome: string; price: number }>;
+          };
           return JSON.stringify({
             condition_id: data.condition_id,
             question: data.question,
@@ -9015,7 +9095,7 @@ async function executeTool(
             active: data.active,
             closed: data.closed,
             end_date: data.end_date_iso,
-            outcomes: data.tokens?.map((t: { token_id: string; outcome: string; price: number }) => ({
+            outcomes: data.tokens?.map((t) => ({
               token_id: t.token_id,
               outcome: t.outcome,
               price: t.price,
@@ -11958,7 +12038,13 @@ async function executeTool(
           const response = await fetch('https://api.manifold.markets/v0/bets?limit=1000', {
             headers: { 'Authorization': `Key ${apiKey}` },
           });
-          const bets = await response.json() as ApiResponse[];
+          const bets = await response.json() as Array<{
+            contractId: string;
+            outcome: string;
+            shares?: number;
+            isSold?: boolean;
+            amount: number;
+          }>;
           // Aggregate by market
           const positions: Record<string, { yes: number; no: number; invested: number }> = {};
           for (const bet of bets) {
@@ -12717,11 +12803,11 @@ async function executeTool(
             headers: { 'Accept': 'application/json' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify((data.results || []).slice(0, limit).map((q: Record<string, unknown>) => ({
+          const data = await response.json() as { results?: Array<Record<string, unknown>> };
+          return JSON.stringify((data.results || []).slice(0, limit).map((q) => ({
             id: q.id,
             title: q.title,
-            probability: (q.community_prediction as { full?: { q2?: number } })?.full?.q2,
+            probability: (q.community_prediction as { full?: { q2?: number } } | undefined)?.full?.q2,
             status: q.status,
             url: q.page_url || `https://www.metaculus.com/questions/${q.id}/`,
             predictions: q.number_of_predictions,
@@ -12753,8 +12839,8 @@ async function executeTool(
             headers: { 'Accept': 'application/json' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify((data.results || []).map((t: Record<string, unknown>) => ({
+          const data = await response.json() as { results?: Array<Record<string, unknown>> };
+          return JSON.stringify((data.results || []).map((t) => ({
             id: t.id,
             name: t.name,
             questions_count: t.questions_count,
@@ -12773,11 +12859,11 @@ async function executeTool(
             headers: { 'Accept': 'application/json' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify((data.results || []).map((q: Record<string, unknown>) => ({
+          const data = await response.json() as { results?: Array<Record<string, unknown>> };
+          return JSON.stringify((data.results || []).map((q) => ({
             id: q.id,
             title: q.title,
-            probability: (q.community_prediction as { full?: { q2?: number } })?.full?.q2,
+            probability: (q.community_prediction as { full?: { q2?: number } } | undefined)?.full?.q2,
             status: q.status,
           })));
         } catch (err: unknown) {
@@ -12795,20 +12881,21 @@ async function executeTool(
         try {
           const response = await fetch('https://www.predictit.org/api/marketdata/all/');
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          type PredictItMarket = { id: number; name: string; shortName: string; url: string; status: string; contracts: Array<{ id: number; name: string; lastTradePrice: number }> };
+          const data = await response.json() as { markets?: PredictItMarket[] };
           const queryLower = query.toLowerCase();
           const markets = (data.markets || [])
-            .filter((m: { name: string; shortName: string; contracts: Array<{ name: string }> }) =>
+            .filter((m) =>
               m.name.toLowerCase().includes(queryLower) ||
               m.shortName.toLowerCase().includes(queryLower) ||
-              m.contracts.some((c: { name: string }) => c.name.toLowerCase().includes(queryLower))
+              m.contracts.some((c) => c.name.toLowerCase().includes(queryLower))
             )
             .slice(0, limit)
-            .map((m: Record<string, unknown>) => ({
+            .map((m) => ({
               id: m.id,
               name: m.name,
               url: m.url,
-              contracts: (m.contracts as Array<{ id: number; name: string; lastTradePrice: number }>).map(c => ({
+              contracts: m.contracts.map(c => ({
                 id: c.id,
                 name: c.name,
                 price: c.lastTradePrice,
@@ -12825,8 +12912,9 @@ async function executeTool(
         try {
           const response = await fetch('https://www.predictit.org/api/marketdata/all/');
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          const market = (data.markets || []).find((m: { id: number }) => m.id.toString() === marketId);
+          type PredictItMarket = { id: number; name: string; shortName: string; url: string; status: string; contracts: Array<{ id: number; name: string; lastTradePrice: number }> };
+          const data = await response.json() as { markets?: PredictItMarket[] };
+          const market = (data.markets || []).find((m) => m.id.toString() === marketId);
           if (!market) return JSON.stringify({ error: 'Market not found' });
           return JSON.stringify(market);
         } catch (err: unknown) {
@@ -12838,14 +12926,15 @@ async function executeTool(
         try {
           const response = await fetch('https://www.predictit.org/api/marketdata/all/');
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify((data.markets || []).map((m: Record<string, unknown>) => ({
+          type PredictItMarket = { id: number; name: string; shortName: string; url: string; status: string; contracts: Array<{ id: number; name: string; lastTradePrice: number }> };
+          const data = await response.json() as { markets?: PredictItMarket[] };
+          return JSON.stringify((data.markets || []).map((m) => ({
             id: m.id,
             name: m.name,
             shortName: m.shortName,
             url: m.url,
             status: m.status,
-            contracts: (m.contracts as Array<{ id: number; name: string; lastTradePrice: number }>).length,
+            contracts: m.contracts.length,
           })));
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
@@ -12861,14 +12950,15 @@ async function executeTool(
         try {
           const response = await fetch('https://bet.drift.trade/api/markets');
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          type DriftMarket = { marketIndex: number; marketName: string; baseAssetSymbol: string; probability: number; volume24h: number; status: string };
+          const data = await response.json() as { markets?: DriftMarket[] };
           const queryLower = query.toLowerCase();
           const markets = (data.markets || [])
-            .filter((m: { marketName: string; baseAssetSymbol: string }) =>
+            .filter((m) =>
               m.marketName.toLowerCase().includes(queryLower) ||
               m.baseAssetSymbol.toLowerCase().includes(queryLower)
             )
-            .map((m: Record<string, unknown>) => ({
+            .map((m) => ({
               marketIndex: m.marketIndex,
               name: m.marketName,
               symbol: m.baseAssetSymbol,
@@ -12901,8 +12991,9 @@ async function executeTool(
         try {
           const response = await fetch('https://bet.drift.trade/api/markets');
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify((data.markets || []).map((m: Record<string, unknown>) => ({
+          type DriftMarket = { marketIndex: number; marketName: string; baseAssetSymbol: string; probability: number; volume24h: number; status: string };
+          const data = await response.json() as { markets?: DriftMarket[] };
+          return JSON.stringify((data.markets || []).map((m) => ({
             marketIndex: m.marketIndex,
             name: m.marketName,
             symbol: m.baseAssetSymbol,
@@ -12963,7 +13054,24 @@ async function executeTool(
         try {
           const response = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as {
+            id?: string;
+            symbol?: string;
+            name?: string;
+            description?: { en?: string };
+            links?: { homepage?: string[]; twitter_screen_name?: string; subreddit_url?: string };
+            market_data?: {
+              current_price?: { usd?: number };
+              market_cap?: { usd?: number };
+              total_volume?: { usd?: number };
+              price_change_percentage_24h?: number;
+              price_change_percentage_7d?: number;
+              ath?: { usd?: number };
+              ath_date?: { usd?: string };
+              circulating_supply?: number;
+              total_supply?: number;
+            };
+          };
           return JSON.stringify({
             id: data.id,
             symbol: data.symbol,
@@ -13000,9 +13108,9 @@ async function executeTool(
           if (interval) params.append('interval', interval);
           const response = await fetch(`https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?${params}`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { prices?: Array<[number, number]> };
           // Simplify the output
-          const prices = (data.prices || []).slice(-50).map((p: [number, number]) => ({
+          const prices = (data.prices || []).slice(-50).map((p) => ({
             timestamp: new Date(p[0]).toISOString(),
             price: p[1],
           }));
@@ -13016,8 +13124,8 @@ async function executeTool(
         try {
           const response = await fetch('https://api.coingecko.com/api/v3/search/trending');
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          const trending = (data.coins || []).map((c: { item: Record<string, unknown> }) => ({
+          const data = await response.json() as { coins?: Array<{ item: Record<string, unknown> }> };
+          const trending = (data.coins || []).map((c) => ({
             id: c.item.id,
             name: c.item.name,
             symbol: c.item.symbol,
@@ -13035,8 +13143,8 @@ async function executeTool(
         try {
           const response = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(query)}`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          const coins = (data.coins || []).slice(0, 10).map((c: Record<string, unknown>) => ({
+          const data = await response.json() as { coins?: Array<Record<string, unknown>> };
+          const coins = (data.coins || []).slice(0, 10).map((c) => ({
             id: c.id,
             name: c.name,
             symbol: c.symbol,
@@ -13063,8 +13171,8 @@ async function executeTool(
           });
           const response = await fetch(`https://api.coingecko.com/api/v3/coins/markets?${params}`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify(data.map((c: Record<string, unknown>) => ({
+          const data = await response.json() as Array<Record<string, unknown>>;
+          return JSON.stringify(data.map((c) => ({
             id: c.id,
             symbol: c.symbol,
             name: c.name,
@@ -13084,16 +13192,25 @@ async function executeTool(
         try {
           const response = await fetch('https://api.coingecko.com/api/v3/global');
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          const global = data.data;
+          const data = await response.json() as {
+            data?: {
+              active_cryptocurrencies?: number;
+              markets?: number;
+              total_market_cap?: { usd?: number };
+              total_volume?: { usd?: number };
+              market_cap_percentage?: { btc?: number; eth?: number };
+              market_cap_change_percentage_24h_usd?: number;
+            };
+          };
+          const globalData = data.data;
           return JSON.stringify({
-            active_cryptocurrencies: global.active_cryptocurrencies,
-            markets: global.markets,
-            total_market_cap_usd: global.total_market_cap?.usd,
-            total_volume_24h_usd: global.total_volume?.usd,
-            btc_dominance_pct: global.market_cap_percentage?.btc,
-            eth_dominance_pct: global.market_cap_percentage?.eth,
-            market_cap_change_24h_pct: global.market_cap_change_percentage_24h_usd,
+            active_cryptocurrencies: globalData?.active_cryptocurrencies,
+            markets: globalData?.markets,
+            total_market_cap_usd: globalData?.total_market_cap?.usd,
+            total_volume_24h_usd: globalData?.total_volume?.usd,
+            btc_dominance_pct: globalData?.market_cap_percentage?.btc,
+            eth_dominance_pct: globalData?.market_cap_percentage?.eth,
+            market_cap_change_24h_pct: globalData?.market_cap_change_percentage_24h_usd,
           });
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
@@ -13109,7 +13226,7 @@ async function executeTool(
         try {
           const response = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { quoteResponse?: { result?: Array<Record<string, unknown>> } };
           const quote = data.quoteResponse?.result?.[0];
           if (!quote) return JSON.stringify({ error: 'Symbol not found' });
           return JSON.stringify({
@@ -13138,8 +13255,8 @@ async function executeTool(
         try {
           const response = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          const quotes = (data.quoteResponse?.result || []).map((q: Record<string, unknown>) => ({
+          const data = await response.json() as { quoteResponse?: { result?: Array<Record<string, unknown>> } };
+          const quotes = (data.quoteResponse?.result || []).map((q) => ({
             symbol: q.symbol,
             name: q.longName || q.shortName,
             price: q.regularMarketPrice,
@@ -13161,12 +13278,19 @@ async function executeTool(
         try {
           const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as {
+            chart?: {
+              result?: Array<{
+                timestamp?: number[];
+                indicators?: { quote?: Array<{ open?: number[]; high?: number[]; low?: number[]; close?: number[]; volume?: number[] }> };
+              }>;
+            };
+          };
           const result = data.chart?.result?.[0];
           if (!result) return JSON.stringify({ error: 'No chart data' });
           const timestamps = result.timestamp || [];
           const quote = result.indicators?.quote?.[0] || {};
-          const candles = timestamps.slice(-50).map((ts: number, i: number) => ({
+          const candles = timestamps.slice(-50).map((ts, i) => ({
             date: new Date(ts * 1000).toISOString().split('T')[0],
             open: quote.open?.[i],
             high: quote.high?.[i],
@@ -13185,8 +13309,8 @@ async function executeTool(
         try {
           const response = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          const results = (data.quotes || []).map((q: Record<string, unknown>) => ({
+          const data = await response.json() as { quotes?: Array<Record<string, unknown>> };
+          const results = (data.quotes || []).map((q) => ({
             symbol: q.symbol,
             name: q.longname || q.shortname,
             type: q.quoteType,
@@ -13209,14 +13333,25 @@ async function executeTool(
           }
           const response = await fetch(url);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as {
+            optionChain?: {
+              result?: Array<{
+                quote?: { regularMarketPrice?: number };
+                expirationDates?: number[];
+                options?: Array<{
+                  calls?: Array<Record<string, unknown>>;
+                  puts?: Array<Record<string, unknown>>;
+                }>;
+              }>;
+            };
+          };
           const result = data.optionChain?.result?.[0];
           if (!result) return JSON.stringify({ error: 'No options data' });
           return JSON.stringify({
             symbol,
             underlyingPrice: result.quote?.regularMarketPrice,
-            expirations: result.expirationDates?.map((ts: number) => new Date(ts * 1000).toISOString().split('T')[0]),
-            calls: result.options?.[0]?.calls?.slice(0, 20).map((o: Record<string, unknown>) => ({
+            expirations: result.expirationDates?.map((ts) => new Date(ts * 1000).toISOString().split('T')[0]),
+            calls: result.options?.[0]?.calls?.slice(0, 20).map((o) => ({
               strike: o.strike,
               bid: o.bid,
               ask: o.ask,
@@ -13225,7 +13360,7 @@ async function executeTool(
               openInterest: o.openInterest,
               impliedVolatility: o.impliedVolatility,
             })),
-            puts: result.options?.[0]?.puts?.slice(0, 20).map((o: Record<string, unknown>) => ({
+            puts: result.options?.[0]?.puts?.slice(0, 20).map((o) => ({
               strike: o.strike,
               bid: o.bid,
               ask: o.ask,
@@ -13245,8 +13380,8 @@ async function executeTool(
         try {
           const response = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${symbol}&quotesCount=0&newsCount=10`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
-          const news = (data.news || []).map((n: Record<string, unknown>) => ({
+          const data = await response.json() as { news?: Array<Record<string, unknown>> };
+          const news = (data.news || []).map((n) => ({
             title: n.title,
             publisher: n.publisher,
             link: n.link,
@@ -13263,7 +13398,15 @@ async function executeTool(
         try {
           const response = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=summaryDetail,financialData,defaultKeyStatistics`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as {
+            quoteSummary?: {
+              result?: Array<{
+                summaryDetail?: Record<string, { raw?: number }>;
+                financialData?: Record<string, { raw?: number }>;
+                defaultKeyStatistics?: Record<string, { raw?: number }>;
+              }>;
+            };
+          };
           const result = data.quoteSummary?.result?.[0];
           if (!result) return JSON.stringify({ error: 'No fundamentals data' });
           const summary = result.summaryDetail || {};
@@ -13299,19 +13442,38 @@ async function executeTool(
         try {
           const response = await fetch(`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=earnings,calendarEvents`);
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as {
+            quoteSummary?: {
+              result?: Array<{
+                earnings?: {
+                  earningsChart?: {
+                    quarterly?: Array<{ date?: unknown; actual?: { raw?: number }; estimate?: { raw?: number } }>;
+                  };
+                };
+                calendarEvents?: {
+                  earnings?: {
+                    earningsDate?: Array<{ raw: number }>;
+                    earningsAverage?: { raw?: number };
+                    earningsLow?: { raw?: number };
+                    earningsHigh?: { raw?: number };
+                    revenueAverage?: { raw?: number };
+                  };
+                };
+              }>;
+            };
+          };
           const result = data.quoteSummary?.result?.[0];
           if (!result) return JSON.stringify({ error: 'No earnings data' });
           const earnings = result.earnings || {};
           const calendar = result.calendarEvents || {};
           return JSON.stringify({
             symbol,
-            earningsDate: calendar.earnings?.earningsDate?.map((d: { raw: number }) => new Date(d.raw * 1000).toISOString().split('T')[0]),
+            earningsDate: calendar.earnings?.earningsDate?.map((d) => new Date(d.raw * 1000).toISOString().split('T')[0]),
             earningsAverage: calendar.earnings?.earningsAverage?.raw,
             earningsLow: calendar.earnings?.earningsLow?.raw,
             earningsHigh: calendar.earnings?.earningsHigh?.raw,
             revenueAverage: calendar.earnings?.revenueAverage?.raw,
-            quarterlyEarnings: earnings.earningsChart?.quarterly?.map((q: Record<string, { raw: number }>) => ({
+            quarterlyEarnings: earnings.earningsChart?.quarterly?.map((q) => ({
               date: q.date,
               actual: q.actual?.raw,
               estimate: q.estimate?.raw,
@@ -13336,7 +13498,7 @@ async function executeTool(
             headers: { 'apikey': process.env.OPINION_API_KEY || '' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { code: number; msg?: string; result?: unknown };
           if (data.code !== 0) return JSON.stringify({ error: data.msg });
           return JSON.stringify(data.result);
         } catch (err: unknown) {
@@ -13351,7 +13513,7 @@ async function executeTool(
             headers: { 'apikey': process.env.OPINION_API_KEY || '' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { code: number; msg?: string; result?: unknown };
           if (data.code !== 0) return JSON.stringify({ error: data.msg });
           return JSON.stringify(data.result);
         } catch (err: unknown) {
@@ -13366,7 +13528,7 @@ async function executeTool(
             headers: { 'apikey': process.env.OPINION_API_KEY || '' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { code: number; msg?: string; result?: unknown };
           if (data.code !== 0) return JSON.stringify({ error: data.msg });
           return JSON.stringify(data.result);
         } catch (err: unknown) {
@@ -13382,7 +13544,7 @@ async function executeTool(
             headers: { 'apikey': process.env.OPINION_API_KEY || '' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { code: number; msg?: string; result?: unknown };
           if (data.code !== 0) return JSON.stringify({ error: data.msg });
           return JSON.stringify(data.result);
         } catch (err: unknown) {
@@ -13404,7 +13566,7 @@ async function executeTool(
             headers: { 'apikey': process.env.OPINION_API_KEY || '' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { code: number; msg?: string; result?: unknown };
           if (data.code !== 0) return JSON.stringify({ error: data.msg });
           return JSON.stringify(data.result);
         } catch (err: unknown) {
@@ -13418,7 +13580,7 @@ async function executeTool(
             headers: { 'apikey': process.env.OPINION_API_KEY || '' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { code: number; msg?: string; result?: unknown };
           if (data.code !== 0) return JSON.stringify({ error: data.msg });
           return JSON.stringify(data.result);
         } catch (err: unknown) {
@@ -13790,11 +13952,11 @@ async function executeTool(
             headers: { 'x-api-key': process.env.PREDICTFUN_API_KEY || '' },
           });
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as { success?: boolean; cursor?: string; data?: Array<Record<string, unknown>> };
           if (!data.success) return JSON.stringify({ error: 'Request failed' });
           return JSON.stringify({
             cursor: data.cursor,
-            markets: data.data.map((m: Record<string, unknown>) => ({
+            markets: (data.data || []).map((m) => ({
               id: m.id,
               title: m.title,
               question: m.question,
@@ -14327,10 +14489,10 @@ async function executeTool(
         try {
           const response = await fetch('https://dlob.drift.trade/markets');
           if (!response.ok) return JSON.stringify({ error: `API error: ${response.status}` });
-          const data = await response.json() as ApiResponse;
+          const data = await response.json() as Array<{ type: string } & Record<string, unknown>>;
           const marketType = toolInput.market_type as string;
           if (marketType) {
-            return JSON.stringify(data.filter((m: { type: string }) => m.type === marketType));
+            return JSON.stringify(data.filter((m) => m.type === marketType));
           }
           return JSON.stringify(data);
         } catch (err: unknown) {
@@ -17428,7 +17590,7 @@ async function executeTool(
           const result = await dispatchHandler(toolName, toolInput, {
             db,
             userId,
-            session,
+            sessionId: session.id,
           });
           if (result) {
             return JSON.stringify(result);

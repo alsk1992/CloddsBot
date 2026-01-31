@@ -125,7 +125,7 @@ async function pumpPortalRequest<T>(endpoint: string, options: RequestInit = {})
     throw new Error(`PumpPortal error: ${response.status} - ${error}`);
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 async function pumpFrontendRequest<T>(endpoint: string): Promise<T> {
@@ -137,7 +137,7 @@ async function pumpFrontendRequest<T>(endpoint: string): Promise<T> {
     throw new Error(`Pump.fun API error: ${response.status}`);
   }
 
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 function formatPrice(price: number): string {
