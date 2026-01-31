@@ -44,7 +44,7 @@ Spot trading:
 TWAP orders for large positions:
 - `/hl twap buy BTC 10 60` - Buy 10 BTC over 60 minutes
 - `/hl twap sell ETH 50 30` - Sell 50 ETH over 30 minutes
-- `/hl twap cancel <id>` - Cancel active TWAP
+- `/hl twap cancel BTC 123` - Cancel TWAP by coin and ID
 
 ### `/hl points`
 Your points breakdown (trading, referrals, HLP, staking).

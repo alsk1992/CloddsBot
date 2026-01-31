@@ -350,10 +350,11 @@ async function handleTwap(action?: string, ...args: string[]): Promise<string> {
     return `TWAP failed: ${result.error}`;
   }
 
-  if (action === 'cancel' && args[0]) {
-    const result = await hl.cancelTwap(config, args[0]);
+  if (action === 'cancel' && args[0] && args[1]) {
+    const [coin, twapId] = args;
+    const result = await hl.cancelTwap(config, coin.toUpperCase(), twapId);
     if (result.success) {
-      return `TWAP ${args[0]} cancelled`;
+      return `TWAP ${twapId} for ${coin.toUpperCase()} cancelled`;
     }
     return `Cancel failed: ${result.error}`;
   }
@@ -363,7 +364,7 @@ async function handleTwap(action?: string, ...args: string[]): Promise<string> {
     '',
     '/hl twap buy <coin> <size> <minutes>   - Start TWAP buy',
     '/hl twap sell <coin> <size> <minutes>  - Start TWAP sell',
-    '/hl twap cancel <id>                   - Cancel TWAP',
+    '/hl twap cancel <coin> <id>            - Cancel TWAP',
   ].join('\n');
 }
 
