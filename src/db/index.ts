@@ -23,6 +23,80 @@ const DB_DIR = resolveStateDir();
 const DB_FILE = join(DB_DIR, 'clodds.db');
 const BACKUP_DIR = join(DB_DIR, 'backups');
 
+// Hyperliquid types
+export interface HyperliquidTrade {
+  id?: number;
+  userId: string;
+  tradeId?: string;
+  orderId?: string;
+  coin: string;
+  side: 'BUY' | 'SELL';
+  direction?: 'LONG' | 'SHORT';
+  size: number;
+  price: number;
+  fee?: number;
+  feeToken?: string;
+  closedPnl?: number;
+  orderType?: string;
+  isMaker?: boolean;
+  leverage?: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export interface HyperliquidPosition {
+  id?: number;
+  userId: string;
+  coin: string;
+  side: 'LONG' | 'SHORT';
+  size: number;
+  entryPrice: number;
+  markPrice?: number;
+  liquidationPrice?: number;
+  unrealizedPnl?: number;
+  realizedPnl?: number;
+  leverage?: number;
+  marginUsed?: number;
+  openedAt: Date;
+  closedAt?: Date;
+  closePrice?: number;
+  closeReason?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface HyperliquidFunding {
+  id?: number;
+  userId: string;
+  coin: string;
+  fundingRate: number;
+  payment: number;
+  positionSize: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export interface HyperliquidStats {
+  totalTrades: number;
+  totalVolume: number;
+  totalFees: number;
+  totalPnl: number;
+  winCount: number;
+  lossCount: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  largestWin: number;
+  largestLoss: number;
+  profitFactor: number;
+  byCoin: Record<string, {
+    trades: number;
+    volume: number;
+    pnl: number;
+    fees: number;
+  }>;
+}
+
 export interface Database {
   close(): void;
   save(): void;
@@ -177,6 +251,38 @@ export interface Database {
   updateTradingCredentials(creds: TradingCredentials): void;
   deleteTradingCredentials(userId: string, platform: Platform): void;
   listUserTradingPlatforms(userId: string): Platform[];
+
+  // Hyperliquid trades
+  logHyperliquidTrade(trade: HyperliquidTrade): void;
+  getHyperliquidTrades(userId: string, options?: {
+    coin?: string;
+    limit?: number;
+    since?: number;
+  }): HyperliquidTrade[];
+  getHyperliquidStats(userId: string, options?: {
+    coin?: string;
+    since?: number;
+  }): HyperliquidStats;
+
+  // Hyperliquid positions
+  upsertHyperliquidPosition(userId: string, position: HyperliquidPosition): void;
+  getHyperliquidPositions(userId: string, options?: {
+    coin?: string;
+    openOnly?: boolean;
+  }): HyperliquidPosition[];
+  closeHyperliquidPosition(userId: string, coin: string, closePrice: number, reason?: string): void;
+
+  // Hyperliquid funding
+  logHyperliquidFunding(funding: HyperliquidFunding): void;
+  getHyperliquidFunding(userId: string, options?: {
+    coin?: string;
+    limit?: number;
+    since?: number;
+  }): HyperliquidFunding[];
+  getHyperliquidFundingTotal(userId: string, options?: {
+    coin?: string;
+    since?: number;
+  }): number;
 }
 
 let dbInstance: Database | null = null;
@@ -475,6 +581,76 @@ export async function initDatabase(): Promise<Database> {
       isOwner INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (channel, userId)
     );
+
+    -- Hyperliquid trades table
+    CREATE TABLE IF NOT EXISTS hyperliquid_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      trade_id TEXT,
+      order_id TEXT,
+      coin TEXT NOT NULL,
+      side TEXT NOT NULL,
+      direction TEXT,
+      size REAL NOT NULL,
+      price REAL NOT NULL,
+      fee REAL DEFAULT 0,
+      fee_token TEXT DEFAULT 'USDC',
+      closed_pnl REAL,
+      order_type TEXT,
+      is_maker INTEGER DEFAULT 0,
+      leverage INTEGER,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hl_trades_user ON hyperliquid_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_hl_trades_coin ON hyperliquid_trades(coin);
+    CREATE INDEX IF NOT EXISTS idx_hl_trades_timestamp ON hyperliquid_trades(timestamp);
+
+    -- Hyperliquid positions history
+    CREATE TABLE IF NOT EXISTS hyperliquid_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      coin TEXT NOT NULL,
+      side TEXT NOT NULL,
+      size REAL NOT NULL,
+      entry_price REAL NOT NULL,
+      mark_price REAL,
+      liquidation_price REAL,
+      unrealized_pnl REAL,
+      realized_pnl REAL DEFAULT 0,
+      leverage INTEGER,
+      margin_used REAL,
+      opened_at INTEGER NOT NULL,
+      closed_at INTEGER,
+      close_price REAL,
+      close_reason TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hl_positions_user ON hyperliquid_positions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_hl_positions_coin ON hyperliquid_positions(coin);
+    CREATE INDEX IF NOT EXISTS idx_hl_positions_open ON hyperliquid_positions(closed_at);
+
+    -- Hyperliquid funding payments
+    CREATE TABLE IF NOT EXISTS hyperliquid_funding (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      coin TEXT NOT NULL,
+      funding_rate REAL NOT NULL,
+      payment REAL NOT NULL,
+      position_size REAL NOT NULL,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hl_funding_user ON hyperliquid_funding(user_id);
+    CREATE INDEX IF NOT EXISTS idx_hl_funding_coin ON hyperliquid_funding(coin);
+    CREATE INDEX IF NOT EXISTS idx_hl_funding_timestamp ON hyperliquid_funding(timestamp);
 
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id);
@@ -1483,6 +1659,320 @@ export async function initDatabase(): Promise<Database> {
         [userId]
       );
       return rows.map((r) => r.platform as Platform);
+    },
+
+    // Hyperliquid trades
+    logHyperliquidTrade(trade: HyperliquidTrade): void {
+      run(
+        `INSERT INTO hyperliquid_trades (
+          user_id, trade_id, order_id, coin, side, direction, size, price,
+          fee, fee_token, closed_pnl, order_type, is_maker, leverage, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.userId,
+          trade.tradeId || null,
+          trade.orderId || null,
+          trade.coin,
+          trade.side,
+          trade.direction || null,
+          trade.size,
+          trade.price,
+          trade.fee || 0,
+          trade.feeToken || 'USDC',
+          trade.closedPnl || null,
+          trade.orderType || null,
+          trade.isMaker ? 1 : 0,
+          trade.leverage || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getHyperliquidTrades(userId: string, options = {}): HyperliquidTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM hyperliquid_trades WHERE user_id = ?';
+
+      if (options.coin) {
+        sql += ' AND coin = ?';
+        params.push(options.coin);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        tradeId: row.trade_id as string | undefined,
+        orderId: row.order_id as string | undefined,
+        coin: row.coin as string,
+        side: row.side as 'BUY' | 'SELL',
+        direction: row.direction as 'LONG' | 'SHORT' | undefined,
+        size: row.size as number,
+        price: row.price as number,
+        fee: row.fee as number,
+        feeToken: row.fee_token as string,
+        closedPnl: row.closed_pnl as number | undefined,
+        orderType: row.order_type as string | undefined,
+        isMaker: Boolean(row.is_maker),
+        leverage: row.leverage as number | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    getHyperliquidStats(userId: string, options = {}): HyperliquidStats {
+      const params: (string | number)[] = [userId];
+      let whereClause = 'WHERE user_id = ?';
+
+      if (options.coin) {
+        whereClause += ' AND coin = ?';
+        params.push(options.coin);
+      }
+      if (options.since) {
+        whereClause += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      // Get aggregate stats
+      const statsRow = getOne<{
+        total_trades: number;
+        total_volume: number;
+        total_fees: number;
+        total_pnl: number;
+        win_count: number;
+        loss_count: number;
+        avg_win: number;
+        avg_loss: number;
+        largest_win: number;
+        largest_loss: number;
+      }>(
+        `SELECT
+          COUNT(*) as total_trades,
+          COALESCE(SUM(size * price), 0) as total_volume,
+          COALESCE(SUM(fee), 0) as total_fees,
+          COALESCE(SUM(closed_pnl), 0) as total_pnl,
+          COALESCE(SUM(CASE WHEN closed_pnl > 0 THEN 1 ELSE 0 END), 0) as win_count,
+          COALESCE(SUM(CASE WHEN closed_pnl < 0 THEN 1 ELSE 0 END), 0) as loss_count,
+          COALESCE(AVG(CASE WHEN closed_pnl > 0 THEN closed_pnl END), 0) as avg_win,
+          COALESCE(AVG(CASE WHEN closed_pnl < 0 THEN closed_pnl END), 0) as avg_loss,
+          COALESCE(MAX(closed_pnl), 0) as largest_win,
+          COALESCE(MIN(closed_pnl), 0) as largest_loss
+        FROM hyperliquid_trades ${whereClause}`,
+        params
+      );
+
+      // Get stats by coin
+      const coinRows = getAll<{
+        coin: string;
+        trades: number;
+        volume: number;
+        pnl: number;
+        fees: number;
+      }>(
+        `SELECT
+          coin,
+          COUNT(*) as trades,
+          COALESCE(SUM(size * price), 0) as volume,
+          COALESCE(SUM(closed_pnl), 0) as pnl,
+          COALESCE(SUM(fee), 0) as fees
+        FROM hyperliquid_trades ${whereClause}
+        GROUP BY coin`,
+        params
+      );
+
+      const byCoin: Record<string, { trades: number; volume: number; pnl: number; fees: number }> = {};
+      for (const row of coinRows) {
+        byCoin[row.coin] = {
+          trades: row.trades,
+          volume: row.volume,
+          pnl: row.pnl,
+          fees: row.fees,
+        };
+      }
+
+      const totalWins = statsRow?.avg_win ? statsRow.avg_win * (statsRow?.win_count || 0) : 0;
+      const totalLosses = statsRow?.avg_loss ? Math.abs(statsRow.avg_loss) * (statsRow?.loss_count || 0) : 0;
+      const profitFactor = totalLosses > 0 ? totalWins / totalLosses : totalWins > 0 ? Infinity : 0;
+
+      return {
+        totalTrades: statsRow?.total_trades || 0,
+        totalVolume: statsRow?.total_volume || 0,
+        totalFees: statsRow?.total_fees || 0,
+        totalPnl: statsRow?.total_pnl || 0,
+        winCount: statsRow?.win_count || 0,
+        lossCount: statsRow?.loss_count || 0,
+        winRate: statsRow?.total_trades ? ((statsRow?.win_count || 0) / statsRow.total_trades) * 100 : 0,
+        avgWin: statsRow?.avg_win || 0,
+        avgLoss: statsRow?.avg_loss || 0,
+        largestWin: statsRow?.largest_win || 0,
+        largestLoss: statsRow?.largest_loss || 0,
+        profitFactor,
+        byCoin,
+      };
+    },
+
+    // Hyperliquid positions
+    upsertHyperliquidPosition(userId: string, position: HyperliquidPosition): void {
+      run(
+        `INSERT INTO hyperliquid_positions (
+          user_id, coin, side, size, entry_price, mark_price, liquidation_price,
+          unrealized_pnl, realized_pnl, leverage, margin_used, opened_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, coin) WHERE closed_at IS NULL DO UPDATE SET
+          size = excluded.size,
+          entry_price = excluded.entry_price,
+          mark_price = excluded.mark_price,
+          liquidation_price = excluded.liquidation_price,
+          unrealized_pnl = excluded.unrealized_pnl,
+          realized_pnl = excluded.realized_pnl,
+          leverage = excluded.leverage,
+          margin_used = excluded.margin_used,
+          updated_at = excluded.updated_at`,
+        [
+          userId,
+          position.coin,
+          position.side,
+          position.size,
+          position.entryPrice,
+          position.markPrice || null,
+          position.liquidationPrice || null,
+          position.unrealizedPnl || null,
+          position.realizedPnl || 0,
+          position.leverage || null,
+          position.marginUsed || null,
+          position.openedAt.getTime(),
+          Date.now(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getHyperliquidPositions(userId: string, options = {}): HyperliquidPosition[] {
+      const params: (string | number | null)[] = [userId];
+      let sql = 'SELECT * FROM hyperliquid_positions WHERE user_id = ?';
+
+      if (options.coin) {
+        sql += ' AND coin = ?';
+        params.push(options.coin);
+      }
+      if (options.openOnly) {
+        sql += ' AND closed_at IS NULL';
+      }
+
+      sql += ' ORDER BY opened_at DESC';
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        coin: row.coin as string,
+        side: row.side as 'LONG' | 'SHORT',
+        size: row.size as number,
+        entryPrice: row.entry_price as number,
+        markPrice: row.mark_price as number | undefined,
+        liquidationPrice: row.liquidation_price as number | undefined,
+        unrealizedPnl: row.unrealized_pnl as number | undefined,
+        realizedPnl: row.realized_pnl as number | undefined,
+        leverage: row.leverage as number | undefined,
+        marginUsed: row.margin_used as number | undefined,
+        openedAt: new Date(row.opened_at as number),
+        closedAt: row.closed_at ? new Date(row.closed_at as number) : undefined,
+        closePrice: row.close_price as number | undefined,
+        closeReason: row.close_reason as string | undefined,
+        createdAt: new Date(row.created_at as number),
+        updatedAt: new Date(row.updated_at as number),
+      }));
+    },
+
+    closeHyperliquidPosition(userId: string, coin: string, closePrice: number, reason?: string): void {
+      run(
+        `UPDATE hyperliquid_positions
+         SET closed_at = ?, close_price = ?, close_reason = ?, updated_at = ?
+         WHERE user_id = ? AND coin = ? AND closed_at IS NULL`,
+        [Date.now(), closePrice, reason || 'manual', Date.now(), userId, coin]
+      );
+    },
+
+    // Hyperliquid funding
+    logHyperliquidFunding(funding: HyperliquidFunding): void {
+      run(
+        `INSERT INTO hyperliquid_funding (
+          user_id, coin, funding_rate, payment, position_size, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          funding.userId,
+          funding.coin,
+          funding.fundingRate,
+          funding.payment,
+          funding.positionSize,
+          funding.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getHyperliquidFunding(userId: string, options = {}): HyperliquidFunding[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM hyperliquid_funding WHERE user_id = ?';
+
+      if (options.coin) {
+        sql += ' AND coin = ?';
+        params.push(options.coin);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        coin: row.coin as string,
+        fundingRate: row.funding_rate as number,
+        payment: row.payment as number,
+        positionSize: row.position_size as number,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: new Date(row.created_at as number),
+      }));
+    },
+
+    getHyperliquidFundingTotal(userId: string, options = {}): number {
+      const params: (string | number)[] = [userId];
+      let whereClause = 'WHERE user_id = ?';
+
+      if (options.coin) {
+        whereClause += ' AND coin = ?';
+        params.push(options.coin);
+      }
+      if (options.since) {
+        whereClause += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      const row = getOne<{ total: number }>(
+        `SELECT COALESCE(SUM(payment), 0) as total FROM hyperliquid_funding ${whereClause}`,
+        params
+      );
+      return row?.total || 0;
     },
 
     // Raw SQL access

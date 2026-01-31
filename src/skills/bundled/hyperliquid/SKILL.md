@@ -174,6 +174,26 @@ export DRY_RUN=true
 - **Subaccounts** - Manage multiple strategies
 - **Real-time WebSocket** - Live orderbook and fills
 
+### Database/History
+
+All trades are automatically logged to SQLite for tracking.
+
+| Command | Description |
+|---------|-------------|
+| `/hl trades [coin] [limit]` | Trade history from database |
+| `/hl dbstats [coin] [period]` | Win rate, PnL, profit factor |
+| `/hl dbfunding [coin]` | Funding payments history |
+| `/hl dbpositions [all]` | Position history |
+
+**Stats periods:** `day`, `week`, `month`
+
+**Example:**
+```bash
+/hl trades BTC 10           # Last 10 BTC trades
+/hl dbstats week            # This week's performance
+/hl dbstats ETH month       # ETH stats for the month
+```
+
 ## Resources
 
 - [Hyperliquid App](https://app.hyperliquid.xyz)

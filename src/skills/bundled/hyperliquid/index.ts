@@ -6,6 +6,7 @@
 
 import * as hl from '../../../exchanges/hyperliquid';
 import { logger } from '../../../utils/logger';
+import { initDatabase, type HyperliquidTrade, type HyperliquidPosition, type HyperliquidFunding } from '../../../db';
 
 // =============================================================================
 // HELPERS
@@ -37,6 +38,38 @@ function getConfig(): hl.HyperliquidConfig | null {
     privateKey,
     dryRun: process.env.DRY_RUN === 'true',
   };
+}
+
+function getUserId(): string {
+  // Use wallet address as user ID for CLI
+  return process.env.HYPERLIQUID_WALLET || 'default';
+}
+
+async function logTrade(trade: Omit<HyperliquidTrade, 'userId'>): Promise<void> {
+  try {
+    const db = await initDatabase();
+    db.logHyperliquidTrade({ ...trade, userId: getUserId() });
+  } catch (e) {
+    logger.warn({ error: e }, 'Failed to log trade to database');
+  }
+}
+
+async function logPosition(position: Omit<HyperliquidPosition, 'userId'>): Promise<void> {
+  try {
+    const db = await initDatabase();
+    db.upsertHyperliquidPosition(getUserId(), { ...position, userId: getUserId() });
+  } catch (e) {
+    logger.warn({ error: e }, 'Failed to log position to database');
+  }
+}
+
+async function logFunding(funding: Omit<HyperliquidFunding, 'userId'>): Promise<void> {
+  try {
+    const db = await initDatabase();
+    db.logHyperliquidFunding({ ...funding, userId: getUserId() });
+  } catch (e) {
+    logger.warn({ error: e }, 'Failed to log funding to database');
+  }
 }
 
 // =============================================================================
@@ -450,16 +483,36 @@ async function handleLong(coin: string, size: string, price?: string): Promise<s
     return 'Usage: /hl long <coin> <size> [price]\nExample: /hl long BTC 0.1 45000';
   }
 
+  const coinUpper = coin.toUpperCase();
+  const sizeNum = parseFloat(size);
+  const priceNum = price ? parseFloat(price) : undefined;
+  const isLimit = !!priceNum;
+
   const result = await hl.placePerpOrder(config, {
-    coin: coin.toUpperCase(),
+    coin: coinUpper,
     side: 'BUY',
-    size: parseFloat(size),
-    price: price ? parseFloat(price) : undefined,
-    type: price ? 'LIMIT' : 'MARKET',
+    size: sizeNum,
+    price: priceNum,
+    type: isLimit ? 'LIMIT' : 'MARKET',
   });
 
   if (result.success) {
-    return `LONG ${coin.toUpperCase()} ${size} ${price ? `@ $${price}` : 'MARKET'} (ID: ${result.orderId})`;
+    // Log trade to database
+    const fillPrice = priceNum || (await hl.getAllMids())[coinUpper];
+    const orderIdStr = result.orderId?.toString();
+    await logTrade({
+      tradeId: orderIdStr,
+      orderId: orderIdStr,
+      coin: coinUpper,
+      side: 'BUY',
+      direction: 'LONG',
+      size: sizeNum,
+      price: parseFloat(String(fillPrice || '0')),
+      orderType: isLimit ? 'LIMIT' : 'MARKET',
+      timestamp: new Date(),
+    });
+
+    return `LONG ${coinUpper} ${size} ${price ? `@ $${price}` : 'MARKET'} (ID: ${result.orderId})`;
   }
   return `Order failed: ${result.error}`;
 }
@@ -474,16 +527,36 @@ async function handleShort(coin: string, size: string, price?: string): Promise<
     return 'Usage: /hl short <coin> <size> [price]\nExample: /hl short ETH 1 3000';
   }
 
+  const coinUpper = coin.toUpperCase();
+  const sizeNum = parseFloat(size);
+  const priceNum = price ? parseFloat(price) : undefined;
+  const isLimit = !!priceNum;
+
   const result = await hl.placePerpOrder(config, {
-    coin: coin.toUpperCase(),
+    coin: coinUpper,
     side: 'SELL',
-    size: parseFloat(size),
-    price: price ? parseFloat(price) : undefined,
-    type: price ? 'LIMIT' : 'MARKET',
+    size: sizeNum,
+    price: priceNum,
+    type: isLimit ? 'LIMIT' : 'MARKET',
   });
 
   if (result.success) {
-    return `SHORT ${coin.toUpperCase()} ${size} ${price ? `@ $${price}` : 'MARKET'} (ID: ${result.orderId})`;
+    // Log trade to database
+    const fillPrice = priceNum || (await hl.getAllMids())[coinUpper];
+    const orderIdStr = result.orderId?.toString();
+    await logTrade({
+      tradeId: orderIdStr,
+      orderId: orderIdStr,
+      coin: coinUpper,
+      side: 'SELL',
+      direction: 'SHORT',
+      size: sizeNum,
+      price: parseFloat(String(fillPrice || '0')),
+      orderType: isLimit ? 'LIMIT' : 'MARKET',
+      timestamp: new Date(),
+    });
+
+    return `SHORT ${coinUpper} ${size} ${price ? `@ $${price}` : 'MARKET'} (ID: ${result.orderId})`;
   }
   return `Order failed: ${result.error}`;
 }
@@ -498,20 +571,24 @@ async function handleClose(coin: string): Promise<string> {
     return 'Usage: /hl close <coin>\nExample: /hl close BTC';
   }
 
+  const coinUpper = coin.toUpperCase();
   const state = await hl.getUserState(config.walletAddress);
   const position = state.assetPositions.find(
     ap => ap.position.coin.toLowerCase() === coin.toLowerCase() && parseFloat(ap.position.szi) !== 0
   );
 
   if (!position) {
-    return `No open position for ${coin.toUpperCase()}`;
+    return `No open position for ${coinUpper}`;
   }
 
-  const size = Math.abs(parseFloat(position.position.szi));
-  const isLong = parseFloat(position.position.szi) > 0;
+  const p = position.position;
+  const size = Math.abs(parseFloat(p.szi));
+  const isLong = parseFloat(p.szi) > 0;
+  const entryPrice = parseFloat(p.entryPx);
+  const unrealizedPnl = parseFloat(p.unrealizedPnl);
 
   const result = await hl.placePerpOrder(config, {
-    coin: coin.toUpperCase(),
+    coin: coinUpper,
     side: isLong ? 'SELL' : 'BUY',
     size,
     type: 'MARKET',
@@ -519,7 +596,34 @@ async function handleClose(coin: string): Promise<string> {
   });
 
   if (result.success) {
-    return `Closed ${coin.toUpperCase()} position (${size} ${isLong ? 'LONG' : 'SHORT'})`;
+    // Log closing trade with PnL
+    const mids = await hl.getAllMids();
+    const closePrice = parseFloat(String(mids[coinUpper] || '0'));
+    const orderIdStr = result.orderId?.toString();
+
+    await logTrade({
+      tradeId: orderIdStr,
+      orderId: orderIdStr,
+      coin: coinUpper,
+      side: isLong ? 'SELL' : 'BUY',
+      direction: isLong ? 'LONG' : 'SHORT',
+      size,
+      price: closePrice,
+      closedPnl: unrealizedPnl,
+      orderType: 'MARKET',
+      timestamp: new Date(),
+    });
+
+    // Close position in database
+    try {
+      const db = await initDatabase();
+      db.closeHyperliquidPosition(getUserId(), coinUpper, closePrice, 'manual');
+    } catch (e) {
+      logger.warn({ error: e }, 'Failed to close position in database');
+    }
+
+    const pnlStr = unrealizedPnl >= 0 ? `+$${unrealizedPnl.toFixed(2)}` : `-$${Math.abs(unrealizedPnl).toFixed(2)}`;
+    return `Closed ${coinUpper} ${isLong ? 'LONG' : 'SHORT'} ${size} @ $${closePrice.toFixed(2)} (PnL: ${pnlStr})`;
   }
   return `Close failed: ${result.error}`;
 }
@@ -537,11 +641,15 @@ async function handleCloseAll(): Promise<string> {
     return 'No open positions';
   }
 
+  const mids = await hl.getAllMids();
   const results: string[] = [];
+  let totalPnl = 0;
+
   for (const ap of positions) {
     const p = ap.position;
     const size = Math.abs(parseFloat(p.szi));
     const isLong = parseFloat(p.szi) > 0;
+    const unrealizedPnl = parseFloat(p.unrealizedPnl);
 
     const result = await hl.placePerpOrder(config, {
       coin: p.coin,
@@ -551,10 +659,42 @@ async function handleCloseAll(): Promise<string> {
       reduceOnly: true,
     });
 
-    results.push(`${p.coin}: ${result.success ? 'closed' : result.error}`);
+    if (result.success) {
+      const closePrice = parseFloat(String(mids[p.coin] || '0'));
+      totalPnl += unrealizedPnl;
+      const orderIdStr = result.orderId?.toString();
+
+      // Log closing trade
+      await logTrade({
+        tradeId: orderIdStr,
+        orderId: orderIdStr,
+        coin: p.coin,
+        side: isLong ? 'SELL' : 'BUY',
+        direction: isLong ? 'LONG' : 'SHORT',
+        size,
+        price: closePrice,
+        closedPnl: unrealizedPnl,
+        orderType: 'MARKET',
+        timestamp: new Date(),
+      });
+
+      // Close position in database
+      try {
+        const db = await initDatabase();
+        db.closeHyperliquidPosition(getUserId(), p.coin, closePrice, 'closeall');
+      } catch (e) {
+        logger.warn({ error: e }, 'Failed to close position in database');
+      }
+
+      const pnlStr = unrealizedPnl >= 0 ? `+$${unrealizedPnl.toFixed(2)}` : `-$${Math.abs(unrealizedPnl).toFixed(2)}`;
+      results.push(`${p.coin}: closed (${pnlStr})`);
+    } else {
+      results.push(`${p.coin}: ${result.error}`);
+    }
   }
 
-  return ['**Closed Positions:**', '', ...results].join('\n');
+  const totalStr = totalPnl >= 0 ? `+$${totalPnl.toFixed(2)}` : `-$${Math.abs(totalPnl).toFixed(2)}`;
+  return ['**Closed Positions:**', '', ...results, '', `Total PnL: ${totalStr}`].join('\n');
 }
 
 async function handleLeverage(coin?: string, leverage?: string): Promise<string> {
@@ -965,6 +1105,128 @@ async function handleSubaccounts(action?: string, ...args: string[]): Promise<st
   return lines.join('\n');
 }
 
+// =============================================================================
+// DATABASE QUERY HANDLERS
+// =============================================================================
+
+async function handleDbTrades(coin?: string, limit?: string): Promise<string> {
+  const db = await initDatabase();
+  const trades = db.getHyperliquidTrades(getUserId(), {
+    coin: coin?.toUpperCase(),
+    limit: limit ? parseInt(limit) : 20,
+  });
+
+  if (trades.length === 0) {
+    return 'No trades in database';
+  }
+
+  const lines = ['**Trade History (DB)**', ''];
+  for (const t of trades) {
+    const pnlStr = t.closedPnl !== undefined
+      ? ` PnL: ${t.closedPnl >= 0 ? '+' : ''}$${t.closedPnl.toFixed(2)}`
+      : '';
+    lines.push(
+      `  ${t.timestamp.toLocaleDateString()} ${t.coin} ${t.direction || t.side} ${t.size} @ $${t.price.toFixed(2)}${pnlStr}`
+    );
+  }
+  return lines.join('\n');
+}
+
+async function handleDbStats(coin?: string, period?: string): Promise<string> {
+  const db = await initDatabase();
+
+  let since: number | undefined;
+  if (period) {
+    const now = Date.now();
+    if (period === 'day' || period === '1d') since = now - 24 * 60 * 60 * 1000;
+    else if (period === 'week' || period === '7d') since = now - 7 * 24 * 60 * 60 * 1000;
+    else if (period === 'month' || period === '30d') since = now - 30 * 24 * 60 * 60 * 1000;
+  }
+
+  const stats = db.getHyperliquidStats(getUserId(), {
+    coin: coin?.toUpperCase(),
+    since,
+  });
+
+  const fundingTotal = db.getHyperliquidFundingTotal(getUserId(), {
+    coin: coin?.toUpperCase(),
+    since,
+  });
+
+  const lines = [
+    `**Trade Statistics${coin ? ` (${coin.toUpperCase()})` : ''}${period ? ` - ${period}` : ''}**`,
+    '',
+    `Total Trades: ${stats.totalTrades}`,
+    `Total Volume: $${formatNumber(stats.totalVolume)}`,
+    `Total Fees: $${stats.totalFees.toFixed(2)}`,
+    `Total PnL: ${stats.totalPnl >= 0 ? '+' : ''}$${stats.totalPnl.toFixed(2)}`,
+    `Funding Paid: ${fundingTotal >= 0 ? '+' : ''}$${fundingTotal.toFixed(2)}`,
+    '',
+    `Win Rate: ${stats.winRate.toFixed(1)}% (${stats.winCount}W / ${stats.lossCount}L)`,
+    `Avg Win: $${stats.avgWin.toFixed(2)}`,
+    `Avg Loss: $${stats.avgLoss.toFixed(2)}`,
+    `Largest Win: $${stats.largestWin.toFixed(2)}`,
+    `Largest Loss: $${stats.largestLoss.toFixed(2)}`,
+    `Profit Factor: ${stats.profitFactor === Infinity ? '∞' : stats.profitFactor.toFixed(2)}`,
+  ];
+
+  if (Object.keys(stats.byCoin).length > 1) {
+    lines.push('', '**By Coin:**');
+    for (const [c, data] of Object.entries(stats.byCoin)) {
+      const pnlStr = data.pnl >= 0 ? '+' : '';
+      lines.push(`  ${c}: ${data.trades} trades, ${pnlStr}$${data.pnl.toFixed(2)}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+async function handleDbFunding(coin?: string, limit?: string): Promise<string> {
+  const db = await initDatabase();
+  const funding = db.getHyperliquidFunding(getUserId(), {
+    coin: coin?.toUpperCase(),
+    limit: limit ? parseInt(limit) : 20,
+  });
+
+  if (funding.length === 0) {
+    return 'No funding payments in database';
+  }
+
+  const lines = ['**Funding History (DB)**', ''];
+  let total = 0;
+  for (const f of funding) {
+    total += f.payment;
+    const payStr = f.payment >= 0 ? `+$${f.payment.toFixed(4)}` : `-$${Math.abs(f.payment).toFixed(4)}`;
+    lines.push(
+      `  ${f.timestamp.toLocaleDateString()} ${f.coin}: ${payStr} (rate: ${(f.fundingRate * 100).toFixed(4)}%)`
+    );
+  }
+  lines.push('', `Total: ${total >= 0 ? '+' : ''}$${total.toFixed(2)}`);
+  return lines.join('\n');
+}
+
+async function handleDbPositions(openOnly?: string): Promise<string> {
+  const db = await initDatabase();
+  const positions = db.getHyperliquidPositions(getUserId(), {
+    openOnly: openOnly !== 'all',
+  });
+
+  if (positions.length === 0) {
+    return 'No positions in database';
+  }
+
+  const lines = ['**Position History (DB)**', ''];
+  for (const p of positions) {
+    const status = p.closedAt ? `CLOSED @ $${p.closePrice?.toFixed(2)}` : 'OPEN';
+    const pnl = p.closedAt ? p.realizedPnl : p.unrealizedPnl;
+    const pnlStr = pnl !== undefined ? ` (${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)})` : '';
+    lines.push(
+      `  ${p.coin} ${p.side} ${p.size} @ $${p.entryPrice.toFixed(2)} - ${status}${pnlStr}`
+    );
+  }
+  return lines.join('\n');
+}
+
 async function handleBorrowLend(): Promise<string> {
   const reserves = await hl.getAllBorrowLendReserves();
 
@@ -1101,6 +1363,18 @@ export const skill = {
         case 'borrow':
           return handleBorrowLend();
 
+        // Database queries
+        case 'trades':
+        case 'dbtrades':
+          return handleDbTrades(parts[1], parts[2]);
+        case 'dbstats':
+        case 'tradestats':
+          return handleDbStats(parts[1], parts[2]);
+        case 'dbfunding':
+          return handleDbFunding(parts[1], parts[2]);
+        case 'dbpositions':
+          return handleDbPositions(parts[1]);
+
         case 'help':
         default:
           return [
@@ -1138,6 +1412,12 @@ export const skill = {
             '  /hl hlp [deposit|withdraw]',
             '  /hl spot [buy|sell]',
             '  /hl fees, points, referral, lb',
+            '',
+            '**Database/History:**',
+            '  /hl trades [coin] [limit]  - Trade history',
+            '  /hl dbstats [coin] [period] - Win rate, PnL stats',
+            '  /hl dbfunding [coin]       - Funding payments',
+            '  /hl dbpositions [all]      - Position history',
           ].join('\n');
       }
     } catch (error) {

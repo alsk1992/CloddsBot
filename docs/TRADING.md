@@ -1435,6 +1435,24 @@ export HYPERLIQUID_PRIVATE_KEY="0x..."
 export DRY_RUN=true
 ```
 
+### Database Tracking
+
+All trades are automatically logged to SQLite for performance tracking.
+
+| Command | Description |
+|---------|-------------|
+| `/hl trades [coin] [limit]` | Trade history from database |
+| `/hl dbstats [coin] [period]` | Win rate, PnL, profit factor |
+| `/hl dbfunding [coin]` | Funding payments history |
+| `/hl dbpositions [all]` | Position history (open/closed) |
+
+**Stats periods:** `day`, `week`, `month`
+
+**Database Tables:**
+- `hyperliquid_trades` - All executed trades with PnL
+- `hyperliquid_positions` - Position history with entry/exit
+- `hyperliquid_funding` - Funding payment records
+
 ### Features
 
 - **130+ Perp Markets** with up to 50x leverage
@@ -1444,6 +1462,7 @@ export DRY_RUN=true
 - **Points System** - Earn rewards for activity
 - **Subaccounts** - Manage multiple strategies
 - **Real-time WebSocket** - Live orderbook and fills
+- **Full Trade Logging** - SQLite database tracking
 
 ---
 
