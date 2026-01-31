@@ -15,7 +15,9 @@ export type Platform =
   | 'drift'
   | 'predictit'
   | 'betfair'
-  | 'smarkets';
+  | 'smarkets'
+  | 'opinion'
+  | 'virtuals';
 
 // =============================================================================
 // MARKETS
@@ -302,6 +304,30 @@ export interface SmarketsCredentials {
 }
 
 /**
+ * Opinion.trade credentials (decrypted form)
+ */
+export interface OpinionCredentials {
+  /** API key for market data */
+  apiKey: string;
+  /** Wallet private key for trading (BNB Chain) */
+  privateKey?: string;
+  /** Vault/funder address */
+  multiSigAddress?: string;
+  /** BNB Chain RPC URL (default: https://bsc-dataseed.binance.org) */
+  rpcUrl?: string;
+}
+
+/**
+ * Virtuals Protocol credentials (decrypted form)
+ */
+export interface VirtualsCredentials {
+  /** EVM wallet private key for trading (Base chain) */
+  privateKey?: string;
+  /** Base chain RPC URL (default: https://mainnet.base.org) */
+  rpcUrl?: string;
+}
+
+/**
  * Union of all platform credentials
  */
 export type PlatformCredentials =
@@ -310,7 +336,9 @@ export type PlatformCredentials =
   | { platform: 'manifold'; data: ManifoldCredentials }
   | { platform: 'betfair'; data: BetfairCredentials }
   | { platform: 'drift'; data: DriftCredentials }
-  | { platform: 'smarkets'; data: SmarketsCredentials };
+  | { platform: 'smarkets'; data: SmarketsCredentials }
+  | { platform: 'opinion'; data: OpinionCredentials }
+  | { platform: 'virtuals'; data: VirtualsCredentials };
 
 /**
  * Trading execution context passed to tools
@@ -324,6 +352,94 @@ export interface TradingContext {
   maxOrderSize: number;
   /** Whether to actually execute or just simulate */
   dryRun: boolean;
+  /** Execution service for placing orders (null if not configured) */
+  executionService?: ExecutionServiceRef;
+}
+
+/** Order result from execution service */
+export interface OrderResultRef {
+  success: boolean;
+  orderId?: string;
+  error?: string;
+  avgFillPrice?: number;
+  filledSize?: number;
+  status?: 'pending' | 'open' | 'filled' | 'cancelled' | 'expired' | 'rejected';
+  transactionHash?: string;
+}
+
+/** Open order from execution service */
+export interface OpenOrderRef {
+  orderId: string;
+  platform: 'polymarket' | 'kalshi' | 'opinion';
+  marketId: string;
+  tokenId?: string;
+  outcome?: string;
+  side: 'buy' | 'sell';
+  price: number;
+  originalSize: number;
+  remainingSize: number;
+  filledSize: number;
+  orderType: string;
+  status: string;
+  createdAt: Date;
+  expiration?: Date;
+}
+
+/** Minimal interface for execution service (to avoid circular imports) */
+export interface ExecutionServiceRef {
+  buyLimit(request: {
+    platform: 'polymarket' | 'kalshi' | 'opinion';
+    marketId: string;
+    tokenId?: string;
+    outcome?: string;
+    price: number;
+    size: number;
+    orderType?: string;
+    postOnly?: boolean;
+  }): Promise<OrderResultRef>;
+  sellLimit(request: {
+    platform: 'polymarket' | 'kalshi' | 'opinion';
+    marketId: string;
+    tokenId?: string;
+    outcome?: string;
+    price: number;
+    size: number;
+    orderType?: string;
+    postOnly?: boolean;
+  }): Promise<OrderResultRef>;
+  marketBuy(request: {
+    platform: 'polymarket' | 'kalshi' | 'opinion';
+    marketId: string;
+    tokenId?: string;
+    outcome?: string;
+    size: number;
+  }): Promise<OrderResultRef>;
+  marketSell(request: {
+    platform: 'polymarket' | 'kalshi' | 'opinion';
+    marketId: string;
+    tokenId?: string;
+    outcome?: string;
+    size: number;
+  }): Promise<OrderResultRef>;
+  makerBuy(request: {
+    platform: 'polymarket' | 'kalshi' | 'opinion';
+    marketId: string;
+    tokenId?: string;
+    outcome?: string;
+    price: number;
+    size: number;
+  }): Promise<OrderResultRef>;
+  makerSell(request: {
+    platform: 'polymarket' | 'kalshi' | 'opinion';
+    marketId: string;
+    tokenId?: string;
+    outcome?: string;
+    price: number;
+    size: number;
+  }): Promise<OrderResultRef>;
+  cancelOrder(platform: 'polymarket' | 'kalshi' | 'opinion', orderId: string): Promise<boolean>;
+  cancelAllOrders(platform?: 'polymarket' | 'kalshi' | 'opinion', marketId?: string): Promise<number>;
+  getOpenOrders(platform?: 'polymarket' | 'kalshi' | 'opinion'): Promise<OpenOrderRef[]>;
 }
 
 export interface Session {
@@ -874,6 +990,28 @@ export interface Config {
       enabled: boolean;
       apiToken?: string;
       sessionToken?: string;
+    };
+    opinion?: {
+      enabled: boolean;
+      /** API key for Opinion.trade */
+      apiKey?: string;
+      /** Wallet private key for trading (BNB Chain) */
+      privateKey?: string;
+      /** Vault/funder address */
+      multiSigAddress?: string;
+      /** BNB Chain RPC URL (default: https://bsc-dataseed.binance.org) */
+      rpcUrl?: string;
+    };
+    virtuals?: {
+      enabled: boolean;
+      /** EVM wallet private key for trading (Base chain) */
+      privateKey?: string;
+      /** Base chain RPC URL (default: https://mainnet.base.org) */
+      rpcUrl?: string;
+      /** Minimum market cap to include agents (default: 0) */
+      minMarketCap?: number;
+      /** Categories to filter (e.g., ['Entertainment', 'Productivity']) */
+      categories?: string[];
     };
     news: {
       enabled: boolean;

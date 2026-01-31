@@ -97,6 +97,230 @@ export interface HyperliquidStats {
   }>;
 }
 
+// Binance Futures types
+export interface BinanceFuturesTrade {
+  id?: number;
+  userId: string;
+  tradeId?: string;
+  orderId?: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  positionSide?: 'LONG' | 'SHORT' | 'BOTH';
+  size: number;
+  price: number;
+  commission?: number;
+  commissionAsset?: string;
+  realizedPnl?: number;
+  orderType?: string;
+  isMaker?: boolean;
+  leverage?: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export interface BinanceFuturesPosition {
+  id?: number;
+  userId: string;
+  symbol: string;
+  positionSide: 'LONG' | 'SHORT' | 'BOTH';
+  size: number;
+  entryPrice: number;
+  markPrice?: number;
+  liquidationPrice?: number;
+  unrealizedPnl?: number;
+  realizedPnl?: number;
+  leverage?: number;
+  marginType?: 'cross' | 'isolated';
+  isolatedMargin?: number;
+  openedAt: Date;
+  closedAt?: Date;
+  closePrice?: number;
+  closeReason?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface BinanceFuturesFunding {
+  id?: number;
+  userId: string;
+  symbol: string;
+  fundingRate: number;
+  payment: number;
+  positionSize: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export interface BinanceFuturesStats {
+  totalTrades: number;
+  totalVolume: number;
+  totalFees: number;
+  totalPnl: number;
+  winCount: number;
+  lossCount: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  largestWin: number;
+  largestLoss: number;
+  profitFactor: number;
+  bySymbol: Record<string, {
+    trades: number;
+    volume: number;
+    pnl: number;
+    fees: number;
+  }>;
+}
+
+// Bybit Futures types
+export interface BybitFuturesTrade {
+  id?: number;
+  userId: string;
+  tradeId?: string;
+  orderId?: string;
+  symbol: string;
+  side: 'Buy' | 'Sell';
+  positionSide?: 'Long' | 'Short';
+  size: number;
+  price: number;
+  commission?: number;
+  commissionAsset?: string;
+  closedPnl?: number;
+  orderType?: string;
+  isMaker?: boolean;
+  leverage?: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export interface BybitFuturesPosition {
+  id?: number;
+  userId: string;
+  symbol: string;
+  side: 'Buy' | 'Sell';
+  size: number;
+  entryPrice: number;
+  markPrice?: number;
+  liquidationPrice?: number;
+  unrealizedPnl?: number;
+  cumRealisedPnl?: number;
+  leverage?: number;
+  tradeMode?: 'cross' | 'isolated';
+  positionMargin?: number;
+  openedAt: Date;
+  closedAt?: Date;
+  closePrice?: number;
+  closeReason?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface BybitFuturesFunding {
+  id?: number;
+  userId: string;
+  symbol: string;
+  fundingRate: number;
+  payment: number;
+  positionSize: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export interface BybitFuturesStats {
+  totalTrades: number;
+  totalVolume: number;
+  totalFees: number;
+  totalPnl: number;
+  winCount: number;
+  lossCount: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  largestWin: number;
+  largestLoss: number;
+  profitFactor: number;
+  bySymbol: Record<string, {
+    trades: number;
+    volume: number;
+    pnl: number;
+    fees: number;
+  }>;
+}
+
+// MEXC Futures types
+export interface MexcFuturesTrade {
+  id?: number;
+  userId: string;
+  tradeId?: string;
+  orderId?: string;
+  symbol: string;
+  side: number; // 1=Open Long, 2=Close Short, 3=Open Short, 4=Close Long
+  vol: number;
+  price: number;
+  fee?: number;
+  feeAsset?: string;
+  realizedPnl?: number;
+  orderType?: number;
+  isMaker?: boolean;
+  leverage?: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export interface MexcFuturesPosition {
+  id?: number;
+  userId: string;
+  symbol: string;
+  positionType: number; // 1=Long, 2=Short
+  holdVol: number;
+  openAvgPrice: number;
+  markPrice?: number;
+  liquidationPrice?: number;
+  unrealizedPnl?: number;
+  realizedPnl?: number;
+  leverage?: number;
+  marginMode?: number; // 1=Isolated, 2=Cross
+  positionMargin?: number;
+  openedAt: Date;
+  closedAt?: Date;
+  closePrice?: number;
+  closeReason?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface MexcFuturesFunding {
+  id?: number;
+  userId: string;
+  symbol: string;
+  fundingRate: number;
+  payment: number;
+  positionSize: number;
+  timestamp: Date;
+  createdAt?: Date;
+}
+
+export interface MexcFuturesStats {
+  totalTrades: number;
+  totalVolume: number;
+  totalFees: number;
+  totalPnl: number;
+  winCount: number;
+  lossCount: number;
+  winRate: number;
+  avgWin: number;
+  avgLoss: number;
+  largestWin: number;
+  largestLoss: number;
+  profitFactor: number;
+  bySymbol: Record<string, {
+    trades: number;
+    volume: number;
+    pnl: number;
+    fees: number;
+  }>;
+}
+
 export interface Database {
   close(): void;
   save(): void;
@@ -281,6 +505,102 @@ export interface Database {
   }): HyperliquidFunding[];
   getHyperliquidFundingTotal(userId: string, options?: {
     coin?: string;
+    since?: number;
+  }): number;
+
+  // Binance Futures trades
+  logBinanceFuturesTrade(trade: BinanceFuturesTrade): void;
+  getBinanceFuturesTrades(userId: string, options?: {
+    symbol?: string;
+    limit?: number;
+    since?: number;
+  }): BinanceFuturesTrade[];
+  getBinanceFuturesStats(userId: string, options?: {
+    symbol?: string;
+    since?: number;
+  }): BinanceFuturesStats;
+
+  // Binance Futures positions
+  upsertBinanceFuturesPosition(userId: string, position: BinanceFuturesPosition): void;
+  getBinanceFuturesPositions(userId: string, options?: {
+    symbol?: string;
+    openOnly?: boolean;
+  }): BinanceFuturesPosition[];
+  closeBinanceFuturesPosition(userId: string, symbol: string, closePrice: number, reason?: string): void;
+
+  // Binance Futures funding
+  logBinanceFuturesFunding(funding: BinanceFuturesFunding): void;
+  getBinanceFuturesFunding(userId: string, options?: {
+    symbol?: string;
+    limit?: number;
+    since?: number;
+  }): BinanceFuturesFunding[];
+  getBinanceFuturesFundingTotal(userId: string, options?: {
+    symbol?: string;
+    since?: number;
+  }): number;
+
+  // Bybit Futures trades
+  logBybitFuturesTrade(trade: BybitFuturesTrade): void;
+  getBybitFuturesTrades(userId: string, options?: {
+    symbol?: string;
+    limit?: number;
+    since?: number;
+  }): BybitFuturesTrade[];
+  getBybitFuturesStats(userId: string, options?: {
+    symbol?: string;
+    since?: number;
+  }): BybitFuturesStats;
+
+  // Bybit Futures positions
+  upsertBybitFuturesPosition(userId: string, position: BybitFuturesPosition): void;
+  getBybitFuturesPositions(userId: string, options?: {
+    symbol?: string;
+    openOnly?: boolean;
+  }): BybitFuturesPosition[];
+  closeBybitFuturesPosition(userId: string, symbol: string, closePrice: number, reason?: string): void;
+
+  // Bybit Futures funding
+  logBybitFuturesFunding(funding: BybitFuturesFunding): void;
+  getBybitFuturesFunding(userId: string, options?: {
+    symbol?: string;
+    limit?: number;
+    since?: number;
+  }): BybitFuturesFunding[];
+  getBybitFuturesFundingTotal(userId: string, options?: {
+    symbol?: string;
+    since?: number;
+  }): number;
+
+  // MEXC Futures trades
+  logMexcFuturesTrade(trade: MexcFuturesTrade): void;
+  getMexcFuturesTrades(userId: string, options?: {
+    symbol?: string;
+    limit?: number;
+    since?: number;
+  }): MexcFuturesTrade[];
+  getMexcFuturesStats(userId: string, options?: {
+    symbol?: string;
+    since?: number;
+  }): MexcFuturesStats;
+
+  // MEXC Futures positions
+  upsertMexcFuturesPosition(userId: string, position: MexcFuturesPosition): void;
+  getMexcFuturesPositions(userId: string, options?: {
+    symbol?: string;
+    openOnly?: boolean;
+  }): MexcFuturesPosition[];
+  closeMexcFuturesPosition(userId: string, symbol: string, closePrice: number, reason?: string): void;
+
+  // MEXC Futures funding
+  logMexcFuturesFunding(funding: MexcFuturesFunding): void;
+  getMexcFuturesFunding(userId: string, options?: {
+    symbol?: string;
+    limit?: number;
+    since?: number;
+  }): MexcFuturesFunding[];
+  getMexcFuturesFundingTotal(userId: string, options?: {
+    symbol?: string;
     since?: number;
   }): number;
 }
@@ -651,6 +971,218 @@ export async function initDatabase(): Promise<Database> {
     CREATE INDEX IF NOT EXISTS idx_hl_funding_user ON hyperliquid_funding(user_id);
     CREATE INDEX IF NOT EXISTS idx_hl_funding_coin ON hyperliquid_funding(coin);
     CREATE INDEX IF NOT EXISTS idx_hl_funding_timestamp ON hyperliquid_funding(timestamp);
+
+    -- Binance Futures trades table
+    CREATE TABLE IF NOT EXISTS binance_futures_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      trade_id TEXT,
+      order_id TEXT,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      position_side TEXT,
+      size REAL NOT NULL,
+      price REAL NOT NULL,
+      commission REAL DEFAULT 0,
+      commission_asset TEXT DEFAULT 'USDT',
+      realized_pnl REAL,
+      order_type TEXT,
+      is_maker INTEGER DEFAULT 0,
+      leverage INTEGER,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_binance_trades_user ON binance_futures_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_binance_trades_symbol ON binance_futures_trades(symbol);
+    CREATE INDEX IF NOT EXISTS idx_binance_trades_timestamp ON binance_futures_trades(timestamp);
+
+    -- Binance Futures positions history
+    CREATE TABLE IF NOT EXISTS binance_futures_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      position_side TEXT NOT NULL,
+      size REAL NOT NULL,
+      entry_price REAL NOT NULL,
+      mark_price REAL,
+      liquidation_price REAL,
+      unrealized_pnl REAL,
+      realized_pnl REAL DEFAULT 0,
+      leverage INTEGER,
+      margin_type TEXT,
+      isolated_margin REAL,
+      opened_at INTEGER NOT NULL,
+      closed_at INTEGER,
+      close_price REAL,
+      close_reason TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_binance_positions_user ON binance_futures_positions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_binance_positions_symbol ON binance_futures_positions(symbol);
+    CREATE INDEX IF NOT EXISTS idx_binance_positions_open ON binance_futures_positions(closed_at);
+
+    -- Binance Futures funding payments
+    CREATE TABLE IF NOT EXISTS binance_futures_funding (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      funding_rate REAL NOT NULL,
+      payment REAL NOT NULL,
+      position_size REAL NOT NULL,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_binance_funding_user ON binance_futures_funding(user_id);
+    CREATE INDEX IF NOT EXISTS idx_binance_funding_symbol ON binance_futures_funding(symbol);
+    CREATE INDEX IF NOT EXISTS idx_binance_funding_timestamp ON binance_futures_funding(timestamp);
+
+    -- Bybit Futures trades table
+    CREATE TABLE IF NOT EXISTS bybit_futures_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      trade_id TEXT,
+      order_id TEXT,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      position_side TEXT,
+      size REAL NOT NULL,
+      price REAL NOT NULL,
+      commission REAL DEFAULT 0,
+      commission_asset TEXT DEFAULT 'USDT',
+      closed_pnl REAL,
+      order_type TEXT,
+      is_maker INTEGER DEFAULT 0,
+      leverage INTEGER,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bybit_trades_user ON bybit_futures_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_bybit_trades_symbol ON bybit_futures_trades(symbol);
+    CREATE INDEX IF NOT EXISTS idx_bybit_trades_timestamp ON bybit_futures_trades(timestamp);
+
+    -- Bybit Futures positions history
+    CREATE TABLE IF NOT EXISTS bybit_futures_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      size REAL NOT NULL,
+      entry_price REAL NOT NULL,
+      mark_price REAL,
+      liquidation_price REAL,
+      unrealized_pnl REAL,
+      cum_realised_pnl REAL DEFAULT 0,
+      leverage INTEGER,
+      trade_mode TEXT,
+      position_margin REAL,
+      opened_at INTEGER NOT NULL,
+      closed_at INTEGER,
+      close_price REAL,
+      close_reason TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bybit_positions_user ON bybit_futures_positions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_bybit_positions_symbol ON bybit_futures_positions(symbol);
+    CREATE INDEX IF NOT EXISTS idx_bybit_positions_open ON bybit_futures_positions(closed_at);
+
+    -- Bybit Futures funding payments
+    CREATE TABLE IF NOT EXISTS bybit_futures_funding (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      funding_rate REAL NOT NULL,
+      payment REAL NOT NULL,
+      position_size REAL NOT NULL,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bybit_funding_user ON bybit_futures_funding(user_id);
+    CREATE INDEX IF NOT EXISTS idx_bybit_funding_symbol ON bybit_futures_funding(symbol);
+    CREATE INDEX IF NOT EXISTS idx_bybit_funding_timestamp ON bybit_futures_funding(timestamp);
+
+    -- MEXC Futures trades table
+    CREATE TABLE IF NOT EXISTS mexc_futures_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      trade_id TEXT,
+      order_id TEXT,
+      symbol TEXT NOT NULL,
+      side INTEGER NOT NULL,
+      vol REAL NOT NULL,
+      price REAL NOT NULL,
+      fee REAL DEFAULT 0,
+      fee_asset TEXT DEFAULT 'USDT',
+      realized_pnl REAL,
+      order_type INTEGER,
+      is_maker INTEGER DEFAULT 0,
+      leverage INTEGER,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mexc_trades_user ON mexc_futures_trades(user_id);
+    CREATE INDEX IF NOT EXISTS idx_mexc_trades_symbol ON mexc_futures_trades(symbol);
+    CREATE INDEX IF NOT EXISTS idx_mexc_trades_timestamp ON mexc_futures_trades(timestamp);
+
+    -- MEXC Futures positions history
+    CREATE TABLE IF NOT EXISTS mexc_futures_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      position_type INTEGER NOT NULL,
+      hold_vol REAL NOT NULL,
+      open_avg_price REAL NOT NULL,
+      mark_price REAL,
+      liquidation_price REAL,
+      unrealized_pnl REAL,
+      realized_pnl REAL DEFAULT 0,
+      leverage INTEGER,
+      margin_mode INTEGER,
+      position_margin REAL,
+      opened_at INTEGER NOT NULL,
+      closed_at INTEGER,
+      close_price REAL,
+      close_reason TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mexc_positions_user ON mexc_futures_positions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_mexc_positions_symbol ON mexc_futures_positions(symbol);
+    CREATE INDEX IF NOT EXISTS idx_mexc_positions_open ON mexc_futures_positions(closed_at);
+
+    -- MEXC Futures funding payments
+    CREATE TABLE IF NOT EXISTS mexc_futures_funding (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      funding_rate REAL NOT NULL,
+      payment REAL NOT NULL,
+      position_size REAL NOT NULL,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mexc_funding_user ON mexc_futures_funding(user_id);
+    CREATE INDEX IF NOT EXISTS idx_mexc_funding_symbol ON mexc_futures_funding(symbol);
+    CREATE INDEX IF NOT EXISTS idx_mexc_funding_timestamp ON mexc_futures_funding(timestamp);
 
     -- Create indexes
     CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id);
@@ -1970,6 +2502,877 @@ export async function initDatabase(): Promise<Database> {
 
       const row = getOne<{ total: number }>(
         `SELECT COALESCE(SUM(payment), 0) as total FROM hyperliquid_funding ${whereClause}`,
+        params
+      );
+      return row?.total || 0;
+    },
+
+    // =========================================================================
+    // BINANCE FUTURES
+    // =========================================================================
+
+    logBinanceFuturesTrade(trade: BinanceFuturesTrade): void {
+      run(
+        `INSERT INTO binance_futures_trades (
+          user_id, trade_id, order_id, symbol, side, position_side, size, price,
+          commission, commission_asset, realized_pnl, order_type, is_maker, leverage, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.userId,
+          trade.tradeId || null,
+          trade.orderId || null,
+          trade.symbol,
+          trade.side,
+          trade.positionSide || null,
+          trade.size,
+          trade.price,
+          trade.commission || 0,
+          trade.commissionAsset || 'USDT',
+          trade.realizedPnl || null,
+          trade.orderType || null,
+          trade.isMaker ? 1 : 0,
+          trade.leverage || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getBinanceFuturesTrades(userId: string, options = {}): BinanceFuturesTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM binance_futures_trades WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        tradeId: row.trade_id as string | undefined,
+        orderId: row.order_id as string | undefined,
+        symbol: row.symbol as string,
+        side: row.side as 'BUY' | 'SELL',
+        positionSide: row.position_side as 'LONG' | 'SHORT' | 'BOTH' | undefined,
+        size: row.size as number,
+        price: row.price as number,
+        commission: row.commission as number | undefined,
+        commissionAsset: row.commission_asset as string | undefined,
+        realizedPnl: row.realized_pnl as number | undefined,
+        orderType: row.order_type as string | undefined,
+        isMaker: row.is_maker === 1,
+        leverage: row.leverage as number | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+      }));
+    },
+
+    getBinanceFuturesStats(userId: string, options = {}): BinanceFuturesStats {
+      const params: (string | number)[] = [userId];
+      let whereClause = 'WHERE user_id = ?';
+
+      if (options.symbol) {
+        whereClause += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        whereClause += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      const statsRow = getOne<Record<string, number>>(
+        `SELECT
+          COUNT(*) as total_trades,
+          COALESCE(SUM(size * price), 0) as total_volume,
+          COALESCE(SUM(commission), 0) as total_fees,
+          COALESCE(SUM(realized_pnl), 0) as total_pnl,
+          COUNT(CASE WHEN realized_pnl > 0 THEN 1 END) as win_count,
+          COUNT(CASE WHEN realized_pnl < 0 THEN 1 END) as loss_count,
+          COALESCE(AVG(CASE WHEN realized_pnl > 0 THEN realized_pnl END), 0) as avg_win,
+          COALESCE(AVG(CASE WHEN realized_pnl < 0 THEN realized_pnl END), 0) as avg_loss,
+          COALESCE(MAX(realized_pnl), 0) as largest_win,
+          COALESCE(MIN(realized_pnl), 0) as largest_loss
+        FROM binance_futures_trades ${whereClause}`,
+        params
+      );
+
+      const bySymbolRows = getAll<{ symbol: string; trades: number; volume: number; pnl: number; fees: number }>(
+        `SELECT
+          symbol,
+          COUNT(*) as trades,
+          COALESCE(SUM(size * price), 0) as volume,
+          COALESCE(SUM(realized_pnl), 0) as pnl,
+          COALESCE(SUM(commission), 0) as fees
+        FROM binance_futures_trades ${whereClause}
+        GROUP BY symbol`,
+        params
+      );
+
+      const totalTrades = statsRow?.total_trades || 0;
+      const winCount = statsRow?.win_count || 0;
+      const lossCount = statsRow?.loss_count || 0;
+      const totalWins = statsRow?.avg_win ? statsRow.avg_win * winCount : 0;
+      const totalLosses = statsRow?.avg_loss ? Math.abs(statsRow.avg_loss) * lossCount : 0;
+
+      return {
+        totalTrades,
+        totalVolume: statsRow?.total_volume || 0,
+        totalFees: statsRow?.total_fees || 0,
+        totalPnl: statsRow?.total_pnl || 0,
+        winCount,
+        lossCount,
+        winRate: totalTrades > 0 ? (winCount / totalTrades) * 100 : 0,
+        avgWin: statsRow?.avg_win || 0,
+        avgLoss: statsRow?.avg_loss || 0,
+        largestWin: statsRow?.largest_win || 0,
+        largestLoss: statsRow?.largest_loss || 0,
+        profitFactor: totalLosses > 0 ? totalWins / totalLosses : totalWins > 0 ? Infinity : 0,
+        bySymbol: Object.fromEntries(bySymbolRows.map((r) => [r.symbol, { trades: r.trades, volume: r.volume, pnl: r.pnl, fees: r.fees }])),
+      };
+    },
+
+    upsertBinanceFuturesPosition(userId: string, position: BinanceFuturesPosition): void {
+      run(
+        `INSERT INTO binance_futures_positions (
+          user_id, symbol, position_side, size, entry_price, mark_price, liquidation_price,
+          unrealized_pnl, realized_pnl, leverage, margin_type, isolated_margin, opened_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, symbol) WHERE closed_at IS NULL DO UPDATE SET
+          size = excluded.size,
+          entry_price = excluded.entry_price,
+          mark_price = excluded.mark_price,
+          liquidation_price = excluded.liquidation_price,
+          unrealized_pnl = excluded.unrealized_pnl,
+          realized_pnl = excluded.realized_pnl,
+          leverage = excluded.leverage,
+          margin_type = excluded.margin_type,
+          isolated_margin = excluded.isolated_margin,
+          updated_at = excluded.updated_at`,
+        [
+          userId,
+          position.symbol,
+          position.positionSide,
+          position.size,
+          position.entryPrice,
+          position.markPrice || null,
+          position.liquidationPrice || null,
+          position.unrealizedPnl || null,
+          position.realizedPnl || 0,
+          position.leverage || null,
+          position.marginType || null,
+          position.isolatedMargin || null,
+          position.openedAt.getTime(),
+          Date.now(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getBinanceFuturesPositions(userId: string, options = {}): BinanceFuturesPosition[] {
+      const params: (string | number | null)[] = [userId];
+      let sql = 'SELECT * FROM binance_futures_positions WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.openOnly) {
+        sql += ' AND closed_at IS NULL';
+      }
+
+      sql += ' ORDER BY opened_at DESC';
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        symbol: row.symbol as string,
+        positionSide: row.position_side as 'LONG' | 'SHORT' | 'BOTH',
+        size: row.size as number,
+        entryPrice: row.entry_price as number,
+        markPrice: row.mark_price as number | undefined,
+        liquidationPrice: row.liquidation_price as number | undefined,
+        unrealizedPnl: row.unrealized_pnl as number | undefined,
+        realizedPnl: row.realized_pnl as number | undefined,
+        leverage: row.leverage as number | undefined,
+        marginType: row.margin_type as 'cross' | 'isolated' | undefined,
+        isolatedMargin: row.isolated_margin as number | undefined,
+        openedAt: new Date(row.opened_at as number),
+        closedAt: row.closed_at ? new Date(row.closed_at as number) : undefined,
+        closePrice: row.close_price as number | undefined,
+        closeReason: row.close_reason as string | undefined,
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+        updatedAt: row.updated_at ? new Date(row.updated_at as number) : undefined,
+      }));
+    },
+
+    closeBinanceFuturesPosition(userId: string, symbol: string, closePrice: number, reason?: string): void {
+      run(
+        `UPDATE binance_futures_positions
+         SET closed_at = ?, close_price = ?, close_reason = ?, updated_at = ?
+         WHERE user_id = ? AND symbol = ? AND closed_at IS NULL`,
+        [Date.now(), closePrice, reason || 'manual', Date.now(), userId, symbol]
+      );
+    },
+
+    logBinanceFuturesFunding(funding: BinanceFuturesFunding): void {
+      run(
+        `INSERT INTO binance_futures_funding (
+          user_id, symbol, funding_rate, payment, position_size, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          funding.userId,
+          funding.symbol,
+          funding.fundingRate,
+          funding.payment,
+          funding.positionSize,
+          funding.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getBinanceFuturesFunding(userId: string, options = {}): BinanceFuturesFunding[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM binance_futures_funding WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        symbol: row.symbol as string,
+        fundingRate: row.funding_rate as number,
+        payment: row.payment as number,
+        positionSize: row.position_size as number,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+      }));
+    },
+
+    getBinanceFuturesFundingTotal(userId: string, options = {}): number {
+      const params: (string | number)[] = [userId];
+      let whereClause = 'WHERE user_id = ?';
+
+      if (options.symbol) {
+        whereClause += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        whereClause += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      const row = getOne<{ total: number }>(
+        `SELECT COALESCE(SUM(payment), 0) as total FROM binance_futures_funding ${whereClause}`,
+        params
+      );
+      return row?.total || 0;
+    },
+
+    // =========================================================================
+    // BYBIT FUTURES
+    // =========================================================================
+
+    logBybitFuturesTrade(trade: BybitFuturesTrade): void {
+      run(
+        `INSERT INTO bybit_futures_trades (
+          user_id, trade_id, order_id, symbol, side, position_side, size, price,
+          commission, commission_asset, closed_pnl, order_type, is_maker, leverage, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.userId,
+          trade.tradeId || null,
+          trade.orderId || null,
+          trade.symbol,
+          trade.side,
+          trade.positionSide || null,
+          trade.size,
+          trade.price,
+          trade.commission || 0,
+          trade.commissionAsset || 'USDT',
+          trade.closedPnl || null,
+          trade.orderType || null,
+          trade.isMaker ? 1 : 0,
+          trade.leverage || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getBybitFuturesTrades(userId: string, options = {}): BybitFuturesTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM bybit_futures_trades WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        tradeId: row.trade_id as string | undefined,
+        orderId: row.order_id as string | undefined,
+        symbol: row.symbol as string,
+        side: row.side as 'Buy' | 'Sell',
+        positionSide: row.position_side as 'Long' | 'Short' | undefined,
+        size: row.size as number,
+        price: row.price as number,
+        commission: row.commission as number | undefined,
+        commissionAsset: row.commission_asset as string | undefined,
+        closedPnl: row.closed_pnl as number | undefined,
+        orderType: row.order_type as string | undefined,
+        isMaker: row.is_maker === 1,
+        leverage: row.leverage as number | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+      }));
+    },
+
+    getBybitFuturesStats(userId: string, options = {}): BybitFuturesStats {
+      const params: (string | number)[] = [userId];
+      let whereClause = 'WHERE user_id = ?';
+
+      if (options.symbol) {
+        whereClause += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        whereClause += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      const statsRow = getOne<Record<string, number>>(
+        `SELECT
+          COUNT(*) as total_trades,
+          COALESCE(SUM(size * price), 0) as total_volume,
+          COALESCE(SUM(commission), 0) as total_fees,
+          COALESCE(SUM(closed_pnl), 0) as total_pnl,
+          COUNT(CASE WHEN closed_pnl > 0 THEN 1 END) as win_count,
+          COUNT(CASE WHEN closed_pnl < 0 THEN 1 END) as loss_count,
+          COALESCE(AVG(CASE WHEN closed_pnl > 0 THEN closed_pnl END), 0) as avg_win,
+          COALESCE(AVG(CASE WHEN closed_pnl < 0 THEN closed_pnl END), 0) as avg_loss,
+          COALESCE(MAX(closed_pnl), 0) as largest_win,
+          COALESCE(MIN(closed_pnl), 0) as largest_loss
+        FROM bybit_futures_trades ${whereClause}`,
+        params
+      );
+
+      const bySymbolRows = getAll<{ symbol: string; trades: number; volume: number; pnl: number; fees: number }>(
+        `SELECT
+          symbol,
+          COUNT(*) as trades,
+          COALESCE(SUM(size * price), 0) as volume,
+          COALESCE(SUM(closed_pnl), 0) as pnl,
+          COALESCE(SUM(commission), 0) as fees
+        FROM bybit_futures_trades ${whereClause}
+        GROUP BY symbol`,
+        params
+      );
+
+      const totalTrades = statsRow?.total_trades || 0;
+      const winCount = statsRow?.win_count || 0;
+      const lossCount = statsRow?.loss_count || 0;
+      const totalWins = statsRow?.avg_win ? statsRow.avg_win * winCount : 0;
+      const totalLosses = statsRow?.avg_loss ? Math.abs(statsRow.avg_loss) * lossCount : 0;
+
+      return {
+        totalTrades,
+        totalVolume: statsRow?.total_volume || 0,
+        totalFees: statsRow?.total_fees || 0,
+        totalPnl: statsRow?.total_pnl || 0,
+        winCount,
+        lossCount,
+        winRate: totalTrades > 0 ? (winCount / totalTrades) * 100 : 0,
+        avgWin: statsRow?.avg_win || 0,
+        avgLoss: statsRow?.avg_loss || 0,
+        largestWin: statsRow?.largest_win || 0,
+        largestLoss: statsRow?.largest_loss || 0,
+        profitFactor: totalLosses > 0 ? totalWins / totalLosses : totalWins > 0 ? Infinity : 0,
+        bySymbol: Object.fromEntries(bySymbolRows.map((r) => [r.symbol, { trades: r.trades, volume: r.volume, pnl: r.pnl, fees: r.fees }])),
+      };
+    },
+
+    upsertBybitFuturesPosition(userId: string, position: BybitFuturesPosition): void {
+      run(
+        `INSERT INTO bybit_futures_positions (
+          user_id, symbol, side, size, entry_price, mark_price, liquidation_price,
+          unrealized_pnl, cum_realised_pnl, leverage, trade_mode, position_margin, opened_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, symbol) WHERE closed_at IS NULL DO UPDATE SET
+          size = excluded.size,
+          entry_price = excluded.entry_price,
+          mark_price = excluded.mark_price,
+          liquidation_price = excluded.liquidation_price,
+          unrealized_pnl = excluded.unrealized_pnl,
+          cum_realised_pnl = excluded.cum_realised_pnl,
+          leverage = excluded.leverage,
+          trade_mode = excluded.trade_mode,
+          position_margin = excluded.position_margin,
+          updated_at = excluded.updated_at`,
+        [
+          userId,
+          position.symbol,
+          position.side,
+          position.size,
+          position.entryPrice,
+          position.markPrice || null,
+          position.liquidationPrice || null,
+          position.unrealizedPnl || null,
+          position.cumRealisedPnl || 0,
+          position.leverage || null,
+          position.tradeMode || null,
+          position.positionMargin || null,
+          position.openedAt.getTime(),
+          Date.now(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getBybitFuturesPositions(userId: string, options = {}): BybitFuturesPosition[] {
+      const params: (string | number | null)[] = [userId];
+      let sql = 'SELECT * FROM bybit_futures_positions WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.openOnly) {
+        sql += ' AND closed_at IS NULL';
+      }
+
+      sql += ' ORDER BY opened_at DESC';
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        symbol: row.symbol as string,
+        side: row.side as 'Buy' | 'Sell',
+        size: row.size as number,
+        entryPrice: row.entry_price as number,
+        markPrice: row.mark_price as number | undefined,
+        liquidationPrice: row.liquidation_price as number | undefined,
+        unrealizedPnl: row.unrealized_pnl as number | undefined,
+        cumRealisedPnl: row.cum_realised_pnl as number | undefined,
+        leverage: row.leverage as number | undefined,
+        tradeMode: row.trade_mode as 'cross' | 'isolated' | undefined,
+        positionMargin: row.position_margin as number | undefined,
+        openedAt: new Date(row.opened_at as number),
+        closedAt: row.closed_at ? new Date(row.closed_at as number) : undefined,
+        closePrice: row.close_price as number | undefined,
+        closeReason: row.close_reason as string | undefined,
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+        updatedAt: row.updated_at ? new Date(row.updated_at as number) : undefined,
+      }));
+    },
+
+    closeBybitFuturesPosition(userId: string, symbol: string, closePrice: number, reason?: string): void {
+      run(
+        `UPDATE bybit_futures_positions
+         SET closed_at = ?, close_price = ?, close_reason = ?, updated_at = ?
+         WHERE user_id = ? AND symbol = ? AND closed_at IS NULL`,
+        [Date.now(), closePrice, reason || 'manual', Date.now(), userId, symbol]
+      );
+    },
+
+    logBybitFuturesFunding(funding: BybitFuturesFunding): void {
+      run(
+        `INSERT INTO bybit_futures_funding (
+          user_id, symbol, funding_rate, payment, position_size, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          funding.userId,
+          funding.symbol,
+          funding.fundingRate,
+          funding.payment,
+          funding.positionSize,
+          funding.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getBybitFuturesFunding(userId: string, options = {}): BybitFuturesFunding[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM bybit_futures_funding WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        symbol: row.symbol as string,
+        fundingRate: row.funding_rate as number,
+        payment: row.payment as number,
+        positionSize: row.position_size as number,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+      }));
+    },
+
+    getBybitFuturesFundingTotal(userId: string, options = {}): number {
+      const params: (string | number)[] = [userId];
+      let whereClause = 'WHERE user_id = ?';
+
+      if (options.symbol) {
+        whereClause += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        whereClause += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      const row = getOne<{ total: number }>(
+        `SELECT COALESCE(SUM(payment), 0) as total FROM bybit_futures_funding ${whereClause}`,
+        params
+      );
+      return row?.total || 0;
+    },
+
+    // =========================================================================
+    // MEXC FUTURES
+    // =========================================================================
+
+    logMexcFuturesTrade(trade: MexcFuturesTrade): void {
+      run(
+        `INSERT INTO mexc_futures_trades (
+          user_id, trade_id, order_id, symbol, side, vol, price,
+          fee, fee_asset, realized_pnl, order_type, is_maker, leverage, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          trade.userId,
+          trade.tradeId || null,
+          trade.orderId || null,
+          trade.symbol,
+          trade.side,
+          trade.vol,
+          trade.price,
+          trade.fee || 0,
+          trade.feeAsset || 'USDT',
+          trade.realizedPnl || null,
+          trade.orderType || null,
+          trade.isMaker ? 1 : 0,
+          trade.leverage || null,
+          trade.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getMexcFuturesTrades(userId: string, options = {}): MexcFuturesTrade[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM mexc_futures_trades WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        tradeId: row.trade_id as string | undefined,
+        orderId: row.order_id as string | undefined,
+        symbol: row.symbol as string,
+        side: row.side as number,
+        vol: row.vol as number,
+        price: row.price as number,
+        fee: row.fee as number | undefined,
+        feeAsset: row.fee_asset as string | undefined,
+        realizedPnl: row.realized_pnl as number | undefined,
+        orderType: row.order_type as number | undefined,
+        isMaker: row.is_maker === 1,
+        leverage: row.leverage as number | undefined,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+      }));
+    },
+
+    getMexcFuturesStats(userId: string, options = {}): MexcFuturesStats {
+      const params: (string | number)[] = [userId];
+      let whereClause = 'WHERE user_id = ?';
+
+      if (options.symbol) {
+        whereClause += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        whereClause += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      const statsRow = getOne<Record<string, number>>(
+        `SELECT
+          COUNT(*) as total_trades,
+          COALESCE(SUM(vol * price), 0) as total_volume,
+          COALESCE(SUM(fee), 0) as total_fees,
+          COALESCE(SUM(realized_pnl), 0) as total_pnl,
+          COUNT(CASE WHEN realized_pnl > 0 THEN 1 END) as win_count,
+          COUNT(CASE WHEN realized_pnl < 0 THEN 1 END) as loss_count,
+          COALESCE(AVG(CASE WHEN realized_pnl > 0 THEN realized_pnl END), 0) as avg_win,
+          COALESCE(AVG(CASE WHEN realized_pnl < 0 THEN realized_pnl END), 0) as avg_loss,
+          COALESCE(MAX(realized_pnl), 0) as largest_win,
+          COALESCE(MIN(realized_pnl), 0) as largest_loss
+        FROM mexc_futures_trades ${whereClause}`,
+        params
+      );
+
+      const bySymbolRows = getAll<{ symbol: string; trades: number; volume: number; pnl: number; fees: number }>(
+        `SELECT
+          symbol,
+          COUNT(*) as trades,
+          COALESCE(SUM(vol * price), 0) as volume,
+          COALESCE(SUM(realized_pnl), 0) as pnl,
+          COALESCE(SUM(fee), 0) as fees
+        FROM mexc_futures_trades ${whereClause}
+        GROUP BY symbol`,
+        params
+      );
+
+      const totalTrades = statsRow?.total_trades || 0;
+      const winCount = statsRow?.win_count || 0;
+      const lossCount = statsRow?.loss_count || 0;
+      const totalWins = statsRow?.avg_win ? statsRow.avg_win * winCount : 0;
+      const totalLosses = statsRow?.avg_loss ? Math.abs(statsRow.avg_loss) * lossCount : 0;
+
+      return {
+        totalTrades,
+        totalVolume: statsRow?.total_volume || 0,
+        totalFees: statsRow?.total_fees || 0,
+        totalPnl: statsRow?.total_pnl || 0,
+        winCount,
+        lossCount,
+        winRate: totalTrades > 0 ? (winCount / totalTrades) * 100 : 0,
+        avgWin: statsRow?.avg_win || 0,
+        avgLoss: statsRow?.avg_loss || 0,
+        largestWin: statsRow?.largest_win || 0,
+        largestLoss: statsRow?.largest_loss || 0,
+        profitFactor: totalLosses > 0 ? totalWins / totalLosses : totalWins > 0 ? Infinity : 0,
+        bySymbol: Object.fromEntries(bySymbolRows.map((r) => [r.symbol, { trades: r.trades, volume: r.volume, pnl: r.pnl, fees: r.fees }])),
+      };
+    },
+
+    upsertMexcFuturesPosition(userId: string, position: MexcFuturesPosition): void {
+      run(
+        `INSERT INTO mexc_futures_positions (
+          user_id, symbol, position_type, hold_vol, open_avg_price, mark_price, liquidation_price,
+          unrealized_pnl, realized_pnl, leverage, margin_mode, position_margin, opened_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, symbol) WHERE closed_at IS NULL DO UPDATE SET
+          hold_vol = excluded.hold_vol,
+          open_avg_price = excluded.open_avg_price,
+          mark_price = excluded.mark_price,
+          liquidation_price = excluded.liquidation_price,
+          unrealized_pnl = excluded.unrealized_pnl,
+          realized_pnl = excluded.realized_pnl,
+          leverage = excluded.leverage,
+          margin_mode = excluded.margin_mode,
+          position_margin = excluded.position_margin,
+          updated_at = excluded.updated_at`,
+        [
+          userId,
+          position.symbol,
+          position.positionType,
+          position.holdVol,
+          position.openAvgPrice,
+          position.markPrice || null,
+          position.liquidationPrice || null,
+          position.unrealizedPnl || null,
+          position.realizedPnl || 0,
+          position.leverage || null,
+          position.marginMode || null,
+          position.positionMargin || null,
+          position.openedAt.getTime(),
+          Date.now(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getMexcFuturesPositions(userId: string, options = {}): MexcFuturesPosition[] {
+      const params: (string | number | null)[] = [userId];
+      let sql = 'SELECT * FROM mexc_futures_positions WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.openOnly) {
+        sql += ' AND closed_at IS NULL';
+      }
+
+      sql += ' ORDER BY opened_at DESC';
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        symbol: row.symbol as string,
+        positionType: row.position_type as number,
+        holdVol: row.hold_vol as number,
+        openAvgPrice: row.open_avg_price as number,
+        markPrice: row.mark_price as number | undefined,
+        liquidationPrice: row.liquidation_price as number | undefined,
+        unrealizedPnl: row.unrealized_pnl as number | undefined,
+        realizedPnl: row.realized_pnl as number | undefined,
+        leverage: row.leverage as number | undefined,
+        marginMode: row.margin_mode as number | undefined,
+        positionMargin: row.position_margin as number | undefined,
+        openedAt: new Date(row.opened_at as number),
+        closedAt: row.closed_at ? new Date(row.closed_at as number) : undefined,
+        closePrice: row.close_price as number | undefined,
+        closeReason: row.close_reason as string | undefined,
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+        updatedAt: row.updated_at ? new Date(row.updated_at as number) : undefined,
+      }));
+    },
+
+    closeMexcFuturesPosition(userId: string, symbol: string, closePrice: number, reason?: string): void {
+      run(
+        `UPDATE mexc_futures_positions
+         SET closed_at = ?, close_price = ?, close_reason = ?, updated_at = ?
+         WHERE user_id = ? AND symbol = ? AND closed_at IS NULL`,
+        [Date.now(), closePrice, reason || 'manual', Date.now(), userId, symbol]
+      );
+    },
+
+    logMexcFuturesFunding(funding: MexcFuturesFunding): void {
+      run(
+        `INSERT INTO mexc_futures_funding (
+          user_id, symbol, funding_rate, payment, position_size, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          funding.userId,
+          funding.symbol,
+          funding.fundingRate,
+          funding.payment,
+          funding.positionSize,
+          funding.timestamp.getTime(),
+          Date.now(),
+        ]
+      );
+    },
+
+    getMexcFuturesFunding(userId: string, options = {}): MexcFuturesFunding[] {
+      const params: (string | number)[] = [userId];
+      let sql = 'SELECT * FROM mexc_futures_funding WHERE user_id = ?';
+
+      if (options.symbol) {
+        sql += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        sql += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      sql += ' ORDER BY timestamp DESC';
+
+      if (options.limit) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = getAll<Record<string, unknown>>(sql, params);
+      return rows.map((row) => ({
+        id: row.id as number,
+        userId: row.user_id as string,
+        symbol: row.symbol as string,
+        fundingRate: row.funding_rate as number,
+        payment: row.payment as number,
+        positionSize: row.position_size as number,
+        timestamp: new Date(row.timestamp as number),
+        createdAt: row.created_at ? new Date(row.created_at as number) : undefined,
+      }));
+    },
+
+    getMexcFuturesFundingTotal(userId: string, options = {}): number {
+      const params: (string | number)[] = [userId];
+      let whereClause = 'WHERE user_id = ?';
+
+      if (options.symbol) {
+        whereClause += ' AND symbol = ?';
+        params.push(options.symbol);
+      }
+      if (options.since) {
+        whereClause += ' AND timestamp >= ?';
+        params.push(options.since);
+      }
+
+      const row = getOne<{ total: number }>(
+        `SELECT COALESCE(SUM(payment), 0) as total FROM mexc_futures_funding ${whereClause}`,
         params
       );
       return row?.total || 0;
