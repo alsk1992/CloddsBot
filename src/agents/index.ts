@@ -4868,6 +4868,88 @@ function buildTools(): ToolDefinition[] {
         required: ['name', 'symbol', 'description'],
       },
     },
+    // Pump.fun Swarm Trading
+    {
+      name: 'swarm_wallets',
+      description: 'List all wallets in the Pump.fun trading swarm.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'swarm_balances',
+      description: 'Get SOL balances for all swarm wallets.',
+      input_schema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'swarm_buy',
+      description: 'Execute coordinated buy across all swarm wallets on Pump.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          amount_per_wallet: { type: 'number', description: 'SOL amount per wallet' },
+          wallet_ids: { type: 'array', items: { type: 'string' }, description: 'Specific wallet IDs (optional)' },
+          use_bundle: { type: 'boolean', description: 'Use Jito bundle for atomic execution' },
+          slippage_bps: { type: 'number', description: 'Slippage in basis points' },
+          pool: { type: 'string', description: 'Pool: pump, raydium, auto' },
+        },
+        required: ['mint', 'amount_per_wallet'],
+      },
+    },
+    {
+      name: 'swarm_sell',
+      description: 'Execute coordinated sell across all swarm wallets on Pump.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          amount_per_wallet: { type: 'string', description: 'Amount per wallet (number or "100%" for full sell)' },
+          wallet_ids: { type: 'array', items: { type: 'string' }, description: 'Specific wallet IDs (optional)' },
+          use_bundle: { type: 'boolean', description: 'Use Jito bundle for atomic execution' },
+          slippage_bps: { type: 'number', description: 'Slippage in basis points' },
+          pool: { type: 'string', description: 'Pool: pump, raydium, auto' },
+        },
+        required: ['mint', 'amount_per_wallet'],
+      },
+    },
+    {
+      name: 'swarm_position',
+      description: 'Get swarm position for a Pump.fun token across all wallets.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'swarm_enable',
+      description: 'Enable a wallet in the trading swarm.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          wallet_id: { type: 'string', description: 'Wallet ID to enable' },
+        },
+        required: ['wallet_id'],
+      },
+    },
+    {
+      name: 'swarm_disable',
+      description: 'Disable a wallet in the trading swarm.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          wallet_id: { type: 'string', description: 'Wallet ID to disable' },
+        },
+        required: ['wallet_id'],
+      },
+    },
     {
       name: 'meteora_dlmm_swap',
       description: 'Swap tokens on Meteora DLMM using direct on-chain transaction.',

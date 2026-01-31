@@ -553,6 +553,162 @@ async function pumpfunIpfsUploadHandler(toolInput: ToolInput): Promise<HandlerRe
 }
 
 // ============================================================================
+// Pump.fun Swarm Handlers
+// ============================================================================
+
+async function swarmWalletsHandler(): Promise<HandlerResult> {
+  return safeHandler(async () => {
+    const { getSwarm } = await import('../../solana/pump-swarm');
+    const swarm = getSwarm();
+    const wallets = swarm.getWallets();
+    return {
+      count: wallets.length,
+      wallets: wallets.map(w => ({
+        id: w.id,
+        publicKey: w.publicKey,
+        balance: w.balance,
+        enabled: w.enabled,
+        positionCount: w.positions.size,
+      })),
+    };
+  });
+}
+
+async function swarmBalancesHandler(): Promise<HandlerResult> {
+  return safeHandler(async () => {
+    const { getSwarm } = await import('../../solana/pump-swarm');
+    const swarm = getSwarm();
+    const balances = await swarm.refreshBalances();
+    const result: Record<string, number> = {};
+    for (const [id, balance] of balances) {
+      result[id] = balance;
+    }
+    return { balances: result, totalSol: Object.values(result).reduce((a, b) => a + b, 0) };
+  });
+}
+
+async function swarmBuyHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+  const amountPerWallet = toolInput.amount_per_wallet as number;
+  const walletIds = toolInput.wallet_ids as string[] | undefined;
+  const useBundle = toolInput.use_bundle as boolean | undefined;
+  const slippageBps = toolInput.slippage_bps as number | undefined;
+  const pool = toolInput.pool as string | undefined;
+
+  return safeHandler(async () => {
+    const { getSwarm } = await import('../../solana/pump-swarm');
+    const swarm = getSwarm();
+
+    const result = await swarm.coordinatedBuy({
+      mint,
+      action: 'buy',
+      amountPerWallet,
+      denominatedInSol: true,
+      slippageBps,
+      pool,
+      useBundle,
+      walletIds,
+    });
+
+    return {
+      success: result.success,
+      mint: result.mint,
+      totalAmount: result.totalAmount,
+      executionTimeMs: result.executionTimeMs,
+      bundleId: result.bundleId,
+      walletResults: result.walletResults.map(wr => ({
+        walletId: wr.walletId,
+        success: wr.success,
+        signature: wr.signature,
+        error: wr.error,
+      })),
+    };
+  }, 'Swarm buy failed. Ensure SOLANA_PRIVATE_KEY and swarm keys are set.');
+}
+
+async function swarmSellHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+  const amountPerWallet = toolInput.amount_per_wallet as number | string;
+  const walletIds = toolInput.wallet_ids as string[] | undefined;
+  const useBundle = toolInput.use_bundle as boolean | undefined;
+  const slippageBps = toolInput.slippage_bps as number | undefined;
+  const pool = toolInput.pool as string | undefined;
+
+  return safeHandler(async () => {
+    const { getSwarm } = await import('../../solana/pump-swarm');
+    const swarm = getSwarm();
+
+    const result = await swarm.coordinatedSell({
+      mint,
+      action: 'sell',
+      amountPerWallet,
+      denominatedInSol: false,
+      slippageBps,
+      pool,
+      useBundle,
+      walletIds,
+    });
+
+    return {
+      success: result.success,
+      mint: result.mint,
+      totalAmount: result.totalAmount,
+      executionTimeMs: result.executionTimeMs,
+      bundleId: result.bundleId,
+      walletResults: result.walletResults.map(wr => ({
+        walletId: wr.walletId,
+        success: wr.success,
+        signature: wr.signature,
+        error: wr.error,
+      })),
+    };
+  }, 'Swarm sell failed. Ensure SOLANA_PRIVATE_KEY and swarm keys are set.');
+}
+
+async function swarmPositionHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+
+  return safeHandler(async () => {
+    const { getSwarm } = await import('../../solana/pump-swarm');
+    const swarm = getSwarm();
+    const position = swarm.getSwarmPosition(mint);
+
+    const byWallet: Record<string, number> = {};
+    for (const [id, amount] of position.byWallet) {
+      byWallet[id] = amount;
+    }
+
+    return {
+      mint: position.mint,
+      totalAmount: position.totalAmount,
+      byWallet,
+    };
+  });
+}
+
+async function swarmEnableHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const walletId = toolInput.wallet_id as string;
+
+  return safeHandler(async () => {
+    const { getSwarm } = await import('../../solana/pump-swarm');
+    const swarm = getSwarm();
+    swarm.enableWallet(walletId);
+    return { success: true, walletId, enabled: true };
+  });
+}
+
+async function swarmDisableHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const walletId = toolInput.wallet_id as string;
+
+  return safeHandler(async () => {
+    const { getSwarm } = await import('../../solana/pump-swarm');
+    const swarm = getSwarm();
+    swarm.disableWallet(walletId);
+    return { success: true, walletId, enabled: false };
+  });
+}
+
+// ============================================================================
 // Drift Handlers
 // ============================================================================
 
@@ -1258,6 +1414,15 @@ export const solanaHandlers: HandlersMap = {
   pumpfun_latest_trades: pumpfunLatestTradesHandler,
   pumpfun_sol_price: pumpfunSolPriceHandler,
   pumpfun_ipfs_upload: pumpfunIpfsUploadHandler,
+
+  // Pump.fun Swarm
+  swarm_wallets: swarmWalletsHandler,
+  swarm_balances: swarmBalancesHandler,
+  swarm_buy: swarmBuyHandler,
+  swarm_sell: swarmSellHandler,
+  swarm_position: swarmPositionHandler,
+  swarm_enable: swarmEnableHandler,
+  swarm_disable: swarmDisableHandler,
 
   // Drift
   drift_direct_place_order: driftPlaceOrderHandler,
