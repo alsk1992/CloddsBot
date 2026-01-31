@@ -249,6 +249,205 @@ async function pumpfunTradeHandler(toolInput: ToolInput): Promise<HandlerResult>
   }, 'Ensure PUMPFUN_LOCAL_TX_URL is reachable and SOLANA_PRIVATE_KEY is set.');
 }
 
+const PUMPFUN_FRONTEND_API = 'https://frontend-api-v3.pump.fun';
+
+async function pumpFrontendRequest<T>(endpoint: string): Promise<T> {
+  const response = await fetch(`${PUMPFUN_FRONTEND_API}${endpoint}`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!response.ok) throw new Error(`Pump.fun API error: ${response.status}`);
+  return response.json();
+}
+
+async function pumpfunTrendingHandler(): Promise<HandlerResult> {
+  return safeHandler(async () => {
+    const tokens = await pumpFrontendRequest<Array<{
+      mint: string; name: string; symbol: string; marketCap?: number; volume24h?: number;
+    }>>('/coins/top-runners');
+    return { tokens: tokens.slice(0, 20) };
+  });
+}
+
+async function pumpfunNewHandler(): Promise<HandlerResult> {
+  return safeHandler(async () => {
+    const tokens = await pumpFrontendRequest<Array<{
+      mint: string; name: string; symbol: string; marketCap?: number; bondingCurveProgress?: number;
+    }>>('/coins/currently-live?limit=20&sort=created_timestamp&order=desc');
+    return { tokens };
+  });
+}
+
+async function pumpfunLiveHandler(): Promise<HandlerResult> {
+  return safeHandler(async () => {
+    const tokens = await pumpFrontendRequest<Array<{
+      mint: string; name: string; symbol: string; marketCap?: number; holders?: number;
+    }>>('/coins/currently-live?limit=20');
+    return { tokens };
+  });
+}
+
+async function pumpfunGraduatedHandler(): Promise<HandlerResult> {
+  return safeHandler(async () => {
+    const tokens = await pumpFrontendRequest<Array<{
+      mint: string; name: string; symbol: string; marketCap?: number; liquidity?: number;
+    }>>('/coins/graduated?limit=20');
+    return { tokens };
+  });
+}
+
+async function pumpfunSearchHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const query = toolInput.query as string;
+  return safeHandler(async () => {
+    const tokens = await pumpFrontendRequest<Array<{
+      mint: string; name: string; symbol: string; marketCap?: number; graduated?: boolean;
+    }>>(`/coins/search?query=${encodeURIComponent(query)}&limit=20`);
+    return { tokens };
+  });
+}
+
+async function pumpfunVolatileHandler(): Promise<HandlerResult> {
+  return safeHandler(async () => {
+    const tokens = await pumpFrontendRequest<Array<{
+      mint: string; name: string; symbol: string; marketCap?: number;
+    }>>('/coins/volatile?limit=20');
+    return { tokens };
+  });
+}
+
+async function pumpfunTokenHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+  return safeHandler(async () => {
+    const token = await pumpFrontendRequest<{
+      mint: string; name: string; symbol: string; description?: string;
+      price?: number; priceUsd?: number; marketCap?: number; liquidity?: number;
+      volume24h?: number; holders?: number; bondingCurveProgress?: number;
+      graduated?: boolean; creator?: string; twitter?: string; telegram?: string; website?: string;
+    }>(`/coins/${mint}`);
+    return token;
+  });
+}
+
+async function pumpfunPriceHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+  return safeHandler(async () => {
+    const [token, ohlcv] = await Promise.all([
+      pumpFrontendRequest<{ price?: number; priceUsd?: number; marketCap?: number }>(`/coins/${mint}`),
+      pumpFrontendRequest<Array<{ timestamp: number; open: number; high: number; low: number; close: number; volume: number }>>(`/coins/${mint}/ohlcv?interval=1h&limit=24`).catch(() => null),
+    ]);
+    return { ...token, ohlcv };
+  });
+}
+
+async function pumpfunHoldersHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+  return safeHandler(async () => {
+    const holders = await pumpFrontendRequest<Array<{
+      wallet: string; balance: number; percentage: number; isCreator?: boolean;
+    }>>(`/coins/${mint}/holders?limit=20`);
+    return { holders };
+  });
+}
+
+async function pumpfunTradesHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+  const limit = (toolInput.limit as number) || 20;
+  return safeHandler(async () => {
+    const trades = await pumpFrontendRequest<Array<{
+      signature: string; type: 'buy' | 'sell'; solAmount: number; tokenAmount: number;
+      pricePerToken: number; wallet: string; timestamp: number;
+    }>>(`/coins/${mint}/trades?limit=${limit}`);
+    return { trades };
+  });
+}
+
+async function pumpfunChartHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+  const interval = (toolInput.interval as string) || '1h';
+  const limit = (toolInput.limit as number) || 24;
+  return safeHandler(async () => {
+    const ohlcv = await pumpFrontendRequest<Array<{
+      timestamp: number; open: number; high: number; low: number; close: number; volume: number;
+    }>>(`/coins/${mint}/ohlcv?interval=${interval}&limit=${limit}`);
+    return { ohlcv };
+  });
+}
+
+async function pumpfunCreateHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const name = toolInput.name as string;
+  const symbol = toolInput.symbol as string;
+  const description = toolInput.description as string;
+  const imageUrl = toolInput.image_url as string | undefined;
+  const twitter = toolInput.twitter as string | undefined;
+  const telegram = toolInput.telegram as string | undefined;
+  const website = toolInput.website as string | undefined;
+  const initialBuyLamports = toolInput.initial_buy_lamports as number | undefined;
+
+  return safeHandler(async () => {
+    const { wallet } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const apiKey = process.env.PUMPPORTAL_API_KEY;
+    const url = apiKey
+      ? `https://pumpportal.fun/api/create?api-key=${apiKey}`
+      : 'https://pumpportal.fun/api/create';
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        publicKey: keypair.publicKey.toBase58(),
+        name, symbol, description, imageUrl, twitter, telegram, website, initialBuyLamports,
+      }),
+    });
+
+    if (!response.ok) throw new Error(`Create failed: ${response.status}`);
+    const result = await response.json() as { mint: string; transaction: string };
+
+    const { VersionedTransaction } = await import('@solana/web3.js');
+    const tx = VersionedTransaction.deserialize(Buffer.from(result.transaction, 'base64'));
+    tx.sign([keypair]);
+    const signature = await connection.sendRawTransaction(tx.serialize());
+    await connection.confirmTransaction(signature, 'confirmed');
+
+    return { mint: result.mint, signature };
+  }, 'Token creation failed. Ensure SOLANA_PRIVATE_KEY is set.');
+}
+
+async function pumpfunClaimHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const mint = toolInput.mint as string;
+
+  return safeHandler(async () => {
+    const { wallet } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const apiKey = process.env.PUMPPORTAL_API_KEY;
+    const url = apiKey
+      ? `https://pumpportal.fun/api/claim-fees?api-key=${apiKey}`
+      : 'https://pumpportal.fun/api/claim-fees';
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicKey: keypair.publicKey.toBase58(), mint }),
+    });
+
+    if (!response.ok) throw new Error(`Claim failed: ${response.status}`);
+    const result = await response.json() as { transaction?: string; amount?: number };
+
+    if (!result.transaction) return { claimed: false, message: 'No fees to claim' };
+
+    const { VersionedTransaction } = await import('@solana/web3.js');
+    const tx = VersionedTransaction.deserialize(Buffer.from(result.transaction, 'base64'));
+    tx.sign([keypair]);
+    const signature = await connection.sendRawTransaction(tx.serialize());
+    await connection.confirmTransaction(signature, 'confirmed');
+
+    return { claimed: true, amount: result.amount, signature };
+  }, 'Fee claim failed. Ensure SOLANA_PRIVATE_KEY is set.');
+}
+
 // ============================================================================
 // Drift Handlers
 // ============================================================================
@@ -932,8 +1131,21 @@ export const solanaHandlers: HandlersMap = {
   meteora_dlmm_pools: meteoraPoolsHandler,
   meteora_dlmm_quote: meteoraQuoteHandler,
 
-  // Pump.fun
+  // Pump.fun - Complete Coverage
   pumpfun_trade: pumpfunTradeHandler,
+  pumpfun_trending: pumpfunTrendingHandler,
+  pumpfun_new: pumpfunNewHandler,
+  pumpfun_live: pumpfunLiveHandler,
+  pumpfun_graduated: pumpfunGraduatedHandler,
+  pumpfun_search: pumpfunSearchHandler,
+  pumpfun_volatile: pumpfunVolatileHandler,
+  pumpfun_token: pumpfunTokenHandler,
+  pumpfun_price: pumpfunPriceHandler,
+  pumpfun_holders: pumpfunHoldersHandler,
+  pumpfun_trades: pumpfunTradesHandler,
+  pumpfun_chart: pumpfunChartHandler,
+  pumpfun_create: pumpfunCreateHandler,
+  pumpfun_claim: pumpfunClaimHandler,
 
   // Drift
   drift_direct_place_order: driftPlaceOrderHandler,

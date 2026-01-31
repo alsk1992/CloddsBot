@@ -4622,6 +4622,172 @@ function buildTools(): ToolDefinition[] {
       },
     },
     {
+      name: 'pumpfun_trending',
+      description: 'Get trending tokens on Pump.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of results (default 20)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+          include_nsfw: { type: 'boolean', description: 'Include NSFW tokens' },
+        },
+      },
+    },
+    {
+      name: 'pumpfun_new',
+      description: 'Get recently created tokens on Pump.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of results (default 20)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+          include_nsfw: { type: 'boolean', description: 'Include NSFW tokens' },
+        },
+      },
+    },
+    {
+      name: 'pumpfun_live',
+      description: 'Get currently trading (live) tokens on Pump.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of results (default 20)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+          include_nsfw: { type: 'boolean', description: 'Include NSFW tokens' },
+        },
+      },
+    },
+    {
+      name: 'pumpfun_graduated',
+      description: 'Get tokens that graduated to Raydium from Pump.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of results (default 20)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+          include_nsfw: { type: 'boolean', description: 'Include NSFW tokens' },
+        },
+      },
+    },
+    {
+      name: 'pumpfun_search',
+      description: 'Search Pump.fun tokens by name or symbol.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query (name or symbol)' },
+          limit: { type: 'number', description: 'Number of results (default 20)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+          include_nsfw: { type: 'boolean', description: 'Include NSFW tokens' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'pumpfun_volatile',
+      description: 'Get high volatility tokens on Pump.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Number of results (default 20)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+          include_nsfw: { type: 'boolean', description: 'Include NSFW tokens' },
+        },
+      },
+    },
+    {
+      name: 'pumpfun_token',
+      description: 'Get full token info from Pump.fun by mint address.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'pumpfun_price',
+      description: 'Get current price and 24h stats for a Pump.fun token.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'pumpfun_holders',
+      description: 'Get top holders for a Pump.fun token.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          limit: { type: 'number', description: 'Number of results (default 20)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'pumpfun_trades',
+      description: 'Get recent trades for a Pump.fun token.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          limit: { type: 'number', description: 'Number of results (default 50)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+          minimum_size: { type: 'number', description: 'Minimum trade size in SOL' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'pumpfun_chart',
+      description: 'Get OHLCV price chart data for a Pump.fun token.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          interval: { type: 'string', description: 'Interval: 1m, 5m, 15m, 1h, 4h, 1d', enum: ['1m', '5m', '15m', '1h', '4h', '1d'] },
+          limit: { type: 'number', description: 'Number of candles (default 100)' },
+          offset: { type: 'number', description: 'Pagination offset' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'pumpfun_create',
+      description: 'Create a new token on Pump.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Token name' },
+          symbol: { type: 'string', description: 'Token symbol/ticker' },
+          description: { type: 'string', description: 'Token description' },
+          image_url: { type: 'string', description: 'Token image URL' },
+          twitter: { type: 'string', description: 'Twitter URL' },
+          telegram: { type: 'string', description: 'Telegram URL' },
+          website: { type: 'string', description: 'Website URL' },
+          initial_buy_sol: { type: 'number', description: 'Initial buy amount in SOL' },
+        },
+        required: ['name', 'symbol', 'description'],
+      },
+    },
+    {
+      name: 'pumpfun_claim',
+      description: 'Claim creator fees for a Pump.fun token you created.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
       name: 'meteora_dlmm_swap',
       description: 'Swap tokens on Meteora DLMM using direct on-chain transaction.',
       input_schema: {
