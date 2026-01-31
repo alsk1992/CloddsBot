@@ -491,6 +491,340 @@ export async function getAllBorrowLendReserves(): Promise<Array<{
   }
 }
 
+/**
+ * Get order status by order ID
+ */
+export async function getOrderStatus(userAddress: string, oid: number | string): Promise<{
+  order: {
+    coin: string;
+    side: string;
+    limitPx: string;
+    sz: string;
+    oid: number;
+    timestamp: number;
+    origSz: string;
+  };
+  status: string;
+  statusTimestamp: number;
+} | null> {
+  try {
+    return await httpRequest('/info', {
+      type: 'orderStatus',
+      user: userAddress,
+      oid,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get frontend-enriched open orders
+ */
+export async function getFrontendOpenOrders(userAddress: string): Promise<Array<{
+  coin: string;
+  oid: number;
+  side: string;
+  limitPx: string;
+  sz: string;
+  origSz: string;
+  timestamp: number;
+  cloid?: string;
+  reduceOnly: boolean;
+  orderType: string;
+  triggerPx?: string;
+  triggerCondition?: string;
+}>> {
+  return httpRequest('/info', {
+    type: 'frontendOpenOrders',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get user fills filtered by time range
+ */
+export async function getUserFillsByTime(
+  userAddress: string,
+  startTime: number,
+  endTime?: number,
+  aggregateByTime?: boolean
+): Promise<UserFills[]> {
+  return httpRequest('/info', {
+    type: 'userFillsByTime',
+    user: userAddress,
+    startTime,
+    endTime,
+    aggregateByTime,
+  });
+}
+
+/**
+ * Get funding history for a coin
+ */
+export async function getFundingHistory(
+  coin: string,
+  startTime: number,
+  endTime?: number
+): Promise<Array<{
+  coin: string;
+  fundingRate: string;
+  premium: string;
+  time: number;
+}>> {
+  return httpRequest('/info', {
+    type: 'fundingHistory',
+    coin,
+    startTime,
+    endTime,
+  });
+}
+
+/**
+ * Get predicted funding rates across venues
+ */
+export async function getPredictedFundings(): Promise<Array<{
+  coin: string;
+  venue: string;
+  predictedFunding: string;
+}>> {
+  return httpRequest('/info', { type: 'predictedFundings' });
+}
+
+/**
+ * Get user funding history
+ */
+export async function getUserFunding(
+  userAddress: string,
+  startTime: number,
+  endTime?: number
+): Promise<Array<{
+  time: number;
+  coin: string;
+  usdc: string;
+  szi: string;
+  fundingRate: string;
+}>> {
+  return httpRequest('/info', {
+    type: 'userFunding',
+    user: userAddress,
+    startTime,
+    endTime,
+  });
+}
+
+/**
+ * Get user non-funding ledger updates (deposits, withdrawals, transfers)
+ */
+export async function getUserNonFundingLedgerUpdates(
+  userAddress: string,
+  startTime: number,
+  endTime?: number
+): Promise<Array<{
+  time: number;
+  hash: string;
+  delta: {
+    type: 'deposit' | 'withdraw' | 'transfer' | 'liquidation';
+    usdc: string;
+  };
+}>> {
+  return httpRequest('/info', {
+    type: 'userNonFundingLedgerUpdates',
+    user: userAddress,
+    startTime,
+    endTime,
+  });
+}
+
+/**
+ * Get user portfolio
+ */
+export async function getUserPortfolio(userAddress: string): Promise<{
+  accountValue: string;
+  pnl: {
+    allTime: string;
+    day: string;
+    week: string;
+    month: string;
+  };
+  vlm: {
+    allTime: string;
+    day: string;
+    week: string;
+    month: string;
+  };
+}> {
+  return httpRequest('/info', {
+    type: 'portfolio',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get user subaccounts
+ */
+export async function getSubAccounts(userAddress: string): Promise<Array<{
+  subAccountUser: string;
+  name: string;
+  clearinghouseState: unknown;
+}>> {
+  return httpRequest('/info', {
+    type: 'subAccounts',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get user vault equities
+ */
+export async function getUserVaultEquities(userAddress: string): Promise<Array<{
+  vaultAddress: string;
+  vaultName: string;
+  equity: string;
+}>> {
+  return httpRequest('/info', {
+    type: 'userVaultEquities',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get user referral info
+ */
+export async function getUserReferral(userAddress: string): Promise<{
+  referredBy?: string;
+  cumReferrerRebate: string;
+  cumRefereeDiscount: string;
+  unclaimedRewards: string;
+  referralCode?: string;
+}> {
+  return httpRequest('/info', {
+    type: 'referral',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get TWAP slice fills
+ */
+export async function getUserTwapSliceFills(userAddress: string): Promise<Array<{
+  twapId: number;
+  coin: string;
+  side: string;
+  sz: string;
+  px: string;
+  time: number;
+  fee: string;
+}>> {
+  return httpRequest('/info', {
+    type: 'userTwapSliceFills',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get token details
+ */
+export async function getTokenDetails(tokenId: string): Promise<{
+  name: string;
+  szDecimals: number;
+  weiDecimals: number;
+  fullName?: string;
+  totalSupply?: string;
+  circulatingSupply?: string;
+  markPx?: string;
+} | null> {
+  try {
+    return await httpRequest('/info', {
+      type: 'tokenDetails',
+      tokenId,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get spot metadata with asset contexts
+ */
+export async function getSpotMetaAndAssetCtxs(): Promise<[SpotMeta, Array<{
+  coin: string;
+  markPx: string;
+  midPx: string;
+  prevDayPx: string;
+  dayNtlVlm: string;
+  circulatingSupply: string;
+}>]> {
+  return httpRequest('/info', { type: 'spotMetaAndAssetCtxs' });
+}
+
+/**
+ * Get perps at open interest cap
+ */
+export async function getPerpsAtOpenInterestCap(): Promise<string[]> {
+  return httpRequest('/info', { type: 'perpsAtOpenInterestCap' });
+}
+
+/**
+ * Get active asset data (user's leverage and sizing for a coin)
+ */
+export async function getActiveAssetData(userAddress: string, coin: string): Promise<{
+  leverage: {
+    type: string;
+    value: number;
+    rawUsd: string;
+  };
+  maxTradeSzs: [string, string];
+}> {
+  return httpRequest('/info', {
+    type: 'activeAssetData',
+    user: userAddress,
+    coin,
+  });
+}
+
+/**
+ * Get user staking delegations
+ */
+export async function getDelegations(userAddress: string): Promise<Array<{
+  validator: string;
+  amount: string;
+  lockedUntil?: number;
+}>> {
+  return httpRequest('/info', {
+    type: 'delegations',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get delegator summary
+ */
+export async function getDelegatorSummary(userAddress: string): Promise<{
+  totalDelegated: string;
+  pendingUnlock: string;
+  rewards: string;
+}> {
+  return httpRequest('/info', {
+    type: 'delegatorSummary',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get delegator rewards
+ */
+export async function getDelegatorRewards(userAddress: string): Promise<Array<{
+  time: number;
+  amount: string;
+  validator: string;
+}>> {
+  return httpRequest('/info', {
+    type: 'delegatorRewards',
+    user: userAddress,
+  });
+}
+
 // =============================================================================
 // TRADING ACTIONS (Using Official SDK)
 // =============================================================================
@@ -610,6 +944,98 @@ export async function cancelOrder(
 }
 
 /**
+ * Cancel order by client order ID (cloid)
+ */
+export async function cancelOrderByCloid(
+  config: HyperliquidConfig,
+  coin: string,
+  cloid: string
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ coin, cloid }, '[DRY RUN] Would cancel order by cloid');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.cancelOrderByCloid(coin, cloid);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Modify an existing order
+ */
+export async function modifyOrder(
+  config: HyperliquidConfig,
+  oid: number,
+  order: PerpOrder
+): Promise<OrderResult> {
+  if (config.dryRun) {
+    logger.info({ oid, order }, '[DRY RUN] Would modify order');
+    return { success: true, orderId: oid };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    const tif = order.type === 'MARKET' ? 'Ioc' : order.postOnly ? 'Alo' : 'Gtc';
+
+    await sdk.exchange.modifyOrder(oid, {
+      coin: order.coin,
+      is_buy: order.side === 'BUY',
+      sz: order.size,
+      limit_px: order.price || 0,
+      order_type: { limit: { tif } },
+      reduce_only: order.reduceOnly || false,
+    });
+    return { success: true, orderId: oid };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Batch modify multiple orders
+ */
+export async function batchModifyOrders(
+  config: HyperliquidConfig,
+  modifications: Array<{ oid: number; order: PerpOrder }>
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ count: modifications.length }, '[DRY RUN] Would batch modify orders');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    const modifies = modifications.map(({ oid, order }) => {
+      const tif = (order.type === 'MARKET' ? 'Ioc' : order.postOnly ? 'Alo' : 'Gtc') as 'Ioc' | 'Alo' | 'Gtc';
+      return {
+        oid,
+        order: {
+          coin: order.coin,
+          is_buy: order.side === 'BUY',
+          sz: order.size,
+          limit_px: order.price || 0,
+          order_type: { limit: { tif } },
+          reduce_only: order.reduceOnly || false,
+        },
+      };
+    });
+
+    await sdk.exchange.batchModifyOrders(modifies);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
  * Cancel all orders for a coin
  */
 export async function cancelAllOrders(
@@ -655,6 +1081,54 @@ export async function updateLeverage(
   try {
     const sdk = getSDK(config);
     await sdk.exchange.updateLeverage(coin, isCross ? 'cross' : 'isolated', leverage);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Update isolated margin for a position
+ * @param ntli - Amount in USDC (positive to add, negative to remove)
+ */
+export async function updateIsolatedMargin(
+  config: HyperliquidConfig,
+  coin: string,
+  isBuy: boolean,
+  ntli: number
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ coin, isBuy, ntli }, '[DRY RUN] Would update isolated margin');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.updateIsolatedMargin(coin, isBuy, ntli);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Schedule automatic cancellation of all orders (dead man's switch)
+ * @param time - Unix timestamp in ms (at least 5 seconds in future), or undefined to cancel scheduled
+ */
+export async function scheduleCancel(
+  config: HyperliquidConfig,
+  time?: number
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ time }, '[DRY RUN] Would schedule cancel');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.scheduleCancel(time ?? null);
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -805,6 +1279,165 @@ export async function usdTransfer(
   }
 }
 
+/**
+ * Transfer spot tokens to another wallet
+ */
+export async function spotTransfer(
+  config: HyperliquidConfig,
+  destination: string,
+  token: string,
+  amount: string
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ destination, token, amount }, '[DRY RUN] Would transfer spot');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.spotTransfer(destination, token, amount);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Withdraw USDC to L1 (Arbitrum)
+ */
+export async function withdrawToL1(
+  config: HyperliquidConfig,
+  destination: string,
+  amount: number
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ destination, amount }, '[DRY RUN] Would withdraw to L1');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.initiateWithdrawal(destination, amount);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Approve an agent wallet for API trading
+ */
+export async function approveAgent(
+  config: HyperliquidConfig,
+  agentAddress: string,
+  agentName?: string
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ agentAddress, agentName }, '[DRY RUN] Would approve agent');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.approveAgent({ agentAddress, agentName });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Set maximum builder fee rate
+ */
+export async function approveBuilderFee(
+  config: HyperliquidConfig,
+  builder: string,
+  maxFeeRate: string
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ builder, maxFeeRate }, '[DRY RUN] Would approve builder fee');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.approveBuilderFee({ builder, maxFeeRate });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Set referrer code
+ */
+export async function setReferrer(
+  config: HyperliquidConfig,
+  code: string
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ code }, '[DRY RUN] Would set referrer');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.setReferrer(code);
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Create a subaccount
+ */
+export async function createSubAccount(
+  config: HyperliquidConfig,
+  name: string
+): Promise<{ success: boolean; subAccountUser?: string; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ name }, '[DRY RUN] Would create subaccount');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    const result = await sdk.exchange.createSubAccount(name);
+    // Result contains the new subaccount address
+    return { success: true, subAccountUser: (result as { subAccountUser?: string })?.subAccountUser };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Claim referral rewards
+ */
+export async function claimRewards(
+  config: HyperliquidConfig
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info('[DRY RUN] Would claim rewards');
+    return { success: true };
+  }
+
+  try {
+    const sdk = getSDK(config);
+    await sdk.exchange.claimRewards();
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
 // =============================================================================
 // WEBSOCKET CLIENT
 // =============================================================================
@@ -864,6 +1497,70 @@ export class HyperliquidWebSocket extends EventEmitter {
 
     await this.sdk.subscriptions.subscribeToUserFills(this.config.walletAddress, (data) => {
       this.emit('user', data);
+    });
+  }
+
+  async subscribeOrderUpdates(): Promise<void> {
+    if (!this.sdk || !this.config?.walletAddress) return;
+
+    await this.sdk.subscriptions.subscribeToOrderUpdates(this.config.walletAddress, (data) => {
+      this.emit('orderUpdates', data);
+    });
+  }
+
+  async subscribeUserEvents(): Promise<void> {
+    if (!this.sdk || !this.config?.walletAddress) return;
+
+    await this.sdk.subscriptions.subscribeToUserEvents(this.config.walletAddress, (data) => {
+      this.emit('userEvents', data);
+    });
+  }
+
+  async subscribeUserFundings(): Promise<void> {
+    if (!this.sdk || !this.config?.walletAddress) return;
+
+    await this.sdk.subscriptions.subscribeToUserFundings(this.config.walletAddress, (data) => {
+      this.emit('userFundings', data);
+    });
+  }
+
+  async subscribeCandle(coin: string, interval: string): Promise<void> {
+    if (!this.sdk) return;
+
+    await this.sdk.subscriptions.subscribeToCandle(coin, interval, (data) => {
+      this.emit('candle', { coin, interval, data });
+    });
+  }
+
+  async subscribeBbo(coin: string): Promise<void> {
+    if (!this.sdk) return;
+
+    await this.sdk.subscriptions.subscribeToBbo(coin, (data) => {
+      this.emit('bbo', data);
+    });
+  }
+
+  async subscribeActiveAssetCtx(coin: string): Promise<void> {
+    if (!this.sdk) return;
+
+    await this.sdk.subscriptions.subscribeToActiveAssetCtx(coin, (data) => {
+      this.emit('activeAssetCtx', { coin, data });
+    });
+  }
+
+  async subscribeTwapHistory(): Promise<void> {
+    if (!this.sdk || !this.config?.walletAddress) return;
+
+    await this.sdk.subscriptions.subscribeToUserTwapHistory(this.config.walletAddress, (data) => {
+      this.emit('twapHistory', data);
+    });
+  }
+
+  async subscribeTwapSliceFills(): Promise<void> {
+    if (!this.sdk || !this.config?.walletAddress) return;
+
+    await this.sdk.subscriptions.subscribeToUserTwapSliceFills(this.config.walletAddress, (data) => {
+      this.emit('twapSliceFills', data);
     });
   }
 
