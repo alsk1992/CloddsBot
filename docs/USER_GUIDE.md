@@ -90,6 +90,14 @@ Send these in any supported channel (Telegram, Discord, WebChat, etc.):
 - `/route <market> <side> <size>` - find best execution route
 - `/swap <chain> <from> <to> <amount>` - EVM DEX swap
 
+**Virtuals Protocol (AI Agents):**
+- `/agents <query>` - search AI agents
+- `/agent <token-address>` - get agent details
+- `/trending-agents [limit]` - top agents by volume
+- `/new-agents [limit]` - recently launched agents
+- `/agent-quote <buy|sell> <token> <amount>` - get trade quote
+- `/virtual-balance [address]` - check VIRTUAL balances
+
 **Portfolio & Risk:**
 - `/portfolio` - show positions and P&L
 - `/pnl [24h|7d|30m] [limit=50]` - historical P&L snapshots
@@ -105,6 +113,10 @@ Supported platforms:
 - Polymarket
 - Kalshi
 - Manifold
+- Betfair
+- Smarkets
+- Opinion.trade
+- Virtuals Protocol (AI agents)
 
 These are stored encrypted in the database and loaded at runtime.
 

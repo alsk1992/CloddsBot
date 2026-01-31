@@ -13,6 +13,11 @@ import type { MemoryService } from '../memory/index';
 import type { OpportunityFinder } from '../opportunity/index';
 import { logger } from '../utils/logger';
 import { execApprovals } from '../permissions';
+import * as virtuals from '../evm/virtuals';
+import * as wallet from '../evm/wallet';
+import * as multichain from '../evm/multichain';
+import * as odos from '../evm/odos';
+import * as transfers from '../evm/transfers';
 
 export interface CommandContext {
   session: Session;
@@ -66,6 +71,9 @@ const PLATFORM_NAMES: Platform[] = [
   'predictit',
   'drift',
   'betfair',
+  'smarkets',
+  'opinion',
+  'virtuals',
 ];
 
 function isPlatformName(value: string): value is Platform {
@@ -2904,6 +2912,476 @@ export function createDefaultCommands(): CommandDefinition[] {
             return lines.join('\n');
           }
         }
+      },
+    },
+
+    // =========================================================================
+    // VIRTUALS PROTOCOL COMMANDS
+    // =========================================================================
+    {
+      name: 'agents',
+      description: 'Search AI agents on Virtuals Protocol',
+      usage: '/agents <query>',
+      aliases: ['virtuals'],
+      handler: async (args, ctx) => {
+        if (!args.trim()) {
+          return 'Usage: /agents <query>\nExample: /agents luna\n\nOr use /trending-agents or /new-agents';
+        }
+
+        const agents = await virtuals.searchAgents(args.trim(), 10);
+        if (agents.length === 0) {
+          return `No agents found for "${args}"`;
+        }
+
+        const lines = [`AI Agents matching "${args}"`, ''];
+        for (const agent of agents) {
+          const priceChange = agent.priceChange24h !== undefined
+            ? ` (${agent.priceChange24h >= 0 ? '+' : ''}${(agent.priceChange24h * 100).toFixed(1)}%)`
+            : '';
+          lines.push(`**${agent.name}** ($${agent.symbol})`);
+          lines.push(`  Price: ${agent.price.toFixed(6)} VIRTUAL${priceChange}`);
+          lines.push(`  MCap: $${(agent.marketCap / 1000).toFixed(1)}K | Vol: $${(agent.volume24h / 1000).toFixed(1)}K | Status: ${agent.status}`);
+          lines.push(`  Token: \`${agent.tokenAddress.slice(0, 10)}...${agent.tokenAddress.slice(-6)}\``);
+          lines.push('');
+        }
+
+        return lines.join('\n');
+      },
+    },
+    {
+      name: 'agent',
+      description: 'Get detailed info about an AI agent',
+      usage: '/agent <token-address>',
+      handler: async (args, ctx) => {
+        const tokenAddress = args.trim();
+        if (!tokenAddress || !tokenAddress.startsWith('0x')) {
+          return 'Usage: /agent <token-address>\nExample: /agent 0x1234...';
+        }
+
+        const [apiAgent, tokenInfo] = await Promise.all([
+          virtuals.getAgentByToken(tokenAddress),
+          virtuals.getAgentTokenInfo(tokenAddress).catch(() => null),
+        ]);
+
+        if (!apiAgent && !tokenInfo) {
+          return `Agent not found: ${tokenAddress}`;
+        }
+
+        const lines = [];
+
+        if (apiAgent) {
+          lines.push(`**${apiAgent.name}** ($${apiAgent.symbol})`);
+          lines.push('');
+          lines.push(`Status: ${apiAgent.status.toUpperCase()}`);
+          lines.push(`Price: ${apiAgent.price.toFixed(6)} VIRTUAL`);
+          lines.push(`Market Cap: $${apiAgent.marketCap.toLocaleString()}`);
+          lines.push(`24h Volume: $${apiAgent.volume24h.toLocaleString()}`);
+          lines.push(`Holders: ${apiAgent.holders.toLocaleString()}`);
+          if (apiAgent.description) {
+            lines.push('');
+            lines.push(`Description: ${apiAgent.description.slice(0, 200)}${apiAgent.description.length > 200 ? '...' : ''}`);
+          }
+        }
+
+        if (tokenInfo) {
+          lines.push('');
+          lines.push('--- On-Chain Data ---');
+          lines.push(`Graduated: ${tokenInfo.isGraduated ? 'Yes (trading on Uniswap)' : 'No (bonding curve)'}`);
+
+          if (tokenInfo.bondingCurve) {
+            lines.push(`Progress to Graduation: ${tokenInfo.bondingCurve.progressToGraduation.toFixed(1)}%`);
+            lines.push(`VIRTUAL Reserve: ${parseFloat(tokenInfo.bondingCurve.virtualReserve).toFixed(2)}`);
+            lines.push(`Current Price: ${parseFloat(tokenInfo.bondingCurve.currentPrice).toFixed(8)} VIRTUAL`);
+          }
+
+          if (tokenInfo.uniswapPair) {
+            lines.push(`Uniswap Pair: ${tokenInfo.uniswapPair}`);
+          }
+        }
+
+        lines.push('');
+        lines.push(`Token: ${tokenAddress}`);
+        lines.push(`View: https://app.virtuals.io/agents/${tokenAddress}`);
+
+        return lines.join('\n');
+      },
+    },
+    {
+      name: 'trending-agents',
+      description: 'Show trending AI agents by volume',
+      usage: '/trending-agents [limit]',
+      aliases: ['hot-agents'],
+      handler: async (args, _ctx) => {
+        const limit = Math.min(parseInt(args) || 10, 20);
+        const agents = await virtuals.getTrendingAgents(limit);
+
+        if (agents.length === 0) {
+          return 'No trending agents found.';
+        }
+
+        const lines = ['🔥 Trending AI Agents (by 24h volume)', ''];
+        for (let i = 0; i < agents.length; i++) {
+          const agent = agents[i];
+          const priceChange = agent.priceChange24h !== undefined
+            ? ` ${agent.priceChange24h >= 0 ? '📈' : '📉'}${(agent.priceChange24h * 100).toFixed(1)}%`
+            : '';
+          lines.push(`${i + 1}. **${agent.name}** ($${agent.symbol})${priceChange}`);
+          lines.push(`   Vol: $${(agent.volume24h / 1000).toFixed(1)}K | MCap: $${(agent.marketCap / 1000).toFixed(1)}K`);
+        }
+
+        return lines.join('\n');
+      },
+    },
+    {
+      name: 'new-agents',
+      description: 'Show newly launched AI agents',
+      usage: '/new-agents [limit]',
+      aliases: ['latest-agents'],
+      handler: async (args, _ctx) => {
+        const limit = Math.min(parseInt(args) || 10, 20);
+        const agents = await virtuals.getNewAgents(limit);
+
+        if (agents.length === 0) {
+          return 'No new agents found.';
+        }
+
+        const lines = ['🆕 New AI Agents', ''];
+        for (let i = 0; i < agents.length; i++) {
+          const agent = agents[i];
+          const created = new Date(agent.createdAt).toLocaleDateString();
+          lines.push(`${i + 1}. **${agent.name}** ($${agent.symbol}) - ${agent.status}`);
+          lines.push(`   MCap: $${(agent.marketCap / 1000).toFixed(1)}K | Created: ${created}`);
+        }
+
+        return lines.join('\n');
+      },
+    },
+    {
+      name: 'agent-quote',
+      description: 'Get a quote for buying/selling an AI agent token',
+      usage: '/agent-quote <buy|sell> <token-address> <amount>',
+      handler: async (args, _ctx) => {
+        const parts = args.trim().split(/\s+/);
+        if (parts.length < 3) {
+          return 'Usage: /agent-quote <buy|sell> <token-address> <amount>\nExample: /agent-quote buy 0x1234... 100';
+        }
+
+        const [side, tokenAddress, amountStr] = parts;
+        if (side !== 'buy' && side !== 'sell') {
+          return 'Side must be "buy" or "sell"';
+        }
+        if (!tokenAddress.startsWith('0x')) {
+          return 'Invalid token address';
+        }
+
+        const amount = amountStr;
+
+        try {
+          const quote = await virtuals.getVirtualsQuote({
+            agentToken: tokenAddress,
+            amount,
+            side: side as 'buy' | 'sell',
+            slippageBps: 100,
+          });
+
+          const lines = [
+            `Quote: ${side.toUpperCase()} ${quote.agentToken.symbol}`,
+            '',
+            `Route: ${quote.route === 'bonding' ? 'Bonding Curve' : 'Uniswap V2'}`,
+            `Input: ${quote.inputAmount} ${side === 'buy' ? 'VIRTUAL' : quote.agentToken.symbol}`,
+            `Output: ${quote.outputAmount} ${side === 'buy' ? quote.agentToken.symbol : 'VIRTUAL'}`,
+            `Min Output (1% slippage): ${quote.outputAmountMin}`,
+            `Price Impact: ${quote.priceImpact.toFixed(2)}%`,
+            '',
+            `Current Price: ${quote.currentPrice.toFixed(8)} VIRTUAL`,
+            `New Price: ${quote.newPrice.toFixed(8)} VIRTUAL`,
+          ];
+
+          return lines.join('\n');
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          return `Quote failed: ${message}`;
+        }
+      },
+    },
+    {
+      name: 'virtual-balance',
+      description: 'Check VIRTUAL token balance',
+      usage: '/virtual-balance [address]',
+      handler: async (args, _ctx) => {
+        const address = args.trim() || undefined;
+
+        try {
+          const [virtualBal, veBal] = await Promise.all([
+            virtuals.getVirtualBalance(address),
+            virtuals.getVeVirtualBalance(address).catch(() => '0'),
+          ]);
+
+          const lines = [
+            'VIRTUAL Balances',
+            '',
+            `VIRTUAL: ${parseFloat(virtualBal).toFixed(4)}`,
+            `veVIRTUAL: ${parseFloat(veBal).toFixed(4)}`,
+          ];
+
+          const canCreate = await virtuals.canCreateAgent(address);
+          lines.push('');
+          lines.push(`Can Create Agent: ${canCreate.canCreate ? '✅ Yes' : '❌ No'}`);
+          if (!canCreate.canCreate) {
+            lines.push(`  Need ${canCreate.shortfall} more VIRTUAL (100 required)`);
+          }
+
+          return lines.join('\n');
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          return `Failed to fetch balance: ${message}`;
+        }
+      },
+    },
+
+    // =========================================================================
+    // EVM WALLET COMMANDS
+    // =========================================================================
+    {
+      name: 'wallet',
+      description: 'Manage EVM wallets',
+      usage: '/wallet <create|list|balance> [options]',
+      handler: async (args, _ctx) => {
+        const parts = args.trim().split(/\s+/);
+        const subcommand = parts[0]?.toLowerCase();
+
+        if (!subcommand || subcommand === 'help') {
+          return [
+            'EVM Wallet Commands',
+            '',
+            '/wallet create [name]     - Generate new wallet',
+            '/wallet list              - List saved wallets',
+            '/wallet balance [address] - Check balances across chains',
+            '',
+            'Keys are stored locally in ~/.clodds/wallets/',
+          ].join('\n');
+        }
+
+        if (subcommand === 'create') {
+          const name = parts[1] || undefined;
+          const generated = wallet.generateWallet();
+          return [
+            'New Wallet Generated',
+            '',
+            `Address: ${generated.address}`,
+            `Public Key: ${generated.publicKey.slice(0, 30)}...`,
+            '',
+            '**Save these securely:**',
+            `Private Key: ${generated.privateKey}`,
+            generated.mnemonic ? `Mnemonic: ${generated.mnemonic}` : '',
+            '',
+            'Use /wallet save <password> to encrypt and store',
+          ].filter(Boolean).join('\n');
+        }
+
+        if (subcommand === 'list') {
+          const wallets = wallet.listWallets();
+          if (wallets.length === 0) {
+            return 'No saved wallets. Use /wallet create to generate one.';
+          }
+          const lines = ['Saved Wallets', ''];
+          for (const w of wallets) {
+            lines.push(`- **${w.name}**: ${w.address}`);
+          }
+          return lines.join('\n');
+        }
+
+        if (subcommand === 'balance') {
+          const address = parts[1];
+          if (!address || !wallet.isValidAddress(address)) {
+            return 'Usage: /wallet balance <0x...address>';
+          }
+
+          const result = await multichain.getMultiChainBalances(address);
+          const lines = [`Balances for ${address.slice(0, 10)}...${address.slice(-6)}`, ''];
+
+          for (const chain of result.balances) {
+            const nativeBal = parseFloat(chain.native.balance);
+            if (nativeBal > 0.0001 || chain.tokens.length > 0) {
+              lines.push(`**${chain.chainName}**`);
+              if (nativeBal > 0.0001) {
+                lines.push(`  ${chain.native.symbol}: ${nativeBal.toFixed(6)}`);
+              }
+              for (const token of chain.tokens) {
+                lines.push(`  ${token.symbol}: ${parseFloat(token.balance).toFixed(4)}`);
+              }
+            }
+          }
+
+          if (lines.length === 2) {
+            lines.push('No balances found on any chain');
+          }
+
+          return lines.join('\n');
+        }
+
+        return 'Unknown subcommand. Use /wallet help for options.';
+      },
+    },
+    {
+      name: 'swap',
+      description: 'Swap tokens via Odos aggregator',
+      usage: '/swap <chain> <from> <to> <amount>',
+      handler: async (args, _ctx) => {
+        const parts = args.trim().split(/\s+/);
+        if (parts.length < 4) {
+          return [
+            'Usage: /swap <chain> <from-token> <to-token> <amount>',
+            '',
+            'Chains: ethereum, base, polygon, arbitrum, bsc, optimism, avalanche',
+            '',
+            'Examples:',
+            '  /swap base ETH USDC 0.1',
+            '  /swap polygon MATIC 0x2791... 100',
+            '',
+            'Note: Requires EVM_PRIVATE_KEY environment variable',
+          ].join('\n');
+        }
+
+        const [chainInput, fromToken, toToken, amount] = parts;
+        const chain = multichain.resolveChain(chainInput);
+
+        if (!chain) {
+          return `Unknown chain: ${chainInput}. Supported: ethereum, base, polygon, arbitrum, bsc, optimism, avalanche`;
+        }
+
+        const privateKey = process.env.EVM_PRIVATE_KEY;
+        if (!privateKey) {
+          return 'EVM_PRIVATE_KEY not set. Configure your wallet key to execute swaps.';
+        }
+
+        try {
+          // Get quote first
+          const quote = await odos.getOdosQuote({
+            chain,
+            inputToken: fromToken,
+            outputToken: toToken,
+            amount,
+          });
+
+          return [
+            'Swap Quote (Odos)',
+            '',
+            `Chain: ${multichain.getChainConfig(chain).name}`,
+            `Input: ${quote.inputAmount} ${fromToken}`,
+            `Output: ${quote.outputAmount} ${toToken}`,
+            `Price Impact: ${(quote.priceImpact * 100).toFixed(2)}%`,
+            `Route: ${quote.route.join(' → ') || 'Direct'}`,
+            '',
+            'To execute, use /swap-execute with same params',
+          ].join('\n');
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          return `Quote failed: ${message}`;
+        }
+      },
+    },
+    {
+      name: 'send',
+      description: 'Send ETH or ERC20 tokens',
+      usage: '/send <chain> <to> <amount> [token]',
+      handler: async (args, _ctx) => {
+        const parts = args.trim().split(/\s+/);
+        if (parts.length < 3) {
+          return [
+            'Usage: /send <chain> <to-address> <amount> [token-address]',
+            '',
+            'Examples:',
+            '  /send base 0x123... 0.1                    # Send 0.1 ETH',
+            '  /send polygon 0x123... 100 0x2791...       # Send 100 USDC',
+            '',
+            'Chains: ethereum, base, polygon, arbitrum, bsc, optimism, avalanche',
+            'Note: Requires EVM_PRIVATE_KEY',
+          ].join('\n');
+        }
+
+        const [chainInput, to, amount, tokenAddress] = parts;
+        const chain = multichain.resolveChain(chainInput);
+
+        if (!chain) {
+          return `Unknown chain: ${chainInput}`;
+        }
+
+        if (!transfers.validateAddress(to)) {
+          return `Invalid recipient address: ${to}`;
+        }
+
+        const privateKey = process.env.EVM_PRIVATE_KEY;
+        if (!privateKey) {
+          return 'EVM_PRIVATE_KEY not set. Configure your wallet key first.';
+        }
+
+        try {
+          const config = multichain.getChainConfig(chain);
+
+          if (tokenAddress) {
+            // ERC20 transfer
+            const result = await transfers.sendToken({
+              chain,
+              to,
+              amount,
+              privateKey,
+              tokenAddress,
+            });
+
+            if (result.success) {
+              return [
+                'Token Transfer Sent',
+                '',
+                `Token: ${result.token}`,
+                `Amount: ${result.amount}`,
+                `To: ${result.to}`,
+                `TX: ${config.explorer}/tx/${result.txHash}`,
+              ].join('\n');
+            } else {
+              return `Transfer failed: ${result.error}`;
+            }
+          } else {
+            // Native transfer
+            const result = await transfers.sendNative({
+              chain,
+              to,
+              amount,
+              privateKey,
+            });
+
+            if (result.success) {
+              return [
+                'Transfer Sent',
+                '',
+                `Amount: ${result.amount} ${config.nativeCurrency.symbol}`,
+                `To: ${result.to}`,
+                `TX: ${config.explorer}/tx/${result.txHash}`,
+              ].join('\n');
+            } else {
+              return `Transfer failed: ${result.error}`;
+            }
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          return `Transfer failed: ${message}`;
+        }
+      },
+    },
+    {
+      name: 'chains',
+      description: 'List supported EVM chains',
+      usage: '/chains',
+      handler: async (_args, _ctx) => {
+        const lines = ['Supported EVM Chains', ''];
+        for (const [key, config] of Object.entries(multichain.CHAINS)) {
+          lines.push(`**${config.name}** (${key})`);
+          lines.push(`  Chain ID: ${config.chainId}`);
+          lines.push(`  Native: ${config.nativeCurrency.symbol}`);
+          lines.push(`  Explorer: ${config.explorer}`);
+          lines.push('');
+        }
+        return lines.join('\n');
       },
     },
   ];

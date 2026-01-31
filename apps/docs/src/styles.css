@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Code block syntax highlighting base */
+pre code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Consolas', monospace;
+}
+
+/* Smooth scroll for anchor links */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Active nav item highlight */
+.nav-active {
+  @apply bg-blue-50 text-blue-700 border-l-2 border-blue-600;
+}
+
+/* Prose styles for documentation content */
+.prose h1 {
+  @apply text-3xl font-bold text-gray-900 mb-4;
+}
+
+.prose h2 {
+  @apply text-2xl font-semibold text-gray-800 mt-8 mb-3;
+}
+
+.prose h3 {
+  @apply text-xl font-medium text-gray-700 mt-6 mb-2;
+}
+
+.prose p {
+  @apply text-gray-600 leading-relaxed mb-4;
+}
+
+.prose ul {
+  @apply list-disc list-inside space-y-1 mb-4;
+}
+
+.prose ol {
+  @apply list-decimal list-inside space-y-1 mb-4;
+}
+
+.prose table {
+  @apply w-full border-collapse mb-4;
+}
+
+.prose th {
+  @apply bg-gray-100 text-left px-4 py-2 font-medium text-gray-700 border border-gray-200;
+}
+
+.prose td {
+  @apply px-4 py-2 border border-gray-200 text-gray-600;
+}
+
+/* Alert/callout styles */
+.alert-info {
+  @apply bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r;
+}
+
+.alert-warning {
+  @apply bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-r;
+}
+
+.alert-success {
+  @apply bg-green-50 border-l-4 border-green-500 p-4 rounded-r;
+}
+
+.alert-danger {
+  @apply bg-red-50 border-l-4 border-red-500 p-4 rounded-r;
+}
