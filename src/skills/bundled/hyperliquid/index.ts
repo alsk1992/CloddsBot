@@ -391,6 +391,209 @@ async function handlePoints(): Promise<string> {
 }
 
 // =============================================================================
+// NEW HANDLERS
+// =============================================================================
+
+async function handleCandles(coin: string, interval?: string): Promise<string> {
+  const tf = (interval as '1m' | '5m' | '15m' | '1h' | '4h' | '1d') || '1h';
+  const candles = await hl.getCandles(coin.toUpperCase(), tf);
+
+  if (candles.length === 0) {
+    return `No candle data for ${coin}`;
+  }
+
+  const lines = [
+    `**${coin.toUpperCase()} Candles (${tf})**`,
+    '',
+    'Time | Open | High | Low | Close | Vol',
+    '--- | --- | --- | --- | --- | ---',
+  ];
+
+  for (const c of candles.slice(-10)) {
+    const time = new Date(c.time).toLocaleTimeString();
+    lines.push(`${time} | ${c.open.toFixed(2)} | ${c.high.toFixed(2)} | ${c.low.toFixed(2)} | ${c.close.toFixed(2)} | ${formatNumber(c.volume)}`);
+  }
+
+  return lines.join('\n');
+}
+
+async function handlePerp(action?: string, ...args: string[]): Promise<string> {
+  const config = getConfig();
+
+  if (action === 'buy' || action === 'sell' || action === 'long' || action === 'short') {
+    if (!config) {
+      return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+    }
+
+    const [coin, size, price] = args;
+    if (!coin || !size) {
+      return `Usage: /hl perp ${action} <coin> <size> [price]`;
+    }
+
+    const side = (action === 'buy' || action === 'long') ? 'BUY' : 'SELL';
+    const result = await hl.placePerpOrder(config, {
+      coin: coin.toUpperCase(),
+      side,
+      size: parseFloat(size),
+      price: price ? parseFloat(price) : undefined,
+      type: price ? 'LIMIT' : 'MARKET',
+    });
+
+    if (result.success) {
+      return `Perp ${action} order placed (ID: ${result.orderId})`;
+    }
+    return `Order failed: ${result.error}`;
+  }
+
+  if (action === 'cancel') {
+    if (!config) {
+      return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+    }
+
+    const [coin, oid] = args;
+    if (!coin || !oid) {
+      return 'Usage: /hl perp cancel <coin> <orderId>';
+    }
+
+    const result = await hl.cancelOrder(config, coin.toUpperCase(), parseInt(oid));
+    if (result.success) {
+      return `Order ${oid} cancelled`;
+    }
+    return `Cancel failed: ${result.error}`;
+  }
+
+  return [
+    '**Hyperliquid Perp Commands**',
+    '',
+    '/hl perp long <coin> <size> [price]   - Open long',
+    '/hl perp short <coin> <size> [price]  - Open short',
+    '/hl perp cancel <coin> <orderId>      - Cancel order',
+  ].join('\n');
+}
+
+async function handleLeverage(coin?: string, leverage?: string): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+  }
+
+  if (!coin || !leverage) {
+    return 'Usage: /hl leverage <coin> <leverage>\nExample: /hl leverage BTC 10';
+  }
+
+  const lev = parseInt(leverage);
+  if (lev < 1 || lev > 50) {
+    return 'Leverage must be between 1 and 50';
+  }
+
+  const result = await hl.updateLeverage(config, coin.toUpperCase(), lev);
+  if (result.success) {
+    return `Leverage for ${coin.toUpperCase()} set to ${lev}x`;
+  }
+  return `Failed: ${result.error}`;
+}
+
+async function handleBorrowLend(): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    // Show reserves without auth
+    const reserves = await hl.getAllBorrowLendReserves();
+
+    if (!reserves || reserves.length === 0) {
+      return 'Borrow/Lend not available or no reserves found';
+    }
+
+    const lines = ['**Hyperliquid Borrow/Lend Reserves**', ''];
+    for (const r of reserves) {
+      lines.push(`**${r.token}**`);
+      lines.push(`  Deposit APY: ${parseFloat(r.depositApy).toFixed(2)}%`);
+      lines.push(`  Borrow APY: ${parseFloat(r.borrowApy).toFixed(2)}%`);
+      lines.push(`  Utilization: ${(parseFloat(r.utilizationRate) * 100).toFixed(1)}%`);
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  const [reserves, userState] = await Promise.all([
+    hl.getAllBorrowLendReserves(),
+    hl.getBorrowLendState(config.walletAddress),
+  ]);
+
+  const lines = ['**Hyperliquid Borrow/Lend**', ''];
+
+  if (userState.deposits.length > 0) {
+    lines.push('**Your Deposits:**');
+    for (const d of userState.deposits) {
+      lines.push(`  ${d.token}: ${d.amount} (${d.apy}% APY)`);
+    }
+    lines.push('');
+  }
+
+  if (userState.borrows.length > 0) {
+    lines.push('**Your Borrows:**');
+    for (const b of userState.borrows) {
+      lines.push(`  ${b.token}: ${b.amount} (${b.apy}% APY)`);
+    }
+    lines.push(`Health Factor: ${userState.healthFactor.toFixed(2)}`);
+    lines.push('');
+  }
+
+  if (reserves && reserves.length > 0) {
+    lines.push('**Available Reserves:**');
+    for (const r of reserves.slice(0, 5)) {
+      lines.push(`  ${r.token}: Deposit ${parseFloat(r.depositApy).toFixed(2)}% / Borrow ${parseFloat(r.borrowApy).toFixed(2)}%`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+async function handleFees(): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+  }
+
+  const [fees, rateLimit] = await Promise.all([
+    hl.getUserFees(config.walletAddress),
+    hl.getUserRateLimit(config.walletAddress),
+  ]);
+
+  return [
+    '**Your Hyperliquid Fees & Limits**',
+    '',
+    `Maker Fee: ${(fees.makerRate * 100).toFixed(4)}%`,
+    `Taker Fee: ${(fees.takerRate * 100).toFixed(4)}%`,
+    `30d Volume: $${formatNumber(fees.volume30d)}`,
+    '',
+    '**Rate Limits:**',
+    `  Requests Used: ${rateLimit.nRequestsUsed}/${rateLimit.nRequestsCap}`,
+    `  Cumulative Volume: $${formatNumber(rateLimit.cumVlm)}`,
+  ].join('\n');
+}
+
+async function handleHistory(): Promise<string> {
+  const config = getConfig();
+  if (!config) {
+    return 'HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY required';
+  }
+
+  const orders = await hl.getHistoricalOrders(config.walletAddress);
+
+  if (orders.length === 0) {
+    return 'No order history found';
+  }
+
+  const lines = ['**Recent Orders**', ''];
+  for (const o of orders.slice(0, 10)) {
+    const time = new Date(o.timestamp).toLocaleString();
+    lines.push(`${o.coin} ${o.side} ${o.sz} @ $${o.limitPx} - ${o.status} (${time})`);
+  }
+
+  return lines.join('\n');
+}
+
+// =============================================================================
 // MAIN HANDLER
 // =============================================================================
 
@@ -445,6 +648,30 @@ export const skill = {
         case 'points':
           return handlePoints();
 
+        case 'candles':
+        case 'chart':
+          if (!parts[1]) return 'Usage: /hl candles <coin> [1m|5m|15m|1h|4h|1d]';
+          return handleCandles(parts[1], parts[2]);
+
+        case 'perp':
+        case 'trade':
+          return handlePerp(parts[1], ...parts.slice(2));
+
+        case 'leverage':
+        case 'lev':
+          return handleLeverage(parts[1], parts[2]);
+
+        case 'lend':
+        case 'borrow':
+          return handleBorrowLend();
+
+        case 'fees':
+          return handleFees();
+
+        case 'history':
+        case 'orders':
+          return handleHistory();
+
         case 'help':
         default:
           return [
@@ -453,12 +680,18 @@ export const skill = {
             '/hl stats              - HLP TVL, APR, funding rates',
             '/hl markets [query]    - List perp/spot markets',
             '/hl book <coin>        - Show orderbook',
+            '/hl candles <coin>     - OHLCV candle data',
             '/hl balance            - Your positions & balances',
-            '/hl hlp [deposit|withdraw] [amount] - HLP vault',
-            '/hl leaderboard [day|week|month]',
-            '/hl spot [markets|buy|sell]',
-            '/hl twap [buy|sell|cancel]',
-            '/hl points             - Your points breakdown',
+            '/hl perp [long|short]  - Place perp orders',
+            '/hl leverage <coin> <x> - Set leverage',
+            '/hl hlp [deposit|withdraw] - HLP vault',
+            '/hl spot [buy|sell]    - Spot trading',
+            '/hl twap [buy|sell]    - TWAP orders',
+            '/hl lend               - Borrow/lend rates',
+            '/hl fees               - Your fee tier',
+            '/hl history            - Order history',
+            '/hl leaderboard        - Top traders',
+            '/hl points             - Points breakdown',
           ].join('\n');
       }
     } catch (error) {

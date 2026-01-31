@@ -701,6 +701,566 @@ export async function withdrawFromHlp(
 }
 
 // =============================================================================
+// ADDITIONAL INFO ENDPOINTS
+// =============================================================================
+
+/**
+ * Get candle/OHLCV data
+ */
+export async function getCandles(
+  coin: string,
+  interval: '1m' | '5m' | '15m' | '1h' | '4h' | '1d',
+  startTime?: number,
+  endTime?: number
+): Promise<Array<{
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}>> {
+  const data = await httpRequest<Array<{
+    t: number;
+    o: string;
+    h: string;
+    l: string;
+    c: string;
+    v: string;
+  }>>('/info', {
+    type: 'candleSnapshot',
+    coin,
+    interval,
+    startTime: startTime || Date.now() - 24 * 60 * 60 * 1000,
+    endTime: endTime || Date.now(),
+  });
+
+  return data.map(c => ({
+    time: c.t,
+    open: parseFloat(c.o),
+    high: parseFloat(c.h),
+    low: parseFloat(c.l),
+    close: parseFloat(c.c),
+    volume: parseFloat(c.v),
+  }));
+}
+
+/**
+ * Get order status by order ID or client order ID
+ */
+export async function getOrderStatus(
+  userAddress: string,
+  oid?: number,
+  cloid?: string
+): Promise<{
+  status: 'open' | 'filled' | 'canceled' | 'rejected';
+  filledSz: string;
+  avgPx: string;
+} | null> {
+  const data = await httpRequest<{
+    status: string;
+    order?: {
+      order: { origSz: string; limitPx: string };
+      status: string;
+      statusTimestamp: number;
+    };
+  }>('/info', {
+    type: 'orderStatus',
+    user: userAddress,
+    oid,
+    cloid,
+  });
+
+  if (!data.order) return null;
+
+  return {
+    status: data.order.status as 'open' | 'filled' | 'canceled' | 'rejected',
+    filledSz: data.order.order.origSz,
+    avgPx: data.order.order.limitPx,
+  };
+}
+
+/**
+ * Get user rate limit status
+ */
+export async function getUserRateLimit(userAddress: string): Promise<{
+  cumVlm: number;
+  nRequestsUsed: number;
+  nRequestsCap: number;
+}> {
+  const data = await httpRequest<{
+    cumVlm: string;
+    nRequestsUsed: number;
+    nRequestsCap: number;
+  }>('/info', {
+    type: 'userRateLimit',
+    user: userAddress,
+  });
+
+  return {
+    cumVlm: parseFloat(data.cumVlm),
+    nRequestsUsed: data.nRequestsUsed,
+    nRequestsCap: data.nRequestsCap,
+  };
+}
+
+/**
+ * Get historical orders
+ */
+export async function getHistoricalOrders(userAddress: string): Promise<Array<{
+  coin: string;
+  side: string;
+  limitPx: string;
+  sz: string;
+  oid: number;
+  timestamp: number;
+  status: string;
+}>> {
+  return httpRequest('/info', {
+    type: 'historicalOrders',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get sub-accounts
+ */
+export async function getSubAccounts(userAddress: string): Promise<Array<{
+  name: string;
+  subAccountUser: string;
+  master: string;
+  clearinghouseState: unknown;
+}>> {
+  return httpRequest('/info', {
+    type: 'subAccounts',
+    user: userAddress,
+  });
+}
+
+/**
+ * Get user fee schedule
+ */
+export async function getUserFees(userAddress: string): Promise<{
+  makerRate: number;
+  takerRate: number;
+  volume30d: number;
+  vipTier: number;
+}> {
+  const data = await httpRequest<{
+    userCrossRate: string;
+    userAddRate: string;
+    activeReferralDiscount: string;
+    trial30dVolume?: string;
+  }>('/info', {
+    type: 'userFees',
+    user: userAddress,
+  });
+
+  return {
+    makerRate: parseFloat(data.userAddRate),
+    takerRate: parseFloat(data.userCrossRate),
+    volume30d: parseFloat(data.trial30dVolume || '0'),
+    vipTier: 0, // Derived from volume
+  };
+}
+
+/**
+ * Get borrow/lend user state (HIP-2)
+ */
+export async function getBorrowLendState(userAddress: string): Promise<{
+  deposits: Array<{ token: string; amount: string; apy: string }>;
+  borrows: Array<{ token: string; amount: string; apy: string }>;
+  healthFactor: number;
+}> {
+  const data = await httpRequest<{
+    deposits: Array<{ token: string; amount: string; apy: string }>;
+    borrows: Array<{ token: string; amount: string; apy: string }>;
+    marginRatio?: string;
+  }>('/info', {
+    type: 'borrowLendUserState',
+    user: userAddress,
+  });
+
+  return {
+    deposits: data.deposits || [],
+    borrows: data.borrows || [],
+    healthFactor: data.marginRatio ? parseFloat(data.marginRatio) : 999,
+  };
+}
+
+/**
+ * Get all borrow/lend reserve states
+ */
+export async function getAllBorrowLendReserves(): Promise<Array<{
+  token: string;
+  totalDeposits: string;
+  totalBorrows: string;
+  depositApy: string;
+  borrowApy: string;
+  utilizationRate: string;
+}>> {
+  return httpRequest('/info', {
+    type: 'allBorrowLendReserveStates',
+  });
+}
+
+// =============================================================================
+// ADDITIONAL EXCHANGE ACTIONS
+// =============================================================================
+
+/**
+ * Modify an existing order
+ */
+export async function modifyOrder(
+  config: HyperliquidConfig,
+  oid: number,
+  coin: string,
+  newPrice: number,
+  newSize: number,
+  isBuy: boolean
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ oid, newPrice, newSize }, '[DRY RUN] Would modify order');
+    return { success: true };
+  }
+
+  const perpMeta = await getPerpMeta();
+  const asset = perpMeta.universe.find(a => a.name === coin);
+  if (!asset) {
+    return { success: false, error: `Unknown asset: ${coin}` };
+  }
+
+  const assetIndex = perpMeta.universe.indexOf(asset);
+  const nonce = Date.now();
+
+  const action = {
+    type: 'modify',
+    oid,
+    order: {
+      a: assetIndex,
+      b: isBuy,
+      p: String(newPrice),
+      s: String(newSize),
+      r: false,
+      t: { limit: { tif: 'Gtc' } },
+    },
+  };
+
+  const signature = signL1Action(action, nonce, config.privateKey);
+
+  try {
+    await httpRequest('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Cancel order by client order ID
+ */
+export async function cancelByCloid(
+  config: HyperliquidConfig,
+  coin: string,
+  cloid: string
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ coin, cloid }, '[DRY RUN] Would cancel order by cloid');
+    return { success: true };
+  }
+
+  const perpMeta = await getPerpMeta();
+  const asset = perpMeta.universe.find(a => a.name === coin);
+  if (!asset) {
+    return { success: false, error: `Unknown asset: ${coin}` };
+  }
+
+  const assetIndex = perpMeta.universe.indexOf(asset);
+  const nonce = Date.now();
+
+  const action = {
+    type: 'cancelByCloid',
+    cancels: [{ asset: assetIndex, cloid }],
+  };
+
+  const signature = signL1Action(action, nonce, config.privateKey);
+
+  try {
+    await httpRequest('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Update leverage for a coin
+ */
+export async function updateLeverage(
+  config: HyperliquidConfig,
+  coin: string,
+  leverage: number,
+  isCross: boolean = true
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ coin, leverage, isCross }, '[DRY RUN] Would update leverage');
+    return { success: true };
+  }
+
+  const perpMeta = await getPerpMeta();
+  const asset = perpMeta.universe.find(a => a.name === coin);
+  if (!asset) {
+    return { success: false, error: `Unknown asset: ${coin}` };
+  }
+
+  const assetIndex = perpMeta.universe.indexOf(asset);
+  const nonce = Date.now();
+
+  const action = {
+    type: 'updateLeverage',
+    asset: assetIndex,
+    isCross,
+    leverage,
+  };
+
+  const signature = signL1Action(action, nonce, config.privateKey);
+
+  try {
+    await httpRequest('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Update isolated margin for a position
+ */
+export async function updateIsolatedMargin(
+  config: HyperliquidConfig,
+  coin: string,
+  amount: number // positive to add, negative to remove
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ coin, amount }, '[DRY RUN] Would update isolated margin');
+    return { success: true };
+  }
+
+  const perpMeta = await getPerpMeta();
+  const asset = perpMeta.universe.find(a => a.name === coin);
+  if (!asset) {
+    return { success: false, error: `Unknown asset: ${coin}` };
+  }
+
+  const assetIndex = perpMeta.universe.indexOf(asset);
+  const nonce = Date.now();
+
+  const action = {
+    type: 'updateIsolatedMargin',
+    asset: assetIndex,
+    isBuy: true, // Direction of position
+    ntli: Math.round(amount * 1e6), // Convert to integer
+  };
+
+  const signature = signL1Action(action, nonce, config.privateKey);
+
+  try {
+    await httpRequest('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Schedule cancel all orders (dead man's switch)
+ * Set time to null to disable
+ */
+export async function scheduleCancel(
+  config: HyperliquidConfig,
+  timeMs: number | null
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ timeMs }, '[DRY RUN] Would schedule cancel');
+    return { success: true };
+  }
+
+  const nonce = Date.now();
+  const action = {
+    type: 'scheduleCancel',
+    time: timeMs,
+  };
+
+  const signature = signL1Action(action, nonce, config.privateKey);
+
+  try {
+    await httpRequest('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Cancel order by order ID
+ */
+export async function cancelOrder(
+  config: HyperliquidConfig,
+  coin: string,
+  oid: number
+): Promise<{ success: boolean; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ coin, oid }, '[DRY RUN] Would cancel order');
+    return { success: true };
+  }
+
+  const perpMeta = await getPerpMeta();
+  const asset = perpMeta.universe.find(a => a.name === coin);
+  if (!asset) {
+    return { success: false, error: `Unknown asset: ${coin}` };
+  }
+
+  const assetIndex = perpMeta.universe.indexOf(asset);
+  const nonce = Date.now();
+
+  const action = {
+    type: 'cancel',
+    cancels: [{ a: assetIndex, o: oid }],
+  };
+
+  const signature = signL1Action(action, nonce, config.privateKey);
+
+  try {
+    await httpRequest('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Place perp order (limit or market)
+ */
+export async function placePerpOrder(
+  config: HyperliquidConfig,
+  order: {
+    coin: string;
+    side: 'BUY' | 'SELL';
+    size: number;
+    price?: number;
+    type?: 'LIMIT' | 'MARKET';
+    reduceOnly?: boolean;
+    postOnly?: boolean;
+    clientOrderId?: string;
+  }
+): Promise<{ success: boolean; orderId?: number; error?: string }> {
+  if (config.dryRun) {
+    logger.info({ order }, '[DRY RUN] Would place Hyperliquid perp order');
+    return { success: true, orderId: Date.now() };
+  }
+
+  const perpMeta = await getPerpMeta();
+  const asset = perpMeta.universe.find(a => a.name === order.coin);
+  if (!asset) {
+    return { success: false, error: `Unknown asset: ${order.coin}` };
+  }
+
+  const assetIndex = perpMeta.universe.indexOf(asset);
+  const nonce = Date.now();
+
+  // Get price for market orders
+  let price = order.price;
+  if (!price || order.type === 'MARKET') {
+    const mids = await getAllMids();
+    const mid = parseFloat(mids[order.coin] || '0');
+    price = order.side === 'BUY' ? mid * 1.01 : mid * 0.99;
+  }
+
+  const tif = order.type === 'MARKET' ? 'Ioc' : order.postOnly ? 'Alo' : 'Gtc';
+
+  const orderWire = {
+    a: assetIndex,
+    b: order.side === 'BUY',
+    p: String(price),
+    s: String(order.size),
+    r: order.reduceOnly || false,
+    t: { limit: { tif } },
+    c: order.clientOrderId,
+  };
+
+  const action = {
+    type: 'order',
+    orders: [orderWire],
+    grouping: 'na',
+  };
+
+  const signature = signL1Action(action, nonce, config.privateKey);
+
+  try {
+    const result = await httpRequest<{
+      status: string;
+      response?: {
+        data?: {
+          statuses: Array<{ resting?: { oid: number }; filled?: { oid: number }; error?: string }>;
+        };
+      };
+    }>('/exchange', {
+      action,
+      nonce,
+      signature: { r: signature.r, s: signature.s, v: signature.v },
+      vaultAddress: null,
+    });
+
+    const status = result.response?.data?.statuses?.[0];
+    if (status?.error) {
+      return { success: false, error: status.error };
+    }
+
+    const orderId = status?.resting?.oid || status?.filled?.oid;
+    return { success: true, orderId };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+}
+
+// =============================================================================
 // WEBSOCKET CLIENT
 // =============================================================================
 
