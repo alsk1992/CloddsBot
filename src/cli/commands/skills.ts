@@ -3,6 +3,7 @@
  *
  * Commands:
  * - clodds skills list - List installed skills
+ * - clodds skills list --verbose - Show detailed info (requirements, commands)
  * - clodds skills search <query> - Search registry
  * - clodds skills install <slug> - Install a skill
  * - clodds skills update [slug] - Update skill(s)
@@ -10,11 +11,13 @@
  * - clodds skills info <slug> - Show skill details
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { createSkillsManager, createSkillsRegistry } from '../../skills/index';
 import type { Skill, InstalledSkill, RegistrySkill } from '../../skills/index';
 
 export interface SkillsCommands {
-  list(): void;
+  list(options?: { verbose?: boolean }): void;
   search(query: string, options?: { tags?: string[]; limit?: number }): Promise<void>;
   install(slug: string, options?: { force?: boolean }): Promise<void>;
   update(slug?: string): Promise<void>;
@@ -23,17 +26,68 @@ export interface SkillsCommands {
   checkUpdates(): Promise<void>;
 }
 
+interface SkillFrontmatter {
+  name?: string;
+  description?: string;
+  emoji?: string;
+  commands?: string[];
+  gates?: {
+    bins?: string[];
+    envs?: string[] | { anyOf?: string[]; allOf?: string[] };
+  };
+}
+
+/** Parse YAML frontmatter from SKILL.md content */
+function parseFrontmatter(content: string): SkillFrontmatter {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return {};
+
+  const yaml = match[1];
+  const result: SkillFrontmatter = {};
+
+  for (const line of yaml.split('\n')) {
+    const colonIdx = line.indexOf(':');
+    if (colonIdx === -1) continue;
+
+    const key = line.slice(0, colonIdx).trim();
+    let value = line.slice(colonIdx + 1).trim();
+
+    // Remove quotes
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+
+    if (key === 'name') result.name = value;
+    else if (key === 'description') result.description = value;
+    else if (key === 'emoji') result.emoji = value;
+  }
+
+  return result;
+}
+
+/** Get skill metadata from SKILL.md file */
+function getSkillMeta(skillPath: string): SkillFrontmatter {
+  try {
+    const content = fs.readFileSync(skillPath, 'utf-8');
+    return parseFrontmatter(content);
+  } catch {
+    return {};
+  }
+}
+
 export function createSkillsCommands(): SkillsCommands {
   const manager = createSkillsManager({});
   const registry = createSkillsRegistry({});
 
   /** Format skill for display */
-  function formatSkill(skill: Skill | InstalledSkill): string {
+  function formatSkill(skill: Skill | InstalledSkill, meta?: SkillFrontmatter): string {
     const status = 'eligible' in skill
-      ? (skill.eligible ? '✅' : '❌')
-      : '📦';
-    const version = 'version' in skill ? ` v${skill.version}` : '';
-    return `${status} ${skill.name}${version}`;
+      ? (skill.eligible ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m')
+      : '\x1b[36m○\x1b[0m';
+    const emoji = meta?.emoji ? `${meta.emoji} ` : '';
+    const version = 'version' in skill ? ` \x1b[90mv${skill.version}\x1b[0m` : '';
+    return `${status} ${emoji}\x1b[1m${skill.name}\x1b[0m${version}`;
   }
 
   /** Format registry skill */
@@ -44,8 +98,8 @@ export function createSkillsCommands(): SkillsCommands {
   }
 
   return {
-    list() {
-      console.log('\n📦 Installed Skills\n');
+    list(options = {}) {
+      console.log('\n\x1b[1m📦 Installed Skills\x1b[0m\n');
 
       // Load local skills
       manager.load();
@@ -68,19 +122,62 @@ export function createSkillsCommands(): SkillsCommands {
       }
 
       for (const [source, sourceSkills] of Object.entries(bySource)) {
-        console.log(`\n${source.toUpperCase()}:`);
+        const sourceLabel = source === 'bundled' ? '📦 BUNDLED' : source === 'managed' ? '🔧 MANAGED' : `📁 ${source.toUpperCase()}`;
+        console.log(`\x1b[1m${sourceLabel}\x1b[0m`);
+
         for (const skill of sourceSkills) {
-          console.log(`  ${formatSkill(skill)}`);
+          // Get metadata from SKILL.md if available
+          const skillMdPath = skill.directory ? path.join(skill.directory, 'SKILL.md') : null;
+          const meta = skillMdPath && fs.existsSync(skillMdPath) ? getSkillMeta(skillMdPath) : {};
+
+          console.log(`  ${formatSkill(skill, meta)}`);
+
           if (skill.description) {
-            console.log(`    ${skill.description}`);
+            console.log(`     \x1b[90m${skill.description}\x1b[0m`);
           }
+
+          if (options.verbose) {
+            // Show required environment variables
+            if (meta.gates?.envs) {
+              const envs = Array.isArray(meta.gates.envs)
+                ? meta.gates.envs
+                : meta.gates.envs.anyOf || meta.gates.envs.allOf || [];
+              if (envs.length > 0) {
+                const envStatus = envs.map(env => {
+                  const set = !!process.env[env];
+                  return set ? `\x1b[32m${env}\x1b[0m` : `\x1b[31m${env}\x1b[0m`;
+                }).join(', ');
+                console.log(`     \x1b[90mRequires:\x1b[0m ${envStatus}`);
+              }
+            }
+
+            // Show commands from SKILL.md
+            if (meta.commands && meta.commands.length > 0) {
+              console.log(`     \x1b[90mCommands:\x1b[0m ${meta.commands.join(', ')}`);
+            }
+          }
+
           if (!skill.eligible && skill.ineligibleReason) {
-            console.log(`    ⚠️  ${skill.ineligibleReason}`);
+            console.log(`     \x1b[33m⚠ ${skill.ineligibleReason}\x1b[0m`);
           }
         }
+        console.log('');
       }
 
-      console.log(`\nTotal: ${skills.length} skills (${manager.getEligible().length} eligible)\n`);
+      // Summary
+      const eligible = manager.getEligible().length;
+      const total = skills.length;
+      const status = eligible === total
+        ? `\x1b[32mAll ${total} skills eligible\x1b[0m`
+        : `\x1b[33m${eligible}/${total} skills eligible\x1b[0m`;
+
+      console.log(status);
+
+      if (!options.verbose) {
+        console.log('\x1b[90mRun with --verbose for detailed requirements\x1b[0m\n');
+      } else {
+        console.log('');
+      }
     },
 
     async search(query, options = {}) {

@@ -69,6 +69,7 @@ export PUMPPORTAL_API_KEY="your-api-key"
 
 | Option | Description |
 |--------|-------------|
+| `--preset <name>` | Apply a saved preset |
 | `--wallets <id1,id2>` | Use specific wallets only |
 | `--slippage <bps>` | Slippage tolerance (default: 500 = 5%) |
 | `--pool <pool>` | Pool: pump, raydium, auto |
@@ -82,11 +83,17 @@ export PUMPPORTAL_API_KEY="your-api-key"
 # Buy with specific wallets only
 /swarm buy ABC123mint... 0.2 --wallets wallet_0,wallet_1
 
+# Buy with a preset
+/swarm buy ABC123mint... 0.1 --preset stealth
+
 # Sell 100% with multiple Jito bundles (for >5 wallets)
 /swarm sell ABC123mint... 100% --multi-bundle
 
 # Sell 50% with staggered timing (stealth mode)
 /swarm sell ABC123mint... 50% --sequential
+
+# Sell with preset
+/swarm sell ABC123mint... 100% --preset fast
 
 # Check positions before selling
 /swarm refresh ABC123mint...
@@ -154,18 +161,22 @@ export PUMPPORTAL_API_KEY="your-api-key"
 | `SOLANA_RPC_URL` | Custom RPC endpoint (faster = better) |
 | `PUMPPORTAL_API_KEY` | PumpPortal API key (optional, for trading) |
 
-## Agent Tools (8)
+## Agent Tools (12)
 
 | Tool | Description |
 |------|-------------|
 | `swarm_wallets` | List all swarm wallets |
 | `swarm_balances` | Refresh SOL balances from chain |
-| `swarm_buy` | Coordinated buy across wallets |
-| `swarm_sell` | Coordinated sell across wallets |
+| `swarm_buy` | Coordinated buy across wallets (supports `preset` param) |
+| `swarm_sell` | Coordinated sell across wallets (supports `preset` param) |
 | `swarm_position` | Get cached positions |
 | `swarm_refresh` | Fetch fresh positions from chain |
 | `swarm_enable` | Enable a wallet |
 | `swarm_disable` | Disable a wallet |
+| `swarm_preset_save` | Save a trading preset |
+| `swarm_preset_list` | List saved presets |
+| `swarm_preset_get` | Get preset details |
+| `swarm_preset_delete` | Delete a preset |
 
 ## Scaling Notes
 
@@ -174,6 +185,76 @@ export PUMPPORTAL_API_KEY="your-api-key"
 - **Multi-bundle parallel:** All bundles submit simultaneously
 - **RPC recommendation:** Use dedicated RPC for best performance
 - **Tip amount:** 10,000 lamports per bundle (~$0.002)
+
+## Presets
+
+Save and reuse trading configurations across tokens and strategies.
+
+### Preset Commands
+
+```bash
+/swarm preset save <name> [options]   Save a preset
+/swarm preset list [type]             List presets
+/swarm preset show <name>             Show preset details
+/swarm preset delete <name>           Delete a preset
+```
+
+### Preset Save Options
+
+| Option | Description |
+|--------|-------------|
+| `--type <type>` | Preset type: strategy, token, wallet_group |
+| `--desc "..."` | Preset description |
+| `--mint <addr>` | Token address (for token presets) |
+| `--amount <sol>` | Default SOL per wallet |
+| `--slippage <bps>` | Slippage in basis points |
+| `--pool <pool>` | Pool: pump, raydium, auto |
+| `--mode <mode>` | parallel, bundle, multi-bundle, sequential |
+| `--wallets <ids>` | Wallet IDs (for wallet_group presets) |
+
+### Built-in Presets
+
+| Name | Mode | Slippage | Pool | Use Case |
+|------|------|----------|------|----------|
+| `fast` | parallel | 5% | auto | Speed priority |
+| `atomic` | multi-bundle | 5% | auto | All-or-nothing execution |
+| `stealth` | sequential | 3% | auto | Pattern avoidance |
+| `aggressive` | parallel | 10% | pump | High volatility tokens |
+| `safe` | bundle | 2% | auto | Conservative trading |
+
+### Preset Examples
+
+```bash
+# Create a custom strategy preset
+/swarm preset save my_stealth --type strategy --mode sequential --slippage 300
+
+# Create a token preset for BONK
+/swarm preset save bonk_entry --type token --mint DezXAZ... --slippage 1000 --amount 0.1
+
+# Create a wallet group preset
+/swarm preset save top5 --type wallet_group --wallets wallet_0,wallet_1,wallet_2,wallet_3,wallet_4
+
+# List all presets
+/swarm preset list
+
+# List only strategy presets
+/swarm preset list strategy
+
+# Use preset in trade
+/swarm buy ABC... 0.1 --preset my_stealth
+/swarm sell ABC... 100% --preset fast
+
+# Delete a preset
+/swarm preset delete old_preset
+```
+
+### Preset Types
+
+| Type | Purpose |
+|------|---------|
+| `strategy` | Reusable trading settings (mode, slippage, pool) |
+| `token` | Token-specific settings with saved mint address |
+| `wallet_group` | Named wallet combinations for specific trades |
 
 ## Troubleshooting
 
@@ -184,3 +265,4 @@ export PUMPPORTAL_API_KEY="your-api-key"
 | Insufficient balance | Check with `/swarm balances` |
 | Slow execution | Use dedicated RPC via `SOLANA_RPC_URL` |
 | Some wallets skipped | Wallet disabled or insufficient balance |
+| Preset not found | Check name with `/swarm preset list` |

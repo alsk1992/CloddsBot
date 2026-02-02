@@ -62,6 +62,160 @@ const IDENTITY_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)',
 ];
 
+// =============================================================================
+// INDEXER - Event-based owner->agentId mapping
+// =============================================================================
+
+interface IndexerCache {
+  ownerToAgents: Map<string, Set<number>>;
+  agentToOwner: Map<number, string>;
+  lastBlock: number;
+  lastUpdate: number;
+}
+
+const indexerCaches = new Map<string, IndexerCache>();
+const CACHE_TTL_MS = 60000; // 1 minute cache
+const BATCH_SIZE = 10000; // Blocks per query batch
+
+/**
+ * Build or update the owner->agent index by scanning Transfer events
+ */
+async function buildOwnerIndex(
+  provider: ethers.JsonRpcProvider,
+  contract: ethers.Contract,
+  network: string,
+  forceRefresh = false
+): Promise<IndexerCache> {
+  const cacheKey = `${network}:${ERC8004_CONTRACTS.identity}`;
+  const existing = indexerCaches.get(cacheKey);
+  const now = Date.now();
+
+  // Return cached if fresh enough
+  if (existing && !forceRefresh && (now - existing.lastUpdate) < CACHE_TTL_MS) {
+    return existing;
+  }
+
+  const cache: IndexerCache = existing || {
+    ownerToAgents: new Map(),
+    agentToOwner: new Map(),
+    lastBlock: 0,
+    lastUpdate: 0,
+  };
+
+  try {
+    const currentBlock = await provider.getBlockNumber();
+    const startBlock = cache.lastBlock > 0 ? cache.lastBlock + 1 : 0;
+
+    // If we're caught up, just update timestamp and return
+    if (startBlock >= currentBlock) {
+      cache.lastUpdate = now;
+      indexerCaches.set(cacheKey, cache);
+      return cache;
+    }
+
+    logger.debug(
+      { network, startBlock, currentBlock, cacheKey },
+      'ERC-8004: Building owner index'
+    );
+
+    // Query Transfer events in batches
+    const transferFilter = contract.filters.Transfer();
+
+    for (let fromBlock = startBlock; fromBlock <= currentBlock; fromBlock += BATCH_SIZE) {
+      const toBlock = Math.min(fromBlock + BATCH_SIZE - 1, currentBlock);
+
+      try {
+        const events = await contract.queryFilter(transferFilter, fromBlock, toBlock);
+
+        for (const event of events) {
+          const log = event as ethers.Log & { args?: { from: string; to: string; tokenId: bigint } };
+          if (!log.args) continue;
+
+          const { from, to, tokenId } = log.args;
+          const agentId = Number(tokenId);
+
+          // Remove from previous owner
+          if (from !== ethers.ZeroAddress) {
+            const fromLower = from.toLowerCase();
+            const prevSet = cache.ownerToAgents.get(fromLower);
+            if (prevSet) {
+              prevSet.delete(agentId);
+              if (prevSet.size === 0) {
+                cache.ownerToAgents.delete(fromLower);
+              }
+            }
+          }
+
+          // Add to new owner (if not burn)
+          if (to !== ethers.ZeroAddress) {
+            const toLower = to.toLowerCase();
+            let ownerSet = cache.ownerToAgents.get(toLower);
+            if (!ownerSet) {
+              ownerSet = new Set();
+              cache.ownerToAgents.set(toLower, ownerSet);
+            }
+            ownerSet.add(agentId);
+            cache.agentToOwner.set(agentId, toLower);
+          } else {
+            // Burn - remove from agentToOwner
+            cache.agentToOwner.delete(agentId);
+          }
+        }
+
+        logger.debug(
+          { fromBlock, toBlock, eventsProcessed: events.length },
+          'ERC-8004: Processed transfer events batch'
+        );
+      } catch (error) {
+        // Some RPCs may not support large ranges, reduce batch and retry
+        logger.warn({ error, fromBlock, toBlock }, 'ERC-8004: Error querying events, will retry with smaller batch');
+        break;
+      }
+    }
+
+    cache.lastBlock = currentBlock;
+    cache.lastUpdate = now;
+    indexerCaches.set(cacheKey, cache);
+
+    logger.info(
+      { network, totalOwners: cache.ownerToAgents.size, totalAgents: cache.agentToOwner.size },
+      'ERC-8004: Owner index built'
+    );
+
+    return cache;
+  } catch (error) {
+    logger.error({ error, network }, 'ERC-8004: Failed to build owner index');
+    // Return existing cache if available, even if stale
+    return cache;
+  }
+}
+
+/**
+ * Get all agent IDs owned by an address (from index)
+ */
+async function getAgentIdsByOwner(
+  provider: ethers.JsonRpcProvider,
+  contract: ethers.Contract,
+  network: string,
+  owner: string
+): Promise<number[]> {
+  const cache = await buildOwnerIndex(provider, contract, network);
+  const agentSet = cache.ownerToAgents.get(owner.toLowerCase());
+  return agentSet ? Array.from(agentSet) : [];
+}
+
+/**
+ * Clear indexer cache for testing
+ */
+export function clearIndexerCache(network?: string): void {
+  if (network) {
+    const cacheKey = `${network}:${ERC8004_CONTRACTS.identity}`;
+    indexerCaches.delete(cacheKey);
+  } else {
+    indexerCaches.clear();
+  }
+}
+
 const REPUTATION_ABI = [
   // Feedback
   'function giveFeedback(uint256 agentId, uint8 score, bytes32 tag1, bytes32 tag2, string fileuri, bytes32 filehash, bytes feedbackAuth) external',
@@ -131,6 +285,7 @@ export interface ERC8004Client {
   // Lookup
   getAgent(agentId: number): Promise<AgentIdentity | null>;
   getAgentByOwner(owner: string): Promise<AgentIdentity | null>;
+  getAgentsByOwner(owner: string): Promise<AgentIdentity[]>;
   verifyOwnership(agentId: number, expectedOwner: string): Promise<boolean>;
 
   // Reputation
@@ -142,6 +297,9 @@ export interface ERC8004Client {
 
   // Stats
   getTotalAgents(): Promise<number>;
+
+  // Indexer control
+  refreshIndex(): Promise<void>;
 }
 
 export function createERC8004Client(
@@ -250,18 +408,50 @@ export function createERC8004Client(
 
     async getAgentByOwner(owner: string) {
       try {
-        // Check if owner has any agents
+        // First check if owner has any agents (fast balanceOf check)
         const balance = await identityContract.balanceOf(owner);
-        if (balance === 0n) return null;
+        if (balance === BigInt(0)) return null;
 
-        // Unfortunately ERC-721 doesn't have a direct owner->tokenId lookup
-        // We'd need to iterate or use an indexer. For now, return null
-        // In production, use The Graph or similar indexer
-        logger.debug({ owner }, 'getAgentByOwner requires indexer - not implemented');
-        return null;
+        // Use the event-based indexer to find agent IDs for this owner
+        const agentIds = await getAgentIdsByOwner(provider, identityContract, network, owner);
+
+        if (agentIds.length === 0) {
+          // Index might be stale, try rebuilding
+          await buildOwnerIndex(provider, identityContract, network, true);
+          const refreshedIds = await getAgentIdsByOwner(provider, identityContract, network, owner);
+          if (refreshedIds.length === 0) {
+            logger.debug({ owner }, 'No agents found for owner after index refresh');
+            return null;
+          }
+          // Return the first agent
+          return this.getAgent(refreshedIds[0]);
+        }
+
+        // Return the first agent (most users have one)
+        return this.getAgent(agentIds[0]);
       } catch (error) {
         logger.debug({ error, owner }, 'Failed to get agent by owner');
         return null;
+      }
+    },
+
+    async getAgentsByOwner(owner: string): Promise<AgentIdentity[]> {
+      try {
+        const balance = await identityContract.balanceOf(owner);
+        if (balance === BigInt(0)) return [];
+
+        const agentIds = await getAgentIdsByOwner(provider, identityContract, network, owner);
+        const agents: AgentIdentity[] = [];
+
+        for (const agentId of agentIds) {
+          const agent = await this.getAgent(agentId);
+          if (agent) agents.push(agent);
+        }
+
+        return agents;
+      } catch (error) {
+        logger.debug({ error, owner }, 'Failed to get agents by owner');
+        return [];
       }
     },
 
@@ -347,7 +537,7 @@ export function createERC8004Client(
 
           // Check if this address owns any tokens
           const balance = await identityContract.balanceOf(address);
-          if (balance === 0n) {
+          if (balance === BigInt(0)) {
             return {
               verified: false,
               error: `Address ${address} has no registered agent identity`,
@@ -398,6 +588,14 @@ export function createERC8004Client(
       } catch {
         return 0;
       }
+    },
+
+    // =========================================================================
+    // INDEXER CONTROL
+    // =========================================================================
+
+    async refreshIndex() {
+      await buildOwnerIndex(provider, identityContract, network, true);
     },
   };
 }

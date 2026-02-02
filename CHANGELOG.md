@@ -5,6 +5,40 @@ All notable changes to Clodds will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-02
+
+### Added
+
+#### Agent Commerce Protocol (ACP)
+Complete agent-to-agent commerce system:
+- **Registry** (`src/acp/registry.ts`) - Agent/service registration, reputation tracking
+- **Agreements** (`src/acp/agreement.ts`) - Cryptographic proof-of-agreement with Ed25519 signatures
+- **Escrow** (`src/acp/escrow.ts`) - On-chain SOL escrow with buyer/seller/arbiter roles
+- **Discovery** (`src/acp/discovery.ts`) - AI-scored service matching (relevance, reputation, price, availability)
+- **Identity** (`src/acp/identity.ts`) - @handles, takeover bids, referrals (5% fee sharing), profiles, leaderboards
+- **Predictions** (`src/acp/predictions.ts`) - Forecast tracking with Brier scores, prediction leaderboard
+- **Persistence** (`src/acp/persistence.ts`) - SQLite storage with migrations 13-14
+- 39+ new agent tools (`acp_*`)
+- Full documentation in `docs/ACP.md`
+
+#### New Handlers
+- `src/agents/handlers/acp.ts` - ACP tool handlers
+- `src/agents/handlers/arbitrage.ts` - Arbitrage execution handlers
+- `src/agents/handlers/credentials.ts` - Credential management
+- `src/agents/handlers/markets.ts` - Market data handlers
+- `src/agents/handlers/paper-trading.ts` - Paper trading simulation
+- `src/agents/handlers/polymarket.ts` - Polymarket-specific handlers
+- `src/agents/handlers/wallets.ts` - Wallet management
+
+#### Opportunity Scoring
+- Enhanced scoring algorithm in `src/opportunity/scoring.ts`
+- Correlation-based patterns in `src/opportunity/correlation.ts`
+
+#### Other
+- Futures execution module (`src/execution/futures.ts`)
+- Predict.fun feed integration (`src/feeds/predictfun/`)
+- Quick start guide (`docs/QUICK_START.md`)
+
 ## [0.2.1] - 2026-02-02
 
 ### Security

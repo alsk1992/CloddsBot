@@ -254,6 +254,40 @@ const DEFAULT_PAIRING_CONFIG: PairingConfig = {
 export function createPairingService(db: Database, configInput?: PairingConfig): PairingService {
   const config: PairingConfig = { ...DEFAULT_PAIRING_CONFIG, ...configInput };
 
+  // Self-create tables on init (no migrations required)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS pairing_requests (
+      code TEXT PRIMARY KEY,
+      channel TEXT NOT NULL,
+      userId TEXT NOT NULL,
+      username TEXT,
+      createdAt TEXT NOT NULL,
+      expiresAt TEXT NOT NULL
+    )
+  `);
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_pairing_channel
+    ON pairing_requests(channel)
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS paired_users (
+      channel TEXT NOT NULL,
+      userId TEXT NOT NULL,
+      username TEXT,
+      pairedAt TEXT NOT NULL,
+      pairedBy TEXT NOT NULL,
+      isOwner INTEGER DEFAULT 0,
+      PRIMARY KEY (channel, userId)
+    )
+  `);
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_paired_channel
+    ON paired_users(channel)
+  `);
+
   // In-memory cache (also persisted to DB)
   const pendingRequests = new Map<string, PairingRequest>(); // code -> request
   const pairedUsers = new Map<string, PairedUser>(); // `${channel}:${userId}` -> user

@@ -21,6 +21,7 @@ import type { Config, IncomingMessage, OutgoingMessage, ReactionMessage, PollMes
 import { createServer as createHttpGatewayServer } from './server';
 import { createDatabase } from '../db';
 import { createMigrationRunner } from '../db/migrations';
+import { initACP } from '../acp';
 import { createFeedManager } from '../feeds';
 import { createSessionManager } from '../sessions';
 import { createAgentManager } from '../agents';
@@ -40,7 +41,7 @@ import { createOpportunityFinder, type OpportunityFinder } from '../opportunity'
 import { createWhaleTracker, type WhaleTracker } from '../feeds/polymarket/whale-tracker';
 import { createCopyTradingService, type CopyTradingService } from '../trading/copy-trading';
 import { createSmartRouter, type SmartRouter } from '../execution/smart-router';
-import { createExecutionService, type ExecutionService } from '../execution';
+import { createExecutionService, type ExecutionService, createFuturesExecutionService, type FuturesExecutionService } from '../execution';
 import { createRealtimeAlertsService, connectWhaleTracker, connectOpportunityFinder, type RealtimeAlertsService } from '../alerts';
 import { createOpportunityExecutor, type OpportunityExecutor } from '../opportunity/executor';
 import chokidar, { FSWatcher } from 'chokidar';
@@ -48,6 +49,7 @@ import path from 'path';
 import { loadConfig, CONFIG_FILE } from '../utils/config';
 import { configureHttpClient } from '../utils/http';
 import { normalizeIncomingMessage } from '../messages/unified';
+import { setupShutdownHandlers, onShutdown, trackError } from '../utils/production';
 
 // =============================================================================
 // TYPES
@@ -403,6 +405,10 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     logger.error({ error }, 'Database migration failed');
     throw error;
   }
+
+  // Initialize ACP (Agent Commerce Protocol) with database
+  initACP(db);
+
   let feeds = await createFeedManager(config.feeds);
   const sessions = createSessionManager(db, config.session);
   const memory = createMemoryService(db);
@@ -426,7 +432,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   const commands = createCommandRegistry();
   commands.registerMany(createDefaultCommands());
 
-  const httpGateway = createHttpGatewayServer(config.gateway, webhookManager);
+  const httpGateway = createHttpGatewayServer(config.gateway, webhookManager, db);
 
   let channels: Awaited<ReturnType<typeof createChannelManager>> | null = null;
   const watchers: FSWatcher[] = [];
@@ -475,10 +481,14 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   if (config.trading?.enabled) {
     const poly = config.trading.polymarket;
     const kalshi = config.trading.kalshi;
+    const opinionCfg = config.trading.opinion;
     const hasPolymarketCreds = poly?.address && poly?.apiKey && poly?.apiSecret && poly?.apiPassphrase;
     const hasKalshiCreds = kalshi?.apiKeyId && kalshi?.privateKeyPem;
+    const hasOpinionCreds = opinionCfg?.apiKey && opinionCfg?.privateKey && opinionCfg?.vaultAddress;
+    const predictfunCfg = config.trading?.predictfun;
+    const hasPredictFunCreds = !!predictfunCfg?.privateKey;
 
-    if (hasPolymarketCreds || hasKalshiCreds) {
+    if (hasPolymarketCreds || hasKalshiCreds || hasOpinionCreds || hasPredictFunCreds) {
       executionService = createExecutionService({
         polymarket: hasPolymarketCreds ? {
           address: poly!.address,
@@ -491,6 +501,18 @@ export async function createGateway(config: Config): Promise<AppGateway> {
           apiKeyId: kalshi!.apiKeyId,
           privateKeyPem: kalshi!.privateKeyPem,
         } : undefined,
+        opinion: hasOpinionCreds ? {
+          apiKey: opinionCfg!.apiKey,
+          privateKey: opinionCfg!.privateKey,
+          multiSigAddress: opinionCfg!.vaultAddress,
+          rpcUrl: opinionCfg!.rpcUrl,
+        } : undefined,
+        predictfun: hasPredictFunCreds ? {
+          privateKey: predictfunCfg!.privateKey,
+          predictAccount: predictfunCfg!.predictAccount,
+          rpcUrl: predictfunCfg!.rpcUrl,
+          apiKey: predictfunCfg!.apiKey,
+        } : undefined,
         maxOrderSize: config.trading.maxOrderSize ?? 1000,
         dryRun: config.trading.dryRun ?? false,
       });
@@ -498,9 +520,61 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         dryRun: config.trading.dryRun ?? false,
         polymarket: !!hasPolymarketCreds,
         kalshi: !!hasKalshiCreds,
+        opinion: !!hasOpinionCreds,
+        predictfun: !!hasPredictFunCreds,
       }, 'Execution service initialized');
     } else {
       logger.warn('Trading enabled but no platform credentials configured');
+    }
+  }
+
+  // Create futures execution service (for perps trading)
+  let futuresService: FuturesExecutionService | null = null;
+  if (config.futures?.enabled) {
+    const binanceCfg = config.futures.binance;
+    const bybitCfg = config.futures.bybit;
+    const mexcCfg = config.futures.mexc;
+    const hyperliquidCfg = config.futures.hyperliquid;
+
+    const hasBinance = !!binanceCfg?.apiKey && !!binanceCfg?.secretKey;
+    const hasBybit = !!bybitCfg?.apiKey && !!bybitCfg?.secretKey;
+    const hasMexc = !!mexcCfg?.apiKey && !!mexcCfg?.secretKey;
+    const hasHyperliquid = !!hyperliquidCfg?.privateKey;
+
+    if (hasBinance || hasBybit || hasMexc || hasHyperliquid) {
+      futuresService = createFuturesExecutionService({
+        binance: hasBinance ? {
+          apiKey: binanceCfg!.apiKey,
+          secretKey: binanceCfg!.secretKey,
+          testnet: binanceCfg!.testnet,
+        } : undefined,
+        bybit: hasBybit ? {
+          apiKey: bybitCfg!.apiKey,
+          secretKey: bybitCfg!.secretKey,
+          testnet: bybitCfg!.testnet,
+        } : undefined,
+        mexc: hasMexc ? {
+          apiKey: mexcCfg!.apiKey,
+          secretKey: mexcCfg!.secretKey,
+        } : undefined,
+        hyperliquid: hasHyperliquid ? {
+          privateKey: hyperliquidCfg!.privateKey,
+          vaultAddress: hyperliquidCfg!.vaultAddress,
+          testnet: hyperliquidCfg!.testnet,
+        } : undefined,
+        defaultLeverage: config.futures.defaultLeverage ?? 10,
+        maxPositionSize: config.futures.maxPositionSize ?? 10000,
+        dryRun: config.futures.dryRun ?? false,
+      });
+      logger.info({
+        dryRun: config.futures.dryRun ?? false,
+        binance: hasBinance,
+        bybit: hasBybit,
+        mexc: hasMexc,
+        hyperliquid: hasHyperliquid,
+      }, 'Futures execution service initialized');
+    } else {
+      logger.warn('Futures trading enabled but no exchange credentials configured');
     }
   }
 
@@ -843,7 +917,8 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     createPoll,
     memory,
     getConfig,
-    () => webhookTool
+    () => webhookTool,
+    executionService
   );
 
   webhookTool = createWebhookTool({
@@ -951,7 +1026,8 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         createPoll,
         memory,
         getConfig,
-        () => webhookTool
+        () => webhookTool,
+        executionService
       );
 
       channels = await createChannelManager(
@@ -1507,6 +1583,25 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   return {
     async start(): Promise<void> {
       logger.info('Starting gateway services');
+
+      // Setup graceful shutdown handlers
+      setupShutdownHandlers();
+
+      // Register shutdown cleanup
+      onShutdown(async () => {
+        logger.info('Shutting down gateway services');
+        if (whaleTracker) whaleTracker.stop();
+        if (copyTrading) copyTrading.stop();
+        if (realtimeAlerts) realtimeAlerts.stop();
+        if (arbitrageExecutor) arbitrageExecutor.stop();
+        if (cronService) await cronService.stop();
+        if (monitoring) monitoring.stop();
+        providerHealth?.stop();
+        await feeds.stop();
+        if (channels) await channels.stop();
+        await httpGateway.stop();
+        db.close();
+      });
 
       await httpGateway.start();
 

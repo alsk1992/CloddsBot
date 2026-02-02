@@ -14,7 +14,8 @@ import { EventEmitter } from 'eventemitter3';
 import { logger } from '../utils/logger';
 import type { Platform } from '../types';
 import type { ExecutionService, OrderResult } from '../execution/index';
-import type { WhaleTracker, WhaleTrade, WhalePosition } from '../feeds/polymarket/whale-tracker';
+import type { WhaleTracker, WhaleTrade, WhalePosition, MarketCategory, CategoryPerformance } from '../feeds/polymarket/whale-tracker';
+import { detectMarketCategory } from '../feeds/polymarket/whale-tracker';
 import { hasIdentity, verifyAgent, type VerificationResult } from '../identity/erc8004';
 
 // =============================================================================
@@ -52,6 +53,16 @@ export interface CopyTradingConfig {
   enabledPlatforms?: Platform[];
   /** Dry run mode (default: true) */
   dryRun?: boolean;
+
+  // Win Rate Filtering
+  /** Minimum overall win rate % to copy (default: 0 = any) */
+  minWinRate?: number;
+  /** Minimum win rate % per category to copy (default: 55) */
+  minCategoryWinRate?: number;
+  /** Minimum trades in category before applying category filter (default: 5) */
+  minCategoryTrades?: number;
+  /** Categories to exclude from copying */
+  excludedCategories?: MarketCategory[];
 
   // ERC-8004 Identity Verification
   /** Require ERC-8004 verified identity to copy (default: false) */
@@ -126,6 +137,11 @@ const DEFAULT_CONFIG: Required<CopyTradingConfig> = {
   excludedMarkets: [],
   enabledPlatforms: ['polymarket', 'kalshi'],
   dryRun: true,
+  // Win Rate Filtering
+  minWinRate: 0,
+  minCategoryWinRate: 55,
+  minCategoryTrades: 5,
+  excludedCategories: [],
   // ERC-8004 Identity Verification
   requireVerifiedIdentity: false,
   minReputationScore: 0,
@@ -152,6 +168,15 @@ export function createCopyTradingService(
   const monitoringIntervals = new Map<string, NodeJS.Timeout>();
   const MONITOR_INTERVAL_MS = 5000; // Check prices every 5 seconds
 
+  // Whale performance tracking by category
+  interface WhalePerformance {
+    address: string;
+    overallWinRate: number;
+    overallTrades: number;
+    byCategory: Map<MarketCategory, { wins: number; losses: number; trades: number; winRate: number }>;
+  }
+  const whalePerformance = new Map<string, WhalePerformance>();
+
   // Stats
   const stats: CopyTradingStats = {
     totalCopied: 0,
@@ -162,6 +187,89 @@ export function createCopyTradingService(
     openPositions: 0,
     followedAddresses: followedAddresses.size,
   };
+
+  // ==========================================================================
+  // WHALE PERFORMANCE TRACKING
+  // ==========================================================================
+
+  function getOrCreateWhalePerformance(address: string): WhalePerformance {
+    let perf = whalePerformance.get(address);
+    if (!perf) {
+      perf = {
+        address,
+        overallWinRate: 0,
+        overallTrades: 0,
+        byCategory: new Map(),
+      };
+      whalePerformance.set(address, perf);
+    }
+    return perf;
+  }
+
+  function updateWhalePerformance(address: string, category: MarketCategory, won: boolean): void {
+    const perf = getOrCreateWhalePerformance(address);
+
+    // Update overall stats
+    perf.overallTrades++;
+
+    // Update category stats
+    let catStats = perf.byCategory.get(category);
+    if (!catStats) {
+      catStats = { wins: 0, losses: 0, trades: 0, winRate: 0 };
+      perf.byCategory.set(category, catStats);
+    }
+
+    catStats.trades++;
+    if (won) {
+      catStats.wins++;
+    } else {
+      catStats.losses++;
+    }
+    catStats.winRate = catStats.trades > 0 ? (catStats.wins / catStats.trades) * 100 : 0;
+
+    // Recalculate overall win rate
+    let totalWins = 0;
+    let totalTrades = 0;
+    for (const cat of perf.byCategory.values()) {
+      totalWins += cat.wins;
+      totalTrades += cat.trades;
+    }
+    perf.overallWinRate = totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0;
+  }
+
+  function checkWhaleWinRate(address: string, category: MarketCategory): { pass: boolean; reason?: string } {
+    const perf = whalePerformance.get(address);
+
+    // If no performance data, allow (will be tracked going forward)
+    if (!perf) {
+      return { pass: true };
+    }
+
+    // Check overall win rate if configured
+    if (cfg.minWinRate > 0 && perf.overallTrades >= 10) {
+      if (perf.overallWinRate < cfg.minWinRate) {
+        return {
+          pass: false,
+          reason: `whale_overall_winrate_low (${perf.overallWinRate.toFixed(1)}% < ${cfg.minWinRate}%)`,
+        };
+      }
+    }
+
+    // Check category win rate if configured
+    if (cfg.minCategoryWinRate > 0) {
+      const catStats = perf.byCategory.get(category);
+      if (catStats && catStats.trades >= cfg.minCategoryTrades) {
+        if (catStats.winRate < cfg.minCategoryWinRate) {
+          return {
+            pass: false,
+            reason: `whale_${category}_winrate_low (${catStats.winRate.toFixed(1)}% < ${cfg.minCategoryWinRate}% on ${catStats.trades} trades)`,
+          };
+        }
+      }
+    }
+
+    return { pass: true };
+  }
 
   // ==========================================================================
   // SIZING CALCULATION
@@ -197,6 +305,7 @@ export function createCopyTradingService(
 
   function shouldCopy(trade: WhaleTrade): { copy: boolean; reason?: string } {
     // Check if address is followed
+    const whaleAddress = followedAddresses.has(trade.maker) ? trade.maker : trade.taker;
     if (!followedAddresses.has(trade.maker) && !followedAddresses.has(trade.taker)) {
       return { copy: false, reason: 'address_not_followed' };
     }
@@ -209,6 +318,20 @@ export function createCopyTradingService(
     // Check excluded markets
     if (cfg.excludedMarkets.includes(trade.marketId)) {
       return { copy: false, reason: 'market_excluded' };
+    }
+
+    // Detect category from market question
+    const category = trade.category || detectMarketCategory(trade.marketQuestion || '');
+
+    // Check excluded categories
+    if (cfg.excludedCategories.includes(category)) {
+      return { copy: false, reason: `category_excluded (${category})` };
+    }
+
+    // Check whale win rate (overall and by category)
+    const winRateCheck = checkWhaleWinRate(whaleAddress, category);
+    if (!winRateCheck.pass) {
+      return { copy: false, reason: winRateCheck.reason };
     }
 
     // Check if we already have max position in this market
@@ -505,9 +628,18 @@ export function createCopyTradingService(
         ? closedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / closedTrades.length
         : 0;
 
+      // Track whale performance by category
+      const whaleAddress = followedAddresses.has(position.originalTrade.maker)
+        ? position.originalTrade.maker
+        : position.originalTrade.taker;
+      const category = position.originalTrade.category ||
+        detectMarketCategory(position.originalTrade.marketQuestion || '');
+      const won = pnl > 0;
+      updateWhalePerformance(whaleAddress, category, won);
+
       logger.info(
-        { tradeId, reason, pnl, exitPrice, entryPrice: position.entryPrice },
-        'Position closed'
+        { tradeId, reason, pnl, exitPrice, entryPrice: position.entryPrice, whaleAddress, category, won },
+        'Position closed - whale performance updated'
       );
 
       emitter.emit('positionClosed', position, pnl);

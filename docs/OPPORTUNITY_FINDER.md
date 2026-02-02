@@ -455,3 +455,259 @@ const result = await scanCombinatorialArbitrage(feeds, {
 | topic | TEXT | election_2024, bitcoin, fed_rates, etc. |
 | market_ids_json | TEXT | Markets in cluster |
 | avg_similarity | REAL | Average pairwise similarity |
+
+## Cross-Asset Correlation Arbitrage
+
+Find mispriced markets based on logical and statistical correlations between assets.
+
+### Overview
+
+Markets often have relationships that aren't reflected in their pricing:
+- If "Trump wins presidency" is 60%, then "Republican wins presidency" should be ≥ 60%
+- If "BTC hits $100k" moves, "ETH hits $5k" often follows within minutes
+- "Harris wins" and "Trump wins" are mutually exclusive (can't both be > 50%)
+
+The correlation finder detects these relationships and alerts when prices violate them.
+
+### Correlation Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `identical` | Same underlying event | "Fed raises rates" on Polymarket vs Kalshi |
+| `implies` | A implies B (P(A) ≤ P(B)) | "Trump wins" → "Republican wins" |
+| `mutually_exclusive` | Both can't happen (P(A) + P(B) ≤ 1) | "Biden wins" vs "Trump wins" |
+| `time_shifted` | Correlated with lag (arbitrage window) | BTC price leads ETH by ~60s |
+| `partial` | Statistical correlation (not logical) | Crypto prices tend to move together |
+
+### Quick Start
+
+```typescript
+import { createCorrelationFinder } from './opportunity/correlation';
+
+const corrFinder = createCorrelationFinder(feeds, db, {
+  minCorrelation: 0.7,
+  maxLagSeconds: 300,
+  minMispricingPct: 2.0,
+});
+
+// Scan for correlation arbitrage
+const opportunities = await corrFinder.scan();
+
+// Real-time alerts
+corrFinder.on('mispricing', (opp) => {
+  console.log(`Mispricing: ${opp.marketA.question} vs ${opp.marketB.question}`);
+  console.log(`Expected: ${opp.expectedPrice}, Actual: ${opp.actualPrice}`);
+  console.log(`Edge: ${opp.edgePct}%`);
+});
+
+await corrFinder.startMonitoring();
+```
+
+### Built-in Correlation Rules
+
+The system includes pre-configured rules for common relationships:
+
+#### Political Implications
+```typescript
+// Candidate → Party
+"Trump wins" implies "Republican wins"
+"Harris wins" implies "Democrat wins"
+"Biden wins" implies "Democrat wins"
+
+// State → National (strong states)
+"Trump wins Florida" implies "Trump wins presidency" (partial)
+```
+
+#### Crypto Time-Shifts
+```typescript
+// BTC leads other crypto (60-120s typical lag)
+"BTC up 5%" → "ETH up" (corr: 0.85, lag: 60-120s)
+"BTC up 5%" → "SOL up" (corr: 0.75, lag: 90-180s)
+
+// Major events propagate
+"Coinbase lists X" → "X price up" (lag: varies)
+```
+
+#### Mutual Exclusions
+```typescript
+// Same race
+"Biden wins 2024" + "Trump wins 2024" ≤ 1.0
+"Harris wins" + "Trump wins" + "Other wins" = 1.0 (exhaustive)
+```
+
+### Configuration
+
+```typescript
+interface CorrelationConfig {
+  // Minimum correlation coefficient to consider
+  minCorrelation?: number;  // default: 0.6
+
+  // Maximum lag for time-shifted correlations (seconds)
+  maxLagSeconds?: number;  // default: 300
+
+  // Minimum mispricing to alert
+  minMispricingPct?: number;  // default: 1.5
+
+  // Window for calculating correlations
+  correlationWindowMs?: number;  // default: 3600000 (1 hour)
+
+  // Custom rules to add
+  customRules?: CorrelationRule[];
+
+  // Categories to scan (default: all)
+  categories?: string[];
+}
+```
+
+### Custom Rules
+
+Add your own correlation rules:
+
+```typescript
+const finder = createCorrelationFinder(feeds, db, {
+  customRules: [
+    {
+      type: 'implies',
+      marketA: { pattern: /SpaceX.*launch/i },
+      marketB: { pattern: /Starship.*success/i },
+      description: 'SpaceX launch implies Starship program',
+    },
+    {
+      type: 'time_shifted',
+      marketA: { category: 'crypto', asset: 'BTC' },
+      marketB: { category: 'crypto', asset: 'DOGE' },
+      lagRangeSeconds: [120, 600],
+      minCorrelation: 0.65,
+    },
+    {
+      type: 'mutually_exclusive',
+      markets: [
+        { pattern: /Biden wins 2024/i },
+        { pattern: /Trump wins 2024/i },
+        { pattern: /Third party wins 2024/i },
+      ],
+      sumConstraint: 1.0,  // exhaustive
+    },
+  ],
+});
+```
+
+### API Reference
+
+#### createCorrelationFinder(feeds, db, config?)
+
+Creates a correlation finder instance.
+
+**Parameters:**
+- `feeds` - FeedManager instance for market data
+- `db` - Database instance for persistence
+- `config` - CorrelationConfig options
+
+**Returns:** CorrelationFinder
+
+#### finder.scan(options?)
+
+Scan for correlation-based arbitrage opportunities.
+
+**Options:**
+- `categories` - Categories to scan
+- `minEdge` - Minimum edge % to include
+- `limit` - Max results
+
+**Returns:** `Promise<CorrelationOpportunity[]>`
+
+#### finder.addRule(rule)
+
+Add a custom correlation rule.
+
+#### finder.getCorrelationMatrix(category?)
+
+Get correlation coefficients between markets.
+
+**Returns:** `Map<string, Map<string, number>>`
+
+#### finder.startMonitoring()
+
+Start real-time correlation monitoring.
+
+#### finder.stopMonitoring()
+
+Stop monitoring.
+
+### Events
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `mispricing` | CorrelationOpportunity | Mispricing detected |
+| `correlation_break` | { marketA, marketB, oldCorr, newCorr } | Historical correlation broke |
+| `rule_triggered` | { rule, markets, edge } | Custom rule matched |
+
+### Example: Political Arbitrage
+
+```typescript
+// Detect implies violation
+const finder = createCorrelationFinder(feeds, db);
+
+finder.on('mispricing', async (opp) => {
+  if (opp.type === 'implies' && opp.edgePct > 3) {
+    // "Trump wins" at 55% but "Republican wins" at 52%
+    // This violates implies relationship
+    console.log('Implies violation!');
+    console.log(`Buy "${opp.marketB.question}" at ${opp.marketB.price}`);
+    console.log(`Expected fair value: ${opp.expectedPrice} (${opp.edgePct}% edge)`);
+  }
+});
+```
+
+### Example: Crypto Lead-Lag
+
+```typescript
+const finder = createCorrelationFinder(feeds, db, {
+  categories: ['crypto'],
+  maxLagSeconds: 180,
+});
+
+finder.on('mispricing', async (opp) => {
+  if (opp.type === 'time_shifted') {
+    // BTC moved 5% up, ETH hasn't moved yet
+    console.log(`${opp.marketA.asset} moved, ${opp.marketB.asset} lagging`);
+    console.log(`Expected move: ${opp.expectedMove}%`);
+    console.log(`Time remaining: ${opp.lagRemaining}s`);
+  }
+});
+```
+
+### Database Tables
+
+#### correlation_rules
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT | Rule ID |
+| type | TEXT | implies/mutually_exclusive/time_shifted/partial |
+| market_a_pattern | TEXT | Regex or market ID |
+| market_b_pattern | TEXT | Regex or market ID |
+| parameters_json | TEXT | Lag, correlation threshold, etc. |
+| enabled | BOOLEAN | Active status |
+
+#### correlation_opportunities
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT | Opportunity ID |
+| rule_id | TEXT | Triggering rule |
+| market_a_id | TEXT | First market |
+| market_b_id | TEXT | Second market |
+| type | TEXT | Correlation type |
+| expected_price | REAL | Fair value based on correlation |
+| actual_price | REAL | Current market price |
+| edge_pct | REAL | Mispricing % |
+| created_at | TIMESTAMP | Detection time |
+
+#### correlation_history
+| Column | Type | Description |
+|--------|------|-------------|
+| market_a_id | TEXT | First market |
+| market_b_id | TEXT | Second market |
+| correlation | REAL | Pearson correlation |
+| lag_seconds | INT | Optimal lag |
+| sample_count | INT | Data points |
+| updated_at | TIMESTAMP | Last calculation |

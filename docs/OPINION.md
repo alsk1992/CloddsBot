@@ -67,7 +67,35 @@ Or in `~/.clodds/clodds.json`:
 
 ## Commands
 
-Opinion.trade uses standard market commands:
+### Direct Commands (`/op`)
+
+| Command | Description |
+|---------|-------------|
+| `/op markets [query]` | Search Opinion markets |
+| `/op market <id>` | Get market details |
+| `/op price <id>` | Current prices |
+| `/op book <tokenId>` | Show orderbook |
+
+**Trading:**
+| Command | Description |
+|---------|-------------|
+| `/op buy <marketId> <outcome> <price> <size>` | Place buy order |
+| `/op sell <marketId> <outcome> <price> <size>` | Place sell order |
+| `/op cancel <orderId>` | Cancel order |
+| `/op cancelall` | Cancel all orders |
+| `/op orders` | List open orders |
+
+**Examples:**
+```bash
+/op markets trump
+/op buy 813 YES 0.55 100     # Buy YES at 55c, 100 shares
+/op sell 813 NO 0.40 50      # Sell NO at 40c, 50 shares
+/op cancel abc123            # Cancel specific order
+```
+
+### Standard Commands
+
+Opinion.trade also works with standard market commands:
 
 | Command | Description |
 |---------|-------------|

@@ -60,6 +60,8 @@ export {
 export * from './tracking';
 export * from './devtools';
 export * from './copy-trading';
+export * from './kelly';
+export * from './ml-signals';
 
 import {
   createTradeLogger,
@@ -379,6 +381,8 @@ function wrapExecutionWithLogging(
     protectedBuy: wrapMethod(execution.protectedBuy.bind(execution), 'buy', 'protected'),
     protectedSell: wrapMethod(execution.protectedSell.bind(execution), 'sell', 'protected'),
     estimateSlippage: execution.estimateSlippage.bind(execution),
+    placeOrdersBatch: execution.placeOrdersBatch.bind(execution),
+    cancelOrdersBatch: execution.cancelOrdersBatch.bind(execution),
   };
 }
 

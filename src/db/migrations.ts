@@ -1,6 +1,27 @@
 /**
  * Database Migrations - Versioned schema management
  *
+ * IMPORTANT: Self-Creating Tables Pattern
+ * ========================================
+ * Modules now self-create their tables on init using `CREATE TABLE IF NOT EXISTS`.
+ * This avoids relying on migrations which can cause issues for less technical users.
+ *
+ * Modules with self-creating tables:
+ * - src/usage/index.ts          -> usage_records
+ * - src/memory/index.ts         -> user_memory, daily_logs
+ * - src/pairing/index.ts        -> pairing_requests, paired_users
+ * - src/alerts/index.ts         -> alerts
+ * - src/embeddings/index.ts     -> embeddings_cache
+ * - src/history/index.ts        -> trade_history
+ * - src/solana/swarm-presets.ts -> swarm_presets
+ * - src/opportunity/index.ts    -> market_links, opportunities, platform_pair_stats, etc.
+ * - src/arbitrage/index.ts      -> arbitrage_matches, arbitrage_opportunities
+ * - src/acp/persistence.ts      -> acp_agents, acp_services, acp_agreements, etc.
+ * - src/acp/identity.ts         -> acp_handles, acp_takeover_bids, acp_referrals, etc.
+ * - src/acp/predictions.ts      -> acp_predictions
+ *
+ * This migrations file is kept for backwards compatibility with existing DBs.
+ *
  * Features:
  * - Sequential migration execution
  * - Up/down migrations
@@ -1010,6 +1031,270 @@ const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS portfolio_snapshots;
     `,
   },
+  {
+    version: 12,
+    name: 'swarm_presets',
+    up: (db) => {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS swarm_presets (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL CHECK(type IN ('strategy', 'token', 'wallet_group')),
+          description TEXT,
+          config TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(user_id, name)
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_swarm_presets_user ON swarm_presets(user_id);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_swarm_presets_type ON swarm_presets(user_id, type);');
+    },
+    down: `
+      DROP TABLE IF EXISTS swarm_presets;
+    `,
+  },
+  {
+    version: 13,
+    name: 'acp_commerce_tables',
+    // NOTE: ACP tables now self-create on init (persistence.ts, identity.ts, predictions.ts)
+    // This migration kept for backwards compat with existing DBs
+    up: (db) => {
+      // Agent profiles for commerce registry
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_agents (
+          id TEXT PRIMARY KEY,
+          address TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          description TEXT,
+          avatar TEXT,
+          website TEXT,
+          capabilities TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          total_transactions INTEGER NOT NULL DEFAULT 0,
+          successful_transactions INTEGER NOT NULL DEFAULT 0,
+          average_rating REAL NOT NULL DEFAULT 0,
+          total_ratings INTEGER NOT NULL DEFAULT 0,
+          dispute_rate REAL NOT NULL DEFAULT 0,
+          metadata TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_agents_address ON acp_agents(address);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_agents_status ON acp_agents(status);');
+
+      // Service listings
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_services (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL,
+          capability_name TEXT NOT NULL,
+          capability_category TEXT NOT NULL,
+          capability_description TEXT,
+          pricing_model TEXT NOT NULL,
+          pricing_amount TEXT NOT NULL,
+          pricing_currency TEXT NOT NULL,
+          description TEXT NOT NULL,
+          endpoint TEXT,
+          sla_availability REAL,
+          sla_response_time INTEGER,
+          sla_throughput INTEGER,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (agent_id) REFERENCES acp_agents(id)
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_services_agent ON acp_services(agent_id);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_services_category ON acp_services(capability_category);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_services_enabled ON acp_services(enabled);');
+
+      // Proof-of-agreement records
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_agreements (
+          id TEXT PRIMARY KEY,
+          hash TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          parties TEXT NOT NULL,
+          terms TEXT NOT NULL,
+          total_value TEXT,
+          currency TEXT,
+          start_date INTEGER,
+          end_date INTEGER,
+          escrow_id TEXT,
+          status TEXT NOT NULL DEFAULT 'draft',
+          version INTEGER NOT NULL DEFAULT 1,
+          previous_version_hash TEXT,
+          metadata TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_agreements_hash ON acp_agreements(hash);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_agreements_status ON acp_agreements(status);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_agreements_escrow ON acp_agreements(escrow_id);');
+
+      // Escrow transactions
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_escrows (
+          id TEXT PRIMARY KEY,
+          chain TEXT NOT NULL,
+          buyer TEXT NOT NULL,
+          seller TEXT NOT NULL,
+          arbiter TEXT,
+          amount TEXT NOT NULL,
+          token_mint TEXT,
+          release_conditions TEXT NOT NULL,
+          refund_conditions TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          description TEXT,
+          agreement_hash TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          escrow_address TEXT,
+          tx_signatures TEXT,
+          funded_at INTEGER,
+          completed_at INTEGER,
+          created_at INTEGER NOT NULL
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_escrows_buyer ON acp_escrows(buyer);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_escrows_seller ON acp_escrows(seller);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_escrows_status ON acp_escrows(status);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_escrows_agreement ON acp_escrows(agreement_hash);');
+
+      // Service ratings
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_ratings (
+          id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL,
+          rater_address TEXT NOT NULL,
+          rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+          comment TEXT,
+          agreement_id TEXT,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (service_id) REFERENCES acp_services(id),
+          UNIQUE(service_id, rater_address, agreement_id)
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_ratings_service ON acp_ratings(service_id);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_ratings_rater ON acp_ratings(rater_address);');
+    },
+    down: `
+      DROP TABLE IF EXISTS acp_ratings;
+      DROP TABLE IF EXISTS acp_escrows;
+      DROP TABLE IF EXISTS acp_agreements;
+      DROP TABLE IF EXISTS acp_services;
+      DROP TABLE IF EXISTS acp_agents;
+    `,
+  },
+  // Migration 14: ACP Identity System - handles, takeovers, referrals
+  // NOTE: Identity tables now self-create on init (identity.ts)
+  // This migration kept for backwards compat with existing DBs
+  {
+    version: 14,
+    name: 'acp_identity_system',
+    up: (db: Database) => {
+      // Handles - unique @name identifiers
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_handles (
+          handle TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL REFERENCES acp_agents(id),
+          owner_address TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          transferred_at INTEGER,
+          previous_owner TEXT,
+          UNIQUE(handle)
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_handles_owner ON acp_handles(owner_address);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_handles_agent ON acp_handles(agent_id);');
+
+      // Takeover bids - offers to buy handles
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_takeover_bids (
+          id TEXT PRIMARY KEY,
+          handle TEXT NOT NULL REFERENCES acp_handles(handle),
+          bidder_address TEXT NOT NULL,
+          amount TEXT NOT NULL,
+          currency TEXT NOT NULL DEFAULT 'SOL',
+          escrow_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          expires_at INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          resolved_at INTEGER
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_bids_handle ON acp_takeover_bids(handle);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_bids_bidder ON acp_takeover_bids(bidder_address);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_bids_status ON acp_takeover_bids(status);');
+
+      // Referrals - who referred who, fee sharing
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_referrals (
+          id TEXT PRIMARY KEY,
+          referrer_address TEXT NOT NULL,
+          referred_agent_id TEXT NOT NULL REFERENCES acp_agents(id),
+          referral_code TEXT NOT NULL,
+          fee_share_bps INTEGER NOT NULL DEFAULT 500,
+          total_earned TEXT NOT NULL DEFAULT '0',
+          created_at INTEGER NOT NULL,
+          UNIQUE(referred_agent_id)
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_referrals_referrer ON acp_referrals(referrer_address);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_referrals_code ON acp_referrals(referral_code);');
+
+      // Agent profiles - public profile data
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_profiles (
+          agent_id TEXT PRIMARY KEY REFERENCES acp_agents(id),
+          handle TEXT REFERENCES acp_handles(handle),
+          display_name TEXT,
+          bio TEXT,
+          avatar_url TEXT,
+          website_url TEXT,
+          twitter_handle TEXT,
+          github_handle TEXT,
+          featured INTEGER NOT NULL DEFAULT 0,
+          verified INTEGER NOT NULL DEFAULT 0,
+          total_revenue TEXT NOT NULL DEFAULT '0',
+          total_transactions INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_profiles_handle ON acp_profiles(handle);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_profiles_featured ON acp_profiles(featured);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_profiles_verified ON acp_profiles(verified);');
+
+      // Leaderboard cache - precomputed rankings
+      db.run(`
+        CREATE TABLE IF NOT EXISTS acp_leaderboard (
+          agent_id TEXT PRIMARY KEY REFERENCES acp_agents(id),
+          handle TEXT,
+          rank_revenue INTEGER,
+          rank_transactions INTEGER,
+          rank_rating INTEGER,
+          score REAL NOT NULL DEFAULT 0,
+          period TEXT NOT NULL DEFAULT 'all_time',
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_leaderboard_score ON acp_leaderboard(score DESC);');
+      db.run('CREATE INDEX IF NOT EXISTS idx_acp_leaderboard_period ON acp_leaderboard(period);');
+    },
+    down: `
+      DROP TABLE IF EXISTS acp_leaderboard;
+      DROP TABLE IF EXISTS acp_profiles;
+      DROP TABLE IF EXISTS acp_referrals;
+      DROP TABLE IF EXISTS acp_takeover_bids;
+      DROP TABLE IF EXISTS acp_handles;
+    `,
+  },
+  // Note: Prediction tables are created directly by src/acp/predictions.ts on init
 ];
 
 export interface MigrationRunner {

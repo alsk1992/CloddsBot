@@ -12,6 +12,9 @@ import { createPredictItFeed } from './predictit/index';
 import { createDriftFeed } from './drift/index';
 import { createBetfairFeed, BetfairFeed } from './betfair/index';
 import { createSmarketsFeed, SmarketsFeed } from './smarkets/index';
+import { createOpinionFeed, OpinionFeed } from './opinion/index';
+import { createVirtualsFeed, VirtualsFeed } from './virtuals/index';
+import { createPredictFunFeed, PredictFunFeed } from './predictfun/index';
 import { createNewsFeed, NewsFeed } from './news/index';
 import { analyzeEdge, calculateKelly, EdgeAnalysis } from './external/index';
 import { logger } from '../utils/logger';
@@ -181,6 +184,51 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
     feeds.set('smarkets', smarkets as unknown as FeedAdapter);
 
     smarkets.on('price', (update: PriceUpdate) => {
+      emitter.emit('price', update);
+    });
+  }
+
+  // Initialize Opinion.trade (BNB Chain prediction market)
+  if ((config as any).opinion?.enabled) {
+    logger.info('Initializing Opinion.trade feed');
+    const opinionConfig = (config as any).opinion;
+    const opinion = await createOpinionFeed({
+      apiKey: opinionConfig.apiKey,
+    });
+    feeds.set('opinion', opinion as unknown as FeedAdapter);
+
+    opinion.on('price', (update: PriceUpdate) => {
+      emitter.emit('price', update);
+    });
+  }
+
+  // Initialize Virtuals Protocol (Base chain AI agents)
+  if ((config as any).virtuals?.enabled) {
+    logger.info('Initializing Virtuals Protocol feed');
+    const virtualsConfig = (config as any).virtuals;
+    const virtuals = await createVirtualsFeed({
+      privateKey: virtualsConfig.privateKey,
+      rpcUrl: virtualsConfig.rpcUrl,
+      minMarketCap: virtualsConfig.minMarketCap,
+      categories: virtualsConfig.categories,
+    });
+    feeds.set('virtuals', virtuals as unknown as FeedAdapter);
+
+    virtuals.on('price', (update: PriceUpdate) => {
+      emitter.emit('price', update);
+    });
+  }
+
+  // Initialize Predict.fun (BNB Chain prediction market)
+  if ((config as any).predictfun?.enabled) {
+    logger.info('Initializing Predict.fun feed');
+    const predictfunConfig = (config as any).predictfun;
+    const predictfun = await createPredictFunFeed({
+      apiKey: predictfunConfig.apiKey,
+    });
+    feeds.set('predictfun', predictfun as unknown as FeedAdapter);
+
+    predictfun.on('price', (update: PriceUpdate) => {
       emitter.emit('price', update);
     });
   }

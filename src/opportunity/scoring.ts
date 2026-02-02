@@ -11,6 +11,8 @@
 
 import type { Platform } from '../types';
 import { logger } from '../utils/logger';
+import { getOrderbookImbalance, type OrderbookImbalance, type DirectionalSignal } from '../execution';
+import { createDynamicKellyCalculator, type DynamicKellyCalculator, type DynamicKellyResult } from '../trading/kelly';
 
 // =============================================================================
 // TYPES
@@ -83,6 +85,9 @@ export interface OpportunityScorer {
   /** Score an opportunity */
   score(opportunity: OpportunityInput): ScoredOpportunity;
 
+  /** Score with orderbook imbalance analysis for better entry timing */
+  scoreWithImbalance(opportunity: OpportunityInput): Promise<ImbalanceEnhancedScore>;
+
   /** Estimate slippage for a given size */
   estimateSlippage(
     liquidity: number,
@@ -90,18 +95,40 @@ export interface OpportunityScorer {
     spreadPct?: number
   ): number;
 
-  /** Calculate Kelly fraction */
+  /** Calculate Kelly fraction (simple version) */
   calculateKelly(
     edge: number,
     confidence: number,
     winRate?: number
   ): number;
 
+  /** Calculate dynamic Kelly with performance tracking */
+  calculateDynamicKelly(
+    edge: number,
+    confidence: number,
+    options?: { category?: string; winRate?: number }
+  ): DynamicKellyResult;
+
+  /** Record a trade for dynamic Kelly tracking */
+  recordTrade(trade: { id: string; pnlPct: number; won: boolean; category?: string }): void;
+
+  /** Update bankroll for dynamic Kelly sizing */
+  updateBankroll(bankroll: number): void;
+
   /** Estimate execution for opportunity at given size */
   estimateExecution(opportunity: OpportunityInput, size: number): ExecutionPlan;
 
-  /** Get optimal size for opportunity */
+  /** Get optimal size for opportunity (uses dynamic Kelly) */
   getOptimalSize(opportunity: OpportunityInput, bankroll: number): number;
+
+  /** Get orderbook imbalance for a market */
+  getImbalance(
+    platform: 'polymarket' | 'kalshi',
+    marketIdOrTokenId: string
+  ): Promise<OrderbookImbalance | null>;
+
+  /** Get dynamic Kelly calculator for direct access */
+  getKellyCalculator(): DynamicKellyCalculator;
 }
 
 interface OpportunityInput {
@@ -115,10 +142,38 @@ interface OpportunityInput {
     askPrice?: number;
     spreadPct?: number;
     action: 'buy' | 'sell';
+    /** Token ID for Polymarket (needed for orderbook lookup) */
+    tokenId?: string;
+    /** Market ID for Kalshi */
+    marketId?: string;
+    /** Pre-fetched orderbook imbalance (optional, will be fetched if not provided) */
+    imbalance?: OrderbookImbalance;
   }>;
   edgePct: number;
   confidence: number;
   totalLiquidity: number;
+}
+
+export interface ImbalanceEnhancedScore {
+  /** Original opportunity score */
+  baseScore: number;
+  /** Orderbook imbalance adjustment */
+  imbalanceAdjustment: number;
+  /** Final adjusted score */
+  adjustedScore: number;
+  /** Imbalance signals for each market */
+  imbalanceSignals: Array<{
+    platform: Platform;
+    signal: DirectionalSignal;
+    imbalanceScore: number;
+    confidence: number;
+    /** Whether imbalance aligns with intended trade direction */
+    aligned: boolean;
+  }>;
+  /** Overall imbalance alignment */
+  overallAlignment: 'favorable' | 'neutral' | 'unfavorable';
+  /** Timing recommendation based on imbalance */
+  timingRecommendation: 'execute_now' | 'wait' | 'monitor';
 }
 
 // =============================================================================
@@ -163,9 +218,18 @@ const PLATFORM_RELIABILITY: Record<string, number> = {
 // =============================================================================
 
 export function createOpportunityScorer(
-  config: OpportunityScorerConfig = {}
+  config: OpportunityScorerConfig = {},
+  initialBankroll: number = 10000
 ): OpportunityScorer {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+
+  // Initialize dynamic Kelly calculator
+  const kellyCalculator = createDynamicKellyCalculator(initialBankroll, {
+    baseMultiplier: 0.25,
+    maxKelly: 0.25,
+    maxDrawdown: 0.15,
+    volatilityScaling: true,
+  });
 
   // ===========================================================================
   // SLIPPAGE ESTIMATION
@@ -449,17 +513,24 @@ export function createOpportunityScorer(
   }
 
   // ===========================================================================
-  // OPTIMAL SIZING
+  // OPTIMAL SIZING (DYNAMIC KELLY)
   // ===========================================================================
 
   function getOptimalSize(opportunity: OpportunityInput, bankroll: number): number {
-    const kellyFraction = calculateKelly(
+    // Update Kelly calculator with current bankroll
+    kellyCalculator.updateBankroll(bankroll);
+
+    // Get dynamic Kelly recommendation
+    const kellyResult = kellyCalculator.calculate(
       opportunity.edgePct / 100,
-      opportunity.confidence
+      opportunity.confidence,
+      {
+        category: opportunity.type, // Use opportunity type as category
+      }
     );
 
-    // Kelly-based size
-    const kellySize = bankroll * kellyFraction;
+    // Dynamic Kelly-based size (already accounts for drawdown, streaks, volatility)
+    const kellySize = kellyResult.positionSize;
 
     // Liquidity-based max (don't take more than 5% of liquidity)
     const liquidityMax = opportunity.totalLiquidity * 0.05;
@@ -474,17 +545,166 @@ export function createOpportunityScorer(
       }
     }
 
+    // Apply additional reduction if Kelly has warnings
+    let warningReduction = 1;
+    if (kellyResult.warnings.length > 0) {
+      warningReduction = 0.75;
+      logger.debug({ warnings: kellyResult.warnings }, 'Kelly sizing warnings - reducing size');
+    }
+
     // Take minimum of all constraints
-    const optimalSize = Math.min(kellySize, liquidityMax, slippageMax, bankroll * 0.1);
+    const optimalSize = Math.min(
+      kellySize * warningReduction,
+      liquidityMax,
+      slippageMax,
+      bankroll * 0.1  // Never more than 10% of bankroll regardless
+    );
+
+    logger.debug({
+      kellyFraction: kellyResult.kelly,
+      kellySize,
+      liquidityMax,
+      slippageMax,
+      finalSize: optimalSize,
+      kellyAdjustments: kellyResult.adjustments.length,
+    }, 'Optimal size calculated');
 
     return Math.max(0, Math.round(optimalSize * 100) / 100);
   }
 
+  // ===========================================================================
+  // ORDERBOOK IMBALANCE ANALYSIS
+  // ===========================================================================
+
+  async function getImbalance(
+    platform: 'polymarket' | 'kalshi',
+    marketIdOrTokenId: string
+  ): Promise<OrderbookImbalance | null> {
+    return getOrderbookImbalance(platform, marketIdOrTokenId);
+  }
+
+  async function scoreWithImbalance(opportunity: OpportunityInput): Promise<ImbalanceEnhancedScore> {
+    const baseScored = score(opportunity);
+    const imbalanceSignals: ImbalanceEnhancedScore['imbalanceSignals'] = [];
+
+    // Fetch imbalance for each market
+    for (const market of opportunity.markets) {
+      let imbalance = market.imbalance;
+
+      // Fetch if not pre-provided
+      if (!imbalance) {
+        const platform = market.platform as 'polymarket' | 'kalshi';
+        if (platform === 'polymarket' && market.tokenId) {
+          imbalance = await getOrderbookImbalance('polymarket', market.tokenId) || undefined;
+        } else if (platform === 'kalshi' && market.marketId) {
+          imbalance = await getOrderbookImbalance('kalshi', market.marketId) || undefined;
+        }
+      }
+
+      if (imbalance) {
+        // Determine if imbalance aligns with trade direction
+        // For buying: bullish imbalance is favorable (more bids pushing price up)
+        // For selling: bearish imbalance is favorable (more asks pushing price down)
+        const aligned =
+          (market.action === 'buy' && imbalance.signal === 'bullish') ||
+          (market.action === 'sell' && imbalance.signal === 'bearish');
+
+        imbalanceSignals.push({
+          platform: market.platform,
+          signal: imbalance.signal,
+          imbalanceScore: imbalance.imbalanceScore,
+          confidence: imbalance.confidence,
+          aligned,
+        });
+      }
+    }
+
+    // Calculate imbalance adjustment
+    // Favorable imbalance: +5 to +15 points
+    // Unfavorable imbalance: -5 to -15 points
+    // Neutral: 0
+    let imbalanceAdjustment = 0;
+    let favorableCount = 0;
+    let unfavorableCount = 0;
+
+    for (const signal of imbalanceSignals) {
+      if (signal.aligned) {
+        favorableCount++;
+        // Boost score based on imbalance magnitude and confidence
+        imbalanceAdjustment += Math.abs(signal.imbalanceScore) * signal.confidence * 15;
+      } else if (signal.signal !== 'neutral') {
+        unfavorableCount++;
+        // Penalize for adverse imbalance
+        imbalanceAdjustment -= Math.abs(signal.imbalanceScore) * signal.confidence * 10;
+      }
+    }
+
+    // Determine overall alignment
+    let overallAlignment: ImbalanceEnhancedScore['overallAlignment'] = 'neutral';
+    if (favorableCount > unfavorableCount) {
+      overallAlignment = 'favorable';
+    } else if (unfavorableCount > favorableCount) {
+      overallAlignment = 'unfavorable';
+    }
+
+    // Timing recommendation
+    let timingRecommendation: ImbalanceEnhancedScore['timingRecommendation'] = 'monitor';
+    if (overallAlignment === 'favorable' && imbalanceAdjustment > 5) {
+      timingRecommendation = 'execute_now';
+    } else if (overallAlignment === 'unfavorable' && imbalanceAdjustment < -5) {
+      timingRecommendation = 'wait';
+    }
+
+    const adjustedScore = Math.max(0, Math.min(100, baseScored.score + imbalanceAdjustment));
+
+    return {
+      baseScore: baseScored.score,
+      imbalanceAdjustment: Math.round(imbalanceAdjustment * 100) / 100,
+      adjustedScore: Math.round(adjustedScore * 10) / 10,
+      imbalanceSignals,
+      overallAlignment,
+      timingRecommendation,
+    };
+  }
+
+  // ===========================================================================
+  // DYNAMIC KELLY INTEGRATION
+  // ===========================================================================
+
+  function calculateDynamicKelly(
+    edge: number,
+    confidence: number,
+    options?: { category?: string; winRate?: number }
+  ): DynamicKellyResult {
+    return kellyCalculator.calculate(edge, confidence, options);
+  }
+
+  function recordTrade(trade: { id: string; pnlPct: number; won: boolean; category?: string }): void {
+    kellyCalculator.recordTrade({
+      ...trade,
+      timestamp: new Date(),
+    });
+  }
+
+  function updateBankroll(bankroll: number): void {
+    kellyCalculator.updateBankroll(bankroll);
+  }
+
+  function getKellyCalculator(): DynamicKellyCalculator {
+    return kellyCalculator;
+  }
+
   return {
     score,
+    scoreWithImbalance,
     estimateSlippage,
     calculateKelly,
+    calculateDynamicKelly,
+    recordTrade,
+    updateBankroll,
     estimateExecution,
     getOptimalSize,
+    getImbalance,
+    getKellyCalculator,
   };
 }

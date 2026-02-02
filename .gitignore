@@ -28,6 +28,10 @@ pids/
 
 # Coverage
 coverage/
+
+# Frontend apps - LOCAL ONLY, never push but NEVER DELETE
+# Deploy via: cd apps/docs && vercel --prod --yes
+apps/
 .nyc_output/
 
 # TypeScript cache

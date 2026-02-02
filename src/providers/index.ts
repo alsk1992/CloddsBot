@@ -376,7 +376,9 @@ export class AnthropicProvider implements Provider {
               yield { content: '', done: true };
               return;
             }
-          } catch {}
+          } catch (e) {
+            logger.debug({ err: e, line }, 'Failed to parse SSE event');
+          }
         }
       }
     }
@@ -580,7 +582,9 @@ export class OpenAIProvider implements Provider {
               yield { content: '', done: true };
               return;
             }
-          } catch {}
+          } catch (e) {
+            logger.debug({ err: e, line }, 'Failed to parse OpenAI SSE event');
+          }
         }
       }
     }
@@ -778,7 +782,9 @@ export class OllamaProvider implements Provider {
             yield { content: '', done: true };
             return;
           }
-        } catch {}
+        } catch (e) {
+          logger.debug({ err: e, line }, 'Failed to parse Ollama stream event');
+        }
       }
     }
 

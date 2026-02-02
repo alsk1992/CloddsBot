@@ -2120,6 +2120,301 @@ export function createWhatsAppCommands(program: Command): void {
 }
 
 // =============================================================================
+// CREDS TEST COMMAND
+// =============================================================================
+
+export function createCredsCommands(program: Command): void {
+  const creds = program
+    .command('creds')
+    .description('Test and validate API credentials');
+
+  creds
+    .command('test [platform]')
+    .description('Test API credentials for a platform')
+    .action(async (platform?: string) => {
+      console.log('\n🔑 Credential Validation\n');
+
+      const results: Array<{ name: string; status: 'pass' | 'warn' | 'fail'; message: string; fix?: string }> = [];
+
+      // Test Anthropic
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (!platform || platform === 'anthropic') {
+        if (!anthropicKey) {
+          results.push({
+            name: 'Anthropic API',
+            status: 'fail',
+            message: 'ANTHROPIC_API_KEY not set',
+            fix: 'Get key from: https://console.anthropic.com',
+          });
+        } else if (!anthropicKey.startsWith('sk-ant-')) {
+          results.push({
+            name: 'Anthropic API',
+            status: 'warn',
+            message: 'Key format looks wrong (should start with sk-ant-)',
+            fix: 'Verify key at: https://console.anthropic.com',
+          });
+        } else {
+          // Test the key
+          try {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': anthropicKey,
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: 'claude-3-haiku-20240307',
+                max_tokens: 1,
+                messages: [{ role: 'user', content: 'hi' }],
+              }),
+            });
+
+            if (response.ok) {
+              results.push({
+                name: 'Anthropic API',
+                status: 'pass',
+                message: 'Key valid and working',
+              });
+            } else if (response.status === 401) {
+              results.push({
+                name: 'Anthropic API',
+                status: 'fail',
+                message: 'Invalid API key',
+                fix: 'Check key at: https://console.anthropic.com',
+              });
+            } else if (response.status === 429) {
+              results.push({
+                name: 'Anthropic API',
+                status: 'warn',
+                message: 'Rate limited (but key is valid)',
+              });
+            } else {
+              results.push({
+                name: 'Anthropic API',
+                status: 'warn',
+                message: `Unexpected response: ${response.status}`,
+              });
+            }
+          } catch (e) {
+            results.push({
+              name: 'Anthropic API',
+              status: 'warn',
+              message: `Network error: ${(e as Error).message}`,
+              fix: 'Check internet connection',
+            });
+          }
+        }
+      }
+
+      // Test Polymarket
+      if (!platform || platform === 'polymarket') {
+        const polyKey = process.env.POLY_API_KEY;
+        const polySecret = process.env.POLY_API_SECRET;
+        const polyPass = process.env.POLY_API_PASSPHRASE;
+        const polyPrivate = process.env.POLY_PRIVATE_KEY;
+
+        if (!polyKey && !polySecret && !polyPass) {
+          results.push({
+            name: 'Polymarket',
+            status: 'warn',
+            message: 'Not configured (optional)',
+            fix: 'Get keys from: https://polymarket.com/settings/api',
+          });
+        } else if (!polyKey || !polySecret || !polyPass) {
+          results.push({
+            name: 'Polymarket',
+            status: 'fail',
+            message: 'Incomplete credentials (need API key, secret, and passphrase)',
+            fix: 'Set all: POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE',
+          });
+        } else {
+          // Test fetch markets (read-only, no auth needed)
+          try {
+            const response = await fetch('https://clob.polymarket.com/markets?limit=1');
+            if (response.ok) {
+              results.push({
+                name: 'Polymarket (read)',
+                status: 'pass',
+                message: 'Can fetch markets',
+              });
+            } else {
+              results.push({
+                name: 'Polymarket (read)',
+                status: 'warn',
+                message: `API returned ${response.status}`,
+              });
+            }
+          } catch {
+            results.push({
+              name: 'Polymarket (read)',
+              status: 'warn',
+              message: 'Network error',
+            });
+          }
+
+          // Check for trading capability
+          if (!polyPrivate) {
+            results.push({
+              name: 'Polymarket (trade)',
+              status: 'warn',
+              message: 'POLY_PRIVATE_KEY not set (cannot trade)',
+              fix: 'Add your wallet private key to enable trading',
+            });
+          } else {
+            results.push({
+              name: 'Polymarket (trade)',
+              status: 'pass',
+              message: 'Trading credentials configured',
+            });
+          }
+        }
+      }
+
+      // Test Kalshi
+      if (!platform || platform === 'kalshi') {
+        const kalshiKey = process.env.KALSHI_API_KEY;
+        const kalshiSecret = process.env.KALSHI_API_SECRET;
+        const kalshiEmail = process.env.KALSHI_EMAIL;
+
+        if (!kalshiKey && !kalshiEmail) {
+          results.push({
+            name: 'Kalshi',
+            status: 'warn',
+            message: 'Not configured (optional)',
+            fix: 'Get keys from: https://kalshi.com/account/api',
+          });
+        } else if (kalshiKey && !kalshiSecret) {
+          results.push({
+            name: 'Kalshi',
+            status: 'fail',
+            message: 'API key set but missing secret',
+            fix: 'Set KALSHI_API_SECRET',
+          });
+        } else if (kalshiKey) {
+          results.push({
+            name: 'Kalshi',
+            status: 'pass',
+            message: 'API key credentials configured',
+          });
+        } else if (kalshiEmail) {
+          results.push({
+            name: 'Kalshi',
+            status: 'warn',
+            message: 'Using legacy email auth (API keys recommended)',
+            fix: 'Switch to API keys: https://kalshi.com/account/api',
+          });
+        }
+      }
+
+      // Test Telegram
+      if (!platform || platform === 'telegram') {
+        const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (!telegramToken) {
+          results.push({
+            name: 'Telegram',
+            status: 'warn',
+            message: 'Not configured',
+            fix: 'Get token from: https://t.me/BotFather',
+          });
+        } else {
+          try {
+            const response = await fetch(`https://api.telegram.org/bot${telegramToken}/getMe`);
+            const data = await response.json() as { ok: boolean; result?: { username: string } };
+            if (data.ok) {
+              results.push({
+                name: 'Telegram',
+                status: 'pass',
+                message: `Bot: @${data.result?.username}`,
+              });
+            } else {
+              results.push({
+                name: 'Telegram',
+                status: 'fail',
+                message: 'Invalid bot token',
+                fix: 'Check token with @BotFather',
+              });
+            }
+          } catch {
+            results.push({
+              name: 'Telegram',
+              status: 'warn',
+              message: 'Network error testing token',
+            });
+          }
+        }
+      }
+
+      // Test Discord
+      if (!platform || platform === 'discord') {
+        const discordToken = process.env.DISCORD_BOT_TOKEN;
+        if (!discordToken) {
+          results.push({
+            name: 'Discord',
+            status: 'warn',
+            message: 'Not configured',
+            fix: 'Get token from: https://discord.com/developers/applications',
+          });
+        } else {
+          try {
+            const response = await fetch('https://discord.com/api/v10/users/@me', {
+              headers: { Authorization: `Bot ${discordToken}` },
+            });
+            if (response.ok) {
+              const data = await response.json() as { username: string };
+              results.push({
+                name: 'Discord',
+                status: 'pass',
+                message: `Bot: ${data.username}`,
+              });
+            } else if (response.status === 401) {
+              results.push({
+                name: 'Discord',
+                status: 'fail',
+                message: 'Invalid bot token',
+                fix: 'Check token at: https://discord.com/developers/applications',
+              });
+            } else {
+              results.push({
+                name: 'Discord',
+                status: 'warn',
+                message: `API returned ${response.status}`,
+              });
+            }
+          } catch {
+            results.push({
+              name: 'Discord',
+              status: 'warn',
+              message: 'Network error testing token',
+            });
+          }
+        }
+      }
+
+      // Display results
+      const icons = { pass: '✅', warn: '⚠️ ', fail: '❌' };
+
+      for (const result of results) {
+        console.log(`${icons[result.status]} ${result.name}: ${result.message}`);
+        if (result.fix) {
+          console.log(`   Fix: ${result.fix}`);
+        }
+      }
+
+      const passed = results.filter(r => r.status === 'pass').length;
+      const warned = results.filter(r => r.status === 'warn').length;
+      const failed = results.filter(r => r.status === 'fail').length;
+
+      console.log(`\nSummary: ${passed} passed, ${warned} warnings, ${failed} failed`);
+
+      if (failed > 0) {
+        console.log('\n💡 Run `clodds doctor` for full system diagnostics');
+        process.exitCode = 1;
+      }
+    });
+}
+
+// =============================================================================
 // MAIN EXPORT
 // =============================================================================
 
@@ -2136,6 +2431,7 @@ export function addAllCommands(program: Command): void {
   createMarketIndexCommands(program);
   createPermissionCommands(program);
   createUsageCommands(program);
+  createCredsCommands(program);
   createInitCommand(program);
   createUpgradeCommand(program);
   createLoginCommand(program);

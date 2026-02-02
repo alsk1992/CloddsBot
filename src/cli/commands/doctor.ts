@@ -525,12 +525,18 @@ export async function runDoctor(): Promise<CheckResult[]> {
 
 /** Format results for CLI output */
 export function formatDoctorResults(results: CheckResult[]): string {
-  const lines: string[] = ['', 'Clodds Doctor', '=============', ''];
+  const lines: string[] = [];
+
+  lines.push('');
+  lines.push('╔══════════════════════════════════════════════════════════════╗');
+  lines.push('║                      Clodds Doctor                           ║');
+  lines.push('╚══════════════════════════════════════════════════════════════╝');
+  lines.push('');
 
   const statusIcons: Record<string, string> = {
-    pass: '✓',
-    warn: '⚠',
-    fail: '✗',
+    pass: '✅',
+    warn: '⚠️ ',
+    fail: '❌',
   };
 
   const statusColors: Record<string, string> = {
@@ -544,34 +550,76 @@ export function formatDoctorResults(results: CheckResult[]): string {
   let warnCount = 0;
   let failCount = 0;
 
-  for (const result of results) {
-    const icon = statusIcons[result.status];
-    const color = statusColors[result.status];
+  // Group results by status
+  const failedResults = results.filter(r => r.status === 'fail');
+  const warnResults = results.filter(r => r.status === 'warn');
+  const passResults = results.filter(r => r.status === 'pass');
 
-    lines.push(`${color}${icon}${reset} ${result.name}: ${result.message}`);
-
-    if (result.fix) {
-      lines.push(`  └─ Fix: ${result.fix}`);
+  // Show failures first (critical)
+  if (failedResults.length > 0) {
+    lines.push(`${statusColors.fail}━━━ Critical Issues (${failedResults.length}) ━━━${reset}`);
+    lines.push('');
+    for (const result of failedResults) {
+      lines.push(`${statusIcons.fail} ${result.name}`);
+      lines.push(`   ${result.message}`);
+      if (result.fix) {
+        lines.push(`   ${statusColors.pass}→ ${result.fix}${reset}`);
+      }
+      lines.push('');
+      failCount++;
     }
-
-    if (result.status === 'pass') passCount++;
-    if (result.status === 'warn') warnCount++;
-    if (result.status === 'fail') failCount++;
   }
 
-  lines.push('');
-  lines.push(`Summary: ${passCount} passed, ${warnCount} warnings, ${failCount} failed`);
+  // Show warnings
+  if (warnResults.length > 0) {
+    lines.push(`${statusColors.warn}━━━ Warnings (${warnResults.length}) ━━━${reset}`);
+    lines.push('');
+    for (const result of warnResults) {
+      lines.push(`${statusIcons.warn} ${result.name}`);
+      lines.push(`   ${result.message}`);
+      if (result.fix) {
+        lines.push(`   → ${result.fix}`);
+      }
+      lines.push('');
+      warnCount++;
+    }
+  }
+
+  // Show passing checks (collapsed)
+  if (passResults.length > 0) {
+    lines.push(`${statusColors.pass}━━━ Passing (${passResults.length}) ━━━${reset}`);
+    lines.push('');
+    for (const result of passResults) {
+      lines.push(`${statusIcons.pass} ${result.name}: ${result.message}`);
+      passCount++;
+    }
+    lines.push('');
+  }
+
+  // Summary
+  lines.push('───────────────────────────────────────────');
+  lines.push(`Summary: ${statusColors.pass}${passCount} passed${reset}, ${statusColors.warn}${warnCount} warnings${reset}, ${statusColors.fail}${failCount} failed${reset}`);
 
   if (failCount > 0) {
     lines.push('');
-    lines.push('\x1b[31mSome checks failed. Please fix the issues above.\x1b[0m');
+    lines.push(`${statusColors.fail}Fix the critical issues above to run Clodds.${reset}`);
+    lines.push('');
+    lines.push('Quick fixes:');
+    for (const result of failedResults) {
+      if (result.fix) {
+        lines.push(`  • ${result.fix}`);
+      }
+    }
   } else if (warnCount > 0) {
     lines.push('');
-    lines.push('\x1b[33mSome warnings found. Consider addressing them.\x1b[0m');
+    lines.push(`${statusColors.warn}Clodds can run, but consider fixing warnings.${reset}`);
   } else {
     lines.push('');
-    lines.push('\x1b[32mAll checks passed!\x1b[0m');
+    lines.push(`${statusColors.pass}✨ Everything looks good! Run: npm start${reset}`);
   }
+
+  lines.push('');
+  lines.push('Need help? https://github.com/your-repo/clodds/issues');
 
   return lines.join('\n');
 }

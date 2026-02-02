@@ -451,7 +451,9 @@ export async function getSystemHealth(): Promise<SystemHealth> {
           percent: (used / total) * 100,
         };
       }
-    } catch {}
+    } catch (e) {
+      logger.debug({ err: e }, 'Failed to get disk info');
+    }
   }
 
   return health;

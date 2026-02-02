@@ -5,8 +5,21 @@
  */
 
 import { createHash, randomBytes } from 'crypto';
+import * as ed25519 from '@noble/ed25519';
+import { sha512 } from '@noble/hashes/sha512';
 import { logger } from '../../utils/logger';
 import type { X402PaymentOption, X402PaymentPayload } from './index';
+
+// Configure noble/ed25519 to use sha512 (required for sync operations)
+ed25519.etc.sha512Sync = (...messages: Uint8Array[]): Uint8Array => {
+  const combined = new Uint8Array(messages.reduce((acc, m) => acc + m.length, 0));
+  let offset = 0;
+  for (const m of messages) {
+    combined.set(m, offset);
+    offset += m.length;
+  }
+  return sha512(combined);
+};
 
 // =============================================================================
 // TYPES
@@ -64,8 +77,8 @@ function base58Encode(bytes: Uint8Array): string {
   const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
   const digits = [0];
-  for (const byte of bytes) {
-    let carry = byte;
+  for (let i = 0; i < bytes.length; i++) {
+    let carry = bytes[i];
     for (let j = 0; j < digits.length; j++) {
       carry += digits[j] << 8;
       digits[j] = carry % 58;
@@ -79,8 +92,8 @@ function base58Encode(bytes: Uint8Array): string {
 
   // Handle leading zeros
   let str = '';
-  for (const byte of bytes) {
-    if (byte !== 0) break;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] !== 0) break;
     str += '1';
   }
 
@@ -116,36 +129,51 @@ export function createSolanaWallet(secretKeyOrBase58: string | Uint8Array): Sola
     secretKey = secretKeyOrBase58;
   }
 
-  // Public key is the last 32 bytes (or derived from first 32)
-  const publicKey = secretKey.length === 64
-    ? base58Encode(secretKey.slice(32))
-    : base58Encode(secretKey.slice(0, 32)); // Simplified
+  // For 64-byte keys, public key is in last 32 bytes
+  // For 32-byte seed, derive public key using Ed25519
+  let publicKeyBytes: Uint8Array;
+  if (secretKey.length === 64) {
+    publicKeyBytes = secretKey.slice(32);
+  } else if (secretKey.length === 32) {
+    // Derive public key from seed using Ed25519
+    publicKeyBytes = ed25519.getPublicKey(secretKey);
+  } else {
+    throw new Error(`Invalid secret key length: ${secretKey.length}, expected 32 or 64`);
+  }
 
   return {
-    publicKey,
+    publicKey: base58Encode(publicKeyBytes),
     secretKey,
   };
 }
 
 // =============================================================================
-// ED25519 SIGNING (SIMPLIFIED)
+// ED25519 SIGNING
 // =============================================================================
 
 /**
  * Sign a message with Ed25519
- * Simplified implementation - use @solana/web3.js in production
+ * Uses @noble/ed25519 for cryptographic signing
  */
-function signEd25519(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
-  // In production, use:
-  // import { sign } from '@noble/ed25519'
-  // return sign(message, secretKey.slice(0, 32))
+async function signEd25519(message: Uint8Array, secretKey: Uint8Array): Promise<Uint8Array> {
+  // Extract the 32-byte seed from the secret key
+  const seed = secretKey.slice(0, 32);
 
-  // Placeholder using HMAC (NOT SECURE - replace with Ed25519)
-  const hmac = createHash('sha512')
-    .update(Buffer.concat([secretKey.slice(0, 32), message]))
-    .digest();
+  // Sign using Ed25519
+  const signature = await ed25519.signAsync(message, seed);
+  return signature;
+}
 
-  return new Uint8Array(hmac.slice(0, 64));
+/**
+ * Sign a message with Ed25519 (synchronous version)
+ */
+function signEd25519Sync(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
+  // Extract the 32-byte seed from the secret key
+  const seed = secretKey.slice(0, 32);
+
+  // Sign using Ed25519 (sync)
+  const signature = ed25519.sign(message, seed);
+  return signature;
 }
 
 // =============================================================================
@@ -177,8 +205,8 @@ export async function signSolanaPayment(
   const messageBytes = new TextEncoder().encode(message);
   const messageHash = createHash('sha256').update(messageBytes).digest();
 
-  // Sign the hash
-  const signatureBytes = signEd25519(new Uint8Array(messageHash), wallet.secretKey);
+  // Sign the hash using Ed25519
+  const signatureBytes = await signEd25519(new Uint8Array(messageHash), wallet.secretKey);
   const signature = base58Encode(signatureBytes);
 
   logger.debug(
@@ -198,13 +226,81 @@ export async function signSolanaPayment(
 /**
  * Verify a Solana payment signature
  */
-export function verifySolanaPayment(payload: X402PaymentPayload): boolean {
-  // In production, use ed25519.verify()
-  // For now, just check format
-  return (
-    payload.signature.length >= 64 &&
-    payload.payer.length >= 32
-  );
+export async function verifySolanaPayment(payload: X402PaymentPayload): Promise<boolean> {
+  try {
+    // Decode the signature and public key from base58
+    const signatureBytes = base58Decode(payload.signature);
+    const publicKeyBytes = base58Decode(payload.payer);
+
+    // Validate lengths
+    if (signatureBytes.length !== 64) {
+      logger.debug({ length: signatureBytes.length }, 'Invalid signature length');
+      return false;
+    }
+    if (publicKeyBytes.length !== 32) {
+      logger.debug({ length: publicKeyBytes.length }, 'Invalid public key length');
+      return false;
+    }
+
+    // Reconstruct the message that was signed
+    const message = JSON.stringify({
+      scheme: payload.paymentOption.scheme,
+      network: payload.paymentOption.network,
+      asset: payload.paymentOption.asset,
+      amount: payload.paymentOption.maxAmountRequired,
+      payTo: payload.paymentOption.payTo,
+      nonce: payload.nonce,
+      timestamp: payload.timestamp,
+      validUntil: payload.paymentOption.validUntil || payload.timestamp + 300,
+    });
+
+    const messageBytes = new TextEncoder().encode(message);
+    const messageHash = createHash('sha256').update(messageBytes).digest();
+
+    // Verify the signature using Ed25519
+    const isValid = await ed25519.verifyAsync(
+      signatureBytes,
+      new Uint8Array(messageHash),
+      publicKeyBytes
+    );
+
+    return isValid;
+  } catch (error) {
+    logger.debug({ error }, 'Failed to verify Solana payment signature');
+    return false;
+  }
+}
+
+/**
+ * Verify a Solana payment signature (synchronous version)
+ */
+export function verifySolanaPaymentSync(payload: X402PaymentPayload): boolean {
+  try {
+    const signatureBytes = base58Decode(payload.signature);
+    const publicKeyBytes = base58Decode(payload.payer);
+
+    if (signatureBytes.length !== 64 || publicKeyBytes.length !== 32) {
+      return false;
+    }
+
+    const message = JSON.stringify({
+      scheme: payload.paymentOption.scheme,
+      network: payload.paymentOption.network,
+      asset: payload.paymentOption.asset,
+      amount: payload.paymentOption.maxAmountRequired,
+      payTo: payload.paymentOption.payTo,
+      nonce: payload.nonce,
+      timestamp: payload.timestamp,
+      validUntil: payload.paymentOption.validUntil || payload.timestamp + 300,
+    });
+
+    const messageBytes = new TextEncoder().encode(message);
+    const messageHash = createHash('sha256').update(messageBytes).digest();
+
+    return ed25519.verify(signatureBytes, new Uint8Array(messageHash), publicKeyBytes);
+  } catch {
+    return false;
+  }
 }
 
 // =============================================================================
@@ -263,13 +359,20 @@ function findProgramAddress(
 
 /**
  * Check if a 32-byte value is off the ed25519 curve (valid PDA)
- * Simplified check - in production use ed25519 point validation
+ * Uses Ed25519 point validation - a valid PDA must NOT be a valid public key
  */
 function isOffCurve(bytes: Buffer): boolean {
-  // Most hashes will be off-curve, so we accept them
-  // A proper implementation would verify the point is not on the ed25519 curve
-  // For the ATA derivation, the first valid bump is almost always 255 or close
-  return true;
+  try {
+    // Attempt to use this as a public key point
+    // If it's a valid Ed25519 point (on curve), this will succeed
+    // For PDAs, we want points that are NOT on the curve
+    const point = ed25519.ExtendedPoint.fromHex(bytes);
+    // If we get here, the point is ON the curve, so NOT a valid PDA
+    return false;
+  } catch {
+    // Error means the point is NOT on the curve - valid for PDA
+    return true;
+  }
 }
 
 /**
@@ -328,4 +431,8 @@ export function getAssociatedTokenAddressWithBump(
 // EXPORTS
 // =============================================================================
 
-export { base58Encode, base58Decode };
+export {
+  base58Encode,
+  base58Decode,
+  signEd25519Sync,
+};

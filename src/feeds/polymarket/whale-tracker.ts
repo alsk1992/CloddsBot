@@ -114,6 +114,8 @@ export interface WhaleConfig {
   enableRealtime?: boolean;
 }
 
+export type MarketCategory = 'politics' | 'crypto' | 'sports' | 'entertainment' | 'science' | 'economics' | 'other';
+
 export interface WhaleTrade {
   id: string;
   timestamp: Date;
@@ -128,6 +130,8 @@ export interface WhaleTrade {
   maker: string;
   taker: string;
   transactionHash?: string;
+  /** Market category for performance tracking */
+  category?: MarketCategory;
 }
 
 export interface WhalePosition {
@@ -144,6 +148,17 @@ export interface WhalePosition {
   lastUpdated: Date;
 }
 
+/** Performance stats for a specific category */
+export interface CategoryPerformance {
+  category: MarketCategory;
+  wins: number;
+  losses: number;
+  totalTrades: number;
+  winRate: number;
+  totalPnl: number;
+  avgReturn: number;
+}
+
 export interface WhaleProfile {
   address: string;
   totalValue: number;
@@ -153,6 +168,8 @@ export interface WhaleProfile {
   recentTrades: WhaleTrade[];
   firstSeen: Date;
   lastActive: Date;
+  /** Performance breakdown by market category */
+  categoryPerformance?: Map<MarketCategory, CategoryPerformance>;
 }
 
 export interface CopyTradeSignal {
@@ -221,6 +238,38 @@ const DEFAULT_CONFIG: Required<WhaleConfig> = {
   pollIntervalMs: 60000,
   enableRealtime: true,
 };
+
+// =============================================================================
+// CATEGORY DETECTION
+// =============================================================================
+
+const CATEGORY_KEYWORDS: Record<MarketCategory, string[]> = {
+  politics: ['trump', 'biden', 'election', 'president', 'congress', 'senate', 'republican', 'democrat', 'vote', 'poll', 'governor', 'mayor', 'political', 'party', 'cabinet', 'impeach'],
+  crypto: ['bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'sol', 'crypto', 'token', 'coin', 'blockchain', 'defi', 'nft', 'altcoin', 'memecoin', 'doge', 'xrp'],
+  sports: ['nfl', 'nba', 'mlb', 'nhl', 'soccer', 'football', 'basketball', 'baseball', 'hockey', 'tennis', 'golf', 'ufc', 'boxing', 'championship', 'super bowl', 'world cup', 'playoffs', 'finals'],
+  entertainment: ['movie', 'film', 'oscar', 'grammy', 'emmy', 'celebrity', 'actor', 'actress', 'album', 'music', 'netflix', 'disney', 'tv show', 'streaming'],
+  science: ['nasa', 'spacex', 'climate', 'weather', 'hurricane', 'earthquake', 'pandemic', 'vaccine', 'fda', 'research', 'study', 'discovery', 'ai', 'artificial intelligence'],
+  economics: ['fed', 'interest rate', 'inflation', 'gdp', 'unemployment', 'recession', 'stock', 'market', 'dow', 's&p', 'nasdaq', 'earnings', 'ipo', 'merger'],
+  other: [],
+};
+
+/**
+ * Detect market category from question text
+ */
+export function detectMarketCategory(question: string): MarketCategory {
+  const lowerQuestion = question.toLowerCase();
+
+  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS) as [MarketCategory, string[]][]) {
+    if (category === 'other') continue;
+    for (const keyword of keywords) {
+      if (lowerQuestion.includes(keyword)) {
+        return category;
+      }
+    }
+  }
+
+  return 'other';
+}
 
 // Known whale addresses (can be extended)
 const KNOWN_WHALES = new Set<string>([

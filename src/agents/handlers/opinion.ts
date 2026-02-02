@@ -21,7 +21,7 @@ function getTradingConfig(): opinion.OpinionConfig {
   return {
     apiKey: process.env.OPINION_API_KEY || '',
     privateKey: process.env.OPINION_PRIVATE_KEY || '',
-    vaultAddress: process.env.OPINION_VAULT_ADDRESS,
+    vaultAddress: process.env.OPINION_VAULT_ADDRESS || '',
     dryRun: process.env.DRY_RUN === 'true',
   };
 }

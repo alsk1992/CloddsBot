@@ -907,14 +907,16 @@ export function createMcpRegistry(): McpRegistry {
 
       // If no server specified, search all
       if (!serverName) {
-        for (const client of clients.values()) {
+        for (const [srvName, client] of clients) {
           if (!client.connected) continue;
           try {
             const tools = await client.listTools();
             if (tools.some(t => t.name === toolName)) {
               return client.callTool(toolName, params);
             }
-          } catch {}
+          } catch (e) {
+            logger.debug({ err: e, server: srvName, tool: toolName }, 'Tool lookup failed on server');
+          }
         }
         throw new Error(`Tool not found: ${qualifiedName}`);
       }
@@ -956,7 +958,9 @@ export function createMcpRegistry(): McpRegistry {
               yield chunk;
             }
             return;
-          } catch {}
+          } catch (e) {
+            logger.debug({ err: e, uri }, 'Resource stream failed on server');
+          }
         }
         throw new Error(`Resource not found: ${qualifiedName}`);
       }
@@ -993,7 +997,9 @@ export function createMcpRegistry(): McpRegistry {
           if (!client.connected) continue;
           try {
             return await resolvePrompt(client);
-          } catch {}
+          } catch (e) {
+            logger.debug({ err: e, prompt: promptName }, 'Prompt lookup failed on server');
+          }
         }
         throw new Error(`Prompt not found: ${qualifiedName}`);
       }
@@ -1027,7 +1033,9 @@ export function createMcpRegistry(): McpRegistry {
             if (tools.some(t => t.name === toolName)) {
               return runOnClient(client);
             }
-          } catch {}
+          } catch (e) {
+            logger.debug({ err: e, tool: toolName }, 'Batch tool lookup failed on server');
+          }
         }
         throw new Error(`Tool not found: ${qualifiedName}`);
       }

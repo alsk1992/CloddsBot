@@ -691,3 +691,130 @@ export function createOrchestrator(config?: ACPConfig): Orchestrator {
 // =============================================================================
 
 export const orchestrator = new Orchestrator();
+
+// =============================================================================
+// COMMERCE MODULES RE-EXPORTS
+// =============================================================================
+
+// Escrow - On-chain payment escrow with deposit/release/refund/dispute
+export {
+  type EscrowStatus,
+  type EscrowChain,
+  type EscrowParty,
+  type EscrowCondition,
+  type EscrowConfig,
+  type Escrow,
+  type EscrowResult,
+  type EscrowService,
+  getEscrowService,
+  initEscrowService,
+  formatEscrowAmount,
+  createEscrowId,
+} from './escrow';
+
+// Agreement - Cryptographic proof-of-agreement with signatures
+export {
+  type AgreementStatus,
+  type AgreementParty,
+  type AgreementTerm,
+  type AgreementConfig,
+  type Agreement,
+  type SignaturePayload,
+  type AgreementService,
+  createAgreementService,
+  getAgreementService,
+  createServiceAgreement,
+  verifyAgreementChain,
+} from './agreement';
+
+// Registry - Agent/service marketplace registry
+export {
+  type AgentCapability,
+  type ServicePricing,
+  type ServiceListing,
+  type AgentReputation,
+  type AgentProfile,
+  type ServiceCategory,
+  type SearchFilters,
+  type RegistryService,
+  type RegistryStats,
+  type ServiceRating,
+  CommonCapabilities,
+  createRegistryService,
+  getRegistryService,
+} from './registry';
+
+// Discovery - Intelligent agent/service matching
+export {
+  type DiscoveryRequest,
+  type DiscoveryMatch,
+  type NegotiationRequest,
+  type NegotiationResult,
+  type DiscoveryService,
+  createDiscoveryService,
+  getDiscoveryService,
+  findService,
+  quickHire,
+} from './discovery';
+
+// Persistence - Database storage layer
+export { initACPPersistence } from './persistence';
+
+// Identity - Handles, takeovers, referrals, profiles, leaderboards
+export {
+  type Handle,
+  type TakeoverBid,
+  type Referral,
+  type AgentProfile as IdentityProfile,
+  type LeaderboardEntry,
+  type HandleService,
+  type TakeoverService,
+  type ReferralService,
+  type ProfileService,
+  type LeaderboardService,
+  type IdentityService,
+  validateHandle,
+  createHandleService,
+  createTakeoverService,
+  createReferralService,
+  createProfileService,
+  createLeaderboardService,
+  getIdentityService,
+  initIdentityPersistence,
+} from './identity';
+
+// Predictions - Brier score tracking for agent forecasts
+export {
+  type Prediction,
+  type PredictionStats,
+  type PredictionFeedEntry,
+  type MarketCategory,
+  type PredictionService,
+  createPredictionService,
+  getPredictionService,
+  initPredictions,
+  calculateBrierContribution,
+  interpretBrierScore,
+} from './predictions';
+
+// =============================================================================
+// ACP INITIALIZATION
+// =============================================================================
+
+import { Database } from '../db';
+import { initACPPersistence } from './persistence';
+import { initIdentityPersistence } from './identity';
+import { initPredictions } from './predictions';
+
+/**
+ * Initialize the ACP (Agent Commerce Protocol) module.
+ * Must be called before using ACP features to enable database persistence.
+ *
+ * @param database - The SQLite database instance
+ */
+export function initACP(database: Database): void {
+  initACPPersistence(database);
+  initIdentityPersistence(database);
+  initPredictions(database);
+  logger.info('ACP module initialized with database persistence');
+}

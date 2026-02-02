@@ -166,9 +166,10 @@ embeddings.setProvider('voyage', {
   model: 'voyage-large-2',
 });
 
-// Use local model
+// Use local model (Transformers.js)
+// No API key required - runs locally via @xenova/transformers
 embeddings.setProvider('local', {
-  modelPath: './models/all-MiniLM-L6-v2',
+  model: 'Xenova/all-MiniLM-L6-v2',  // 384 dimensions
 });
 ```
 
@@ -181,7 +182,7 @@ embeddings.setProvider('local', {
 | **OpenAI** | text-embedding-3-small/large | Excellent | Fast | $0.02/1M |
 | **Voyage** | voyage-large-2 | Excellent | Fast | $0.02/1M |
 | **Cohere** | embed-english-v3 | Good | Fast | $0.10/1M |
-| **Local** | all-MiniLM-L6-v2 | Good | Slow | Free |
+| **Local (Transformers.js)** | Xenova/all-MiniLM-L6-v2 | Good | Medium | Free |
 
 ---
 

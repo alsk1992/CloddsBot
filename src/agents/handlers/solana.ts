@@ -154,9 +154,8 @@ async function orcaPoolsHandler(toolInput: ToolInput): Promise<HandlerResult> {
 
 async function orcaQuoteHandler(toolInput: ToolInput): Promise<HandlerResult> {
   return safeHandler(async () => {
-    const { wallet, orca } = await getSolanaModules();
-    const connection = wallet.getSolanaConnection();
-    return orca.getOrcaWhirlpoolQuote(connection, {
+    const { orca } = await getSolanaModules();
+    return orca.getOrcaWhirlpoolQuote({
       poolAddress: toolInput.pool_address as string,
       inputMint: toolInput.input_mint as string,
       amount: toolInput.amount as string,
@@ -256,7 +255,7 @@ async function pumpFrontendRequest<T>(endpoint: string): Promise<T> {
     headers: { 'Accept': 'application/json' },
   });
   if (!response.ok) throw new Error(`Pump.fun API error: ${response.status}`);
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 async function pumpfunTrendingHandler(): Promise<HandlerResult> {
@@ -594,20 +593,44 @@ async function swarmBuyHandler(toolInput: ToolInput): Promise<HandlerResult> {
   const executionMode = toolInput.execution_mode as 'parallel' | 'bundle' | 'multi-bundle' | 'sequential' | undefined;
   const slippageBps = toolInput.slippage_bps as number | undefined;
   const pool = toolInput.pool as string | undefined;
+  const presetName = toolInput.preset as string | undefined;
 
   return safeHandler(async () => {
     const { getSwarm } = await import('../../solana/pump-swarm');
     const swarm = getSwarm();
 
+    let finalMint = mint;
+    let finalAmount: number | string = amountPerWallet;
+    let finalSlippage = slippageBps;
+    let finalPool = pool;
+    let finalMode = executionMode;
+    let finalWalletIds = walletIds;
+
+    // Apply preset if specified
+    if (presetName) {
+      const { getSwarmPresetService } = await import('../../solana/swarm-presets');
+      const presetService = getSwarmPresetService();
+      const preset = await presetService.get('agent_user', presetName);
+      if (preset) {
+        const config = preset.config;
+        if (config.mint && !mint) finalMint = config.mint;
+        if (config.amountPerWallet !== undefined && !amountPerWallet) finalAmount = config.amountPerWallet;
+        if (config.slippageBps !== undefined && !slippageBps) finalSlippage = config.slippageBps;
+        if (config.pool && !pool) finalPool = config.pool;
+        if (config.executionMode && !executionMode) finalMode = config.executionMode;
+        if (config.walletIds && config.walletIds.length > 0 && !walletIds) finalWalletIds = config.walletIds;
+      }
+    }
+
     const result = await swarm.coordinatedBuy({
-      mint,
+      mint: finalMint,
       action: 'buy',
-      amountPerWallet,
+      amountPerWallet: finalAmount,
       denominatedInSol: true,
-      slippageBps,
-      pool,
-      executionMode,
-      walletIds,
+      slippageBps: finalSlippage,
+      pool: finalPool,
+      executionMode: finalMode,
+      walletIds: finalWalletIds,
     });
 
     return {
@@ -617,6 +640,7 @@ async function swarmBuyHandler(toolInput: ToolInput): Promise<HandlerResult> {
       executionMode: result.executionMode,
       executionTimeMs: result.executionTimeMs,
       bundleIds: result.bundleIds,
+      presetApplied: presetName,
       walletResults: result.walletResults.map(wr => ({
         walletId: wr.walletId,
         success: wr.success,
@@ -634,20 +658,44 @@ async function swarmSellHandler(toolInput: ToolInput): Promise<HandlerResult> {
   const executionMode = toolInput.execution_mode as 'parallel' | 'bundle' | 'multi-bundle' | 'sequential' | undefined;
   const slippageBps = toolInput.slippage_bps as number | undefined;
   const pool = toolInput.pool as string | undefined;
+  const presetName = toolInput.preset as string | undefined;
 
   return safeHandler(async () => {
     const { getSwarm } = await import('../../solana/pump-swarm');
     const swarm = getSwarm();
 
+    let finalMint = mint;
+    let finalAmount: number | string = amountPerWallet;
+    let finalSlippage = slippageBps;
+    let finalPool = pool;
+    let finalMode = executionMode;
+    let finalWalletIds = walletIds;
+
+    // Apply preset if specified
+    if (presetName) {
+      const { getSwarmPresetService } = await import('../../solana/swarm-presets');
+      const presetService = getSwarmPresetService();
+      const preset = await presetService.get('agent_user', presetName);
+      if (preset) {
+        const config = preset.config;
+        if (config.mint && !mint) finalMint = config.mint;
+        if (config.amountPerWallet !== undefined && !amountPerWallet) finalAmount = config.amountPerWallet;
+        if (config.slippageBps !== undefined && !slippageBps) finalSlippage = config.slippageBps;
+        if (config.pool && !pool) finalPool = config.pool;
+        if (config.executionMode && !executionMode) finalMode = config.executionMode;
+        if (config.walletIds && config.walletIds.length > 0 && !walletIds) finalWalletIds = config.walletIds;
+      }
+    }
+
     const result = await swarm.coordinatedSell({
-      mint,
+      mint: finalMint,
       action: 'sell',
-      amountPerWallet,
+      amountPerWallet: finalAmount,
       denominatedInSol: false,
-      slippageBps,
-      pool,
-      executionMode,
-      walletIds,
+      slippageBps: finalSlippage,
+      pool: finalPool,
+      executionMode: finalMode,
+      walletIds: finalWalletIds,
     });
 
     return {
@@ -657,6 +705,7 @@ async function swarmSellHandler(toolInput: ToolInput): Promise<HandlerResult> {
       executionMode: result.executionMode,
       executionTimeMs: result.executionTimeMs,
       bundleIds: result.bundleIds,
+      presetApplied: presetName,
       walletResults: result.walletResults.map(wr => ({
         walletId: wr.walletId,
         success: wr.success,
@@ -731,6 +780,119 @@ async function swarmDisableHandler(toolInput: ToolInput): Promise<HandlerResult>
     swarm.disableWallet(walletId);
     return { success: true, walletId, enabled: false };
   });
+}
+
+// ============================================================================
+// Swarm Preset Handlers
+// ============================================================================
+
+async function swarmPresetSaveHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const name = toolInput.name as string;
+  const type = (toolInput.type as string) || 'strategy';
+  const description = toolInput.description as string | undefined;
+  const config = toolInput.config as Record<string, unknown>;
+  const userId = (toolInput.user_id as string) || 'agent_user';
+
+  return safeHandler(async () => {
+    const { getSwarmPresetService } = await import('../../solana/swarm-presets');
+    const presetService = getSwarmPresetService();
+
+    const preset = await presetService.create(userId, {
+      name,
+      type: type as 'strategy' | 'token' | 'wallet_group',
+      description,
+      config: {
+        mint: config.mint as string | undefined,
+        amountPerWallet: config.amountPerWallet as number | undefined,
+        slippageBps: config.slippageBps as number | undefined,
+        pool: config.pool as 'pump' | 'raydium' | 'auto' | undefined,
+        executionMode: config.executionMode as 'parallel' | 'bundle' | 'multi-bundle' | 'sequential' | undefined,
+        walletIds: config.walletIds as string[] | undefined,
+        amountVariancePct: config.amountVariancePct as number | undefined,
+      },
+    });
+
+    return {
+      success: true,
+      preset: {
+        id: preset.id,
+        name: preset.name,
+        type: preset.type,
+        description: preset.description,
+        config: preset.config,
+      },
+    };
+  }, 'Failed to save preset.');
+}
+
+async function swarmPresetListHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const type = toolInput.type as string | undefined;
+  const userId = (toolInput.user_id as string) || 'agent_user';
+
+  return safeHandler(async () => {
+    const { getSwarmPresetService } = await import('../../solana/swarm-presets');
+    const presetService = getSwarmPresetService();
+
+    const presets = await presetService.list(
+      userId,
+      type as 'strategy' | 'token' | 'wallet_group' | undefined
+    );
+
+    return {
+      count: presets.length,
+      presets: presets.map(p => ({
+        name: p.name,
+        type: p.type,
+        description: p.description,
+        isBuiltin: p.userId === 'system',
+        config: p.config,
+      })),
+    };
+  });
+}
+
+async function swarmPresetGetHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const name = toolInput.name as string;
+  const userId = (toolInput.user_id as string) || 'agent_user';
+
+  return safeHandler(async () => {
+    const { getSwarmPresetService } = await import('../../solana/swarm-presets');
+    const presetService = getSwarmPresetService();
+
+    const preset = await presetService.get(userId, name);
+
+    if (!preset) {
+      return { found: false, name };
+    }
+
+    return {
+      found: true,
+      preset: {
+        id: preset.id,
+        name: preset.name,
+        type: preset.type,
+        description: preset.description,
+        isBuiltin: preset.userId === 'system',
+        config: preset.config,
+        createdAt: preset.createdAt.toISOString(),
+        updatedAt: preset.updatedAt.toISOString(),
+      },
+    };
+  });
+}
+
+async function swarmPresetDeleteHandler(toolInput: ToolInput): Promise<HandlerResult> {
+  const name = toolInput.name as string;
+  const userId = (toolInput.user_id as string) || 'agent_user';
+
+  return safeHandler(async () => {
+    const { getSwarmPresetService } = await import('../../solana/swarm-presets');
+    const presetService = getSwarmPresetService();
+
+    const deleted = await presetService.delete(userId, name);
+
+    return { success: deleted, name };
+  }, 'Failed to delete preset.');
 }
 
 // ============================================================================
@@ -975,7 +1137,7 @@ async function autoQuoteHandler(toolInput: ToolInput): Promise<HandlerResult> {
           });
           results.push({ dex, pool, quote });
         } else if (dex === 'orca') {
-          const quote = await orca.getOrcaWhirlpoolQuote(connection, {
+          const quote = await orca.getOrcaWhirlpoolQuote({
             poolAddress: pool.address,
             inputMint: pool.tokenMintA,
             amount,
@@ -1016,7 +1178,7 @@ async function bagsRequest<T>(endpoint: string, options: RequestInit = {}): Prom
     const error = await response.text();
     throw new Error(`Bags API error: ${response.status} - ${error}`);
   }
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
 // Trading
@@ -1449,6 +1611,12 @@ export const solanaHandlers: HandlersMap = {
   swarm_refresh: swarmRefreshHandler,
   swarm_enable: swarmEnableHandler,
   swarm_disable: swarmDisableHandler,
+
+  // Swarm Presets
+  swarm_preset_save: swarmPresetSaveHandler,
+  swarm_preset_list: swarmPresetListHandler,
+  swarm_preset_get: swarmPresetGetHandler,
+  swarm_preset_delete: swarmPresetDeleteHandler,
 
   // Drift
   drift_direct_place_order: driftPlaceOrderHandler,

@@ -3,6 +3,9 @@
  */
 
 import type { Database } from '../../db';
+import type { TradingContext, PolymarketCredentials, KalshiCredentials, Config } from '../../types';
+import type { CredentialsManager } from '../../credentials';
+import type { FeedManager } from '../../feeds';
 
 /**
  * Tool input from the agent
@@ -21,6 +24,12 @@ export interface HandlerContext {
   db: Database;
   userId?: string;
   sessionId?: string;
+
+  // Extended context for trading handlers
+  tradingContext?: TradingContext | null;
+  credentials?: CredentialsManager;
+  feeds?: FeedManager;
+  config?: Config;
 }
 
 /**

@@ -26,9 +26,15 @@ import { betfairHandlers } from './betfair';
 import { smarketsHandlers } from './smarkets';
 import { virtualsHandlers } from './virtuals';
 import { solanaHandlers } from './solana';
+import { acpHandlers } from './acp';
+import { polymarketHandlers } from './polymarket';
+import { marketsHandlers } from './markets';
+import { walletsHandlers } from './wallets';
+import { arbitrageHandlers } from './arbitrage';
+import { paperTradingHandlers } from './paper-trading';
+import { credentialsHandlers } from './credentials';
 // TODO: Add more platform handlers as they're migrated
 // import { kalshiHandlers } from './kalshi';
-// import { polymarketHandlers } from './polymarket';
 // import { predictfunHandlers } from './predictfun';
 // import { manifoldHandlers } from './manifold';
 // import { binanceHandlers } from './binance';
@@ -44,9 +50,15 @@ const allHandlers: HandlersMap = {
   ...smarketsHandlers,
   ...virtualsHandlers,
   ...solanaHandlers,
+  ...acpHandlers,
+  ...polymarketHandlers,
+  ...marketsHandlers,
+  ...walletsHandlers,
+  ...arbitrageHandlers,
+  ...paperTradingHandlers,
+  ...credentialsHandlers,
   // TODO: Add more as migrated
   // ...kalshiHandlers,
-  // ...polymarketHandlers,
   // ...predictfunHandlers,
   // ...manifoldHandlers,
   // ...binanceHandlers,
@@ -120,3 +132,10 @@ export { betfairHandlers };
 export { smarketsHandlers };
 export { virtualsHandlers };
 export { solanaHandlers };
+export { acpHandlers };
+export { polymarketHandlers };
+export { marketsHandlers };
+export { walletsHandlers };
+export { arbitrageHandlers };
+export { paperTradingHandlers };
+export { credentialsHandlers };

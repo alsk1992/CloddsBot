@@ -1888,18 +1888,11 @@ export async function initDatabase(): Promise<Database> {
     } catch {
       // Column already exists or table missing; ignore.
     }
-    try {
-      db.run('ALTER TABLE market_index ADD COLUMN volume_24h REAL');
-    } catch {}
-    try {
-      db.run('ALTER TABLE market_index ADD COLUMN liquidity REAL');
-    } catch {}
-    try {
-      db.run('ALTER TABLE market_index ADD COLUMN open_interest REAL');
-    } catch {}
-    try {
-      db.run('ALTER TABLE market_index ADD COLUMN predictions INTEGER');
-    } catch {}
+    // Silently add columns if missing - errors mean column already exists
+    try { db.run('ALTER TABLE market_index ADD COLUMN volume_24h REAL'); } catch { /* Column exists */ }
+    try { db.run('ALTER TABLE market_index ADD COLUMN liquidity REAL'); } catch { /* Column exists */ }
+    try { db.run('ALTER TABLE market_index ADD COLUMN open_interest REAL'); } catch { /* Column exists */ }
+    try { db.run('ALTER TABLE market_index ADD COLUMN predictions INTEGER'); } catch { /* Column exists */ }
 
     // Ensure embeddings table exists for older DBs
     db.run(`

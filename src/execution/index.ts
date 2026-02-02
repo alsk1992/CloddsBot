@@ -21,6 +21,11 @@ import {
   buildKalshiHeadersForUrl,
   KalshiApiKeyAuth,
 } from '../utils/kalshi-auth';
+import {
+  buildOpinionHeaders,
+  OpinionApiAuth,
+} from '../utils/opinion-auth';
+import * as predictfun from '../exchanges/predictfun';
 
 // =============================================================================
 // TYPES
@@ -32,7 +37,7 @@ export type OrderType = 'GTC' | 'FOK' | 'GTD';
 export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'expired' | 'rejected';
 
 export interface OrderRequest {
-  platform: 'polymarket' | 'kalshi';
+  platform: 'polymarket' | 'kalshi' | 'opinion' | 'predictfun';
   marketId: string;
   tokenId?: string;  // For Polymarket
   outcome?: string;  // 'yes' | 'no' for Kalshi
@@ -74,7 +79,7 @@ export interface OrderResult {
 
 export interface OpenOrder {
   orderId: string;
-  platform: 'polymarket' | 'kalshi';
+  platform: 'polymarket' | 'kalshi' | 'opinion' | 'predictfun';
   marketId: string;
   tokenId?: string;
   outcome?: string;
@@ -95,6 +100,24 @@ export interface ExecutionConfig {
     funderAddress?: string;
   };
   kalshi?: KalshiApiKeyAuth;
+  opinion?: OpinionApiAuth & {
+    /** Wallet private key for trading (BNB Chain) */
+    privateKey?: string;
+    /** Vault/funder address */
+    multiSigAddress?: string;
+    /** BNB Chain RPC URL (default: https://bsc-dataseed.binance.org) */
+    rpcUrl?: string;
+  };
+  predictfun?: {
+    /** Wallet private key for trading (BNB Chain) */
+    privateKey: string;
+    /** Smart wallet/deposit address (optional) */
+    predictAccount?: string;
+    /** BNB Chain RPC URL */
+    rpcUrl?: string;
+    /** API key (optional) */
+    apiKey?: string;
+  };
   /** Max order size in USD */
   maxOrderSize?: number;
   /** Dry run mode - log but don't execute */
@@ -124,10 +147,14 @@ export interface ExecutionService {
   estimateSlippage(request: OrderRequest): Promise<{ slippage: number; expectedPrice: number }>;
 
   // Order management
-  cancelOrder(platform: 'polymarket' | 'kalshi', orderId: string): Promise<boolean>;
-  cancelAllOrders(platform?: 'polymarket' | 'kalshi', marketId?: string): Promise<number>;
-  getOpenOrders(platform?: 'polymarket' | 'kalshi'): Promise<OpenOrder[]>;
-  getOrder(platform: 'polymarket' | 'kalshi', orderId: string): Promise<OpenOrder | null>;
+  cancelOrder(platform: 'polymarket' | 'kalshi' | 'opinion' | 'predictfun', orderId: string): Promise<boolean>;
+  cancelAllOrders(platform?: 'polymarket' | 'kalshi' | 'opinion' | 'predictfun', marketId?: string): Promise<number>;
+  getOpenOrders(platform?: 'polymarket' | 'kalshi' | 'opinion' | 'predictfun'): Promise<OpenOrder[]>;
+  getOrder(platform: 'polymarket' | 'kalshi' | 'opinion' | 'predictfun', orderId: string): Promise<OpenOrder | null>;
+
+  // Batch operations (Opinion only for now)
+  placeOrdersBatch(orders: Array<Omit<OrderRequest, 'orderType'>>): Promise<OrderResult[]>;
+  cancelOrdersBatch(platform: 'opinion', orderIds: string[]): Promise<Array<{ orderId: string; success: boolean }>>;
 
   // Utilities
   estimateFill(request: OrderRequest): Promise<{ avgPrice: number; filledSize: number }>;
@@ -178,6 +205,162 @@ interface OrderbookData {
   bids: [number, number][]; // [price, size]
   asks: [number, number][]; // [price, size]
   midPrice: number;
+}
+
+// =============================================================================
+// ORDERBOOK IMBALANCE DETECTION
+// =============================================================================
+
+export type DirectionalSignal = 'bullish' | 'bearish' | 'neutral';
+
+export interface OrderbookImbalance {
+  /** Bid volume / Ask volume ratio (>1 = more bid pressure) */
+  bidAskRatio: number;
+  /** Normalized imbalance score from -1 (bearish) to +1 (bullish) */
+  imbalanceScore: number;
+  /** Volume-weighted average bid price */
+  vwapBid: number;
+  /** Volume-weighted average ask price */
+  vwapAsk: number;
+  /** Total bid volume within depth levels */
+  totalBidVolume: number;
+  /** Total ask volume within depth levels */
+  totalAskVolume: number;
+  /** Spread as decimal (e.g., 0.02 = 2 cents) */
+  spread: number;
+  /** Spread as percentage of mid price */
+  spreadPct: number;
+  /** Directional signal based on imbalance */
+  signal: DirectionalSignal;
+  /** Confidence in signal (0-1 based on volume and spread) */
+  confidence: number;
+  /** Best bid price */
+  bestBid: number;
+  /** Best ask price */
+  bestAsk: number;
+  /** Mid price */
+  midPrice: number;
+}
+
+/**
+ * Calculate orderbook imbalance metrics for directional signals
+ *
+ * @param orderbook - Raw orderbook data
+ * @param depthLevels - Number of price levels to analyze (default: 5)
+ * @param depthDollars - Optional: analyze orders within this dollar amount of best price
+ * @returns Imbalance metrics including directional signal
+ */
+export function calculateOrderbookImbalance(
+  orderbook: OrderbookData,
+  depthLevels: number = 5,
+  depthDollars?: number
+): OrderbookImbalance {
+  const { bids, asks, midPrice } = orderbook;
+
+  // Filter to depth levels or dollar depth
+  let filteredBids = bids.slice(0, depthLevels);
+  let filteredAsks = asks.slice(0, depthLevels);
+
+  if (depthDollars !== undefined && depthDollars > 0) {
+    const bestBid = bids[0]?.[0] || 0;
+    const bestAsk = asks[0]?.[0] || 1;
+
+    filteredBids = bids.filter(([price]) => bestBid - price <= depthDollars);
+    filteredAsks = asks.filter(([price]) => price - bestAsk <= depthDollars);
+  }
+
+  // Calculate total volumes
+  const totalBidVolume = filteredBids.reduce((sum, [, size]) => sum + size, 0);
+  const totalAskVolume = filteredAsks.reduce((sum, [, size]) => sum + size, 0);
+
+  // Calculate VWAP for each side
+  const bidCost = filteredBids.reduce((sum, [price, size]) => sum + price * size, 0);
+  const askCost = filteredAsks.reduce((sum, [price, size]) => sum + price * size, 0);
+
+  const vwapBid = totalBidVolume > 0 ? bidCost / totalBidVolume : 0;
+  const vwapAsk = totalAskVolume > 0 ? askCost / totalAskVolume : 1;
+
+  // Calculate bid/ask ratio
+  const bidAskRatio = totalAskVolume > 0 ? totalBidVolume / totalAskVolume :
+                      totalBidVolume > 0 ? Infinity : 1;
+
+  // Normalized imbalance score: (bid - ask) / (bid + ask)
+  // Ranges from -1 (all asks) to +1 (all bids)
+  const totalVolume = totalBidVolume + totalAskVolume;
+  const imbalanceScore = totalVolume > 0
+    ? (totalBidVolume - totalAskVolume) / totalVolume
+    : 0;
+
+  // Best prices and spread
+  const bestBid = bids[0]?.[0] || 0;
+  const bestAsk = asks[0]?.[0] || 1;
+  const spread = bestAsk - bestBid;
+  const spreadPct = midPrice > 0 ? spread / midPrice : 0;
+
+  // Determine directional signal
+  // Thresholds tuned for prediction markets (typically 0.01-0.99 range)
+  let signal: DirectionalSignal = 'neutral';
+  if (imbalanceScore > 0.15) {
+    signal = 'bullish';  // Significantly more bid volume
+  } else if (imbalanceScore < -0.15) {
+    signal = 'bearish';  // Significantly more ask volume
+  }
+
+  // Confidence based on:
+  // 1. Total volume (more volume = more reliable signal)
+  // 2. Spread (tighter spread = more reliable)
+  // 3. Imbalance magnitude (stronger imbalance = more confident)
+  const volumeScore = Math.min(1, totalVolume / 10000); // Normalize to ~$10k
+  const spreadScore = Math.max(0, 1 - spreadPct * 10);   // Penalty for wide spreads
+  const imbalanceMagnitude = Math.abs(imbalanceScore);
+
+  const confidence = (volumeScore * 0.4 + spreadScore * 0.3 + imbalanceMagnitude * 0.3);
+
+  return {
+    bidAskRatio,
+    imbalanceScore,
+    vwapBid,
+    vwapAsk,
+    totalBidVolume,
+    totalAskVolume,
+    spread,
+    spreadPct,
+    signal,
+    confidence: Math.min(1, Math.max(0, confidence)),
+    bestBid,
+    bestAsk,
+    midPrice,
+  };
+}
+
+/**
+ * Fetch and analyze orderbook imbalance for a market
+ */
+export async function getOrderbookImbalance(
+  platform: 'polymarket' | 'kalshi' | 'opinion' | 'predictfun',
+  marketIdOrTokenId: string,
+  depthLevels?: number
+): Promise<OrderbookImbalance | null> {
+  try {
+    let orderbook: OrderbookData | null = null;
+
+    if (platform === 'polymarket') {
+      orderbook = await fetchPolymarketOrderbook(marketIdOrTokenId);
+    } else if (platform === 'kalshi') {
+      orderbook = await fetchKalshiOrderbook(marketIdOrTokenId);
+    } else if (platform === 'opinion') {
+      orderbook = await fetchOpinionOrderbook(marketIdOrTokenId);
+    }
+
+    if (!orderbook || (orderbook.bids.length === 0 && orderbook.asks.length === 0)) {
+      return null;
+    }
+
+    return calculateOrderbookImbalance(orderbook, depthLevels);
+  } catch (error) {
+    logger.warn({ error, platform, marketIdOrTokenId }, 'Failed to get orderbook imbalance');
+    return null;
+  }
 }
 
 /**
@@ -650,6 +833,431 @@ async function getKalshiOpenOrders(auth: KalshiApiKeyAuth): Promise<OpenOrder[]>
 }
 
 // =============================================================================
+// OPINION.TRADE EXECUTION
+// =============================================================================
+
+const OPINION_API_URL = 'https://proxy.opinion.trade:8443/openapi';
+
+interface OpinionOrderResponse {
+  orderId?: string;
+  order_id?: string;
+  success?: boolean;
+  error?: string;
+  message?: string;
+  status?: string;
+}
+
+interface OpinionOpenOrder {
+  id: string;
+  orderId: string;
+  marketId: number;
+  tokenId: string;
+  side: 'BUY' | 'SELL';
+  price: string;
+  size: string;
+  filledSize: string;
+  status: string;
+  createdAt: string;
+  type?: string;
+}
+
+async function placeOpinionOrder(
+  auth: OpinionApiAuth & { privateKey?: string; multiSigAddress?: string },
+  tokenId: string,
+  side: OrderSide,
+  price: number,
+  size: number,
+  orderType: OrderType = 'GTC'
+): Promise<OrderResult> {
+  const url = `${OPINION_API_URL}/order`;
+
+  const order = {
+    tokenId,
+    side: side.toUpperCase(),
+    price: price.toString(),
+    size: size.toString(),
+    type: orderType === 'FOK' ? 'MARKET' : 'LIMIT',
+  };
+
+  const headers = buildOpinionHeaders(auth);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(order),
+    });
+
+    const data = (await response.json()) as OpinionOrderResponse;
+
+    if (!response.ok || data.error) {
+      logger.error({ status: response.status, error: data.error || data.message }, 'Opinion order failed');
+      return {
+        success: false,
+        error: data.error || data.message || `HTTP ${response.status}`,
+      };
+    }
+
+    const orderId = data.orderId || data.order_id;
+    logger.info({ orderId, tokenId, side, price, size }, 'Opinion order placed');
+
+    return {
+      success: true,
+      orderId,
+      status: 'open',
+    };
+  } catch (error) {
+    logger.error({ error }, 'Error placing Opinion order');
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+async function cancelOpinionOrder(auth: OpinionApiAuth, orderId: string): Promise<boolean> {
+  const url = `${OPINION_API_URL}/order/${orderId}`;
+  const headers = buildOpinionHeaders(auth);
+
+  try {
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers,
+    });
+
+    if (!response.ok) {
+      logger.error({ status: response.status, orderId }, 'Failed to cancel Opinion order');
+      return false;
+    }
+
+    logger.info({ orderId }, 'Opinion order cancelled');
+    return true;
+  } catch (error) {
+    logger.error({ error, orderId }, 'Error cancelling Opinion order');
+    return false;
+  }
+}
+
+async function getOpinionOpenOrders(auth: OpinionApiAuth): Promise<OpenOrder[]> {
+  const url = `${OPINION_API_URL}/orders?status=OPEN`;
+  const headers = buildOpinionHeaders(auth);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+    });
+
+    if (!response.ok) {
+      logger.error({ status: response.status }, 'Failed to fetch Opinion orders');
+      return [];
+    }
+
+    const data = (await response.json()) as { orders?: OpinionOpenOrder[] } | OpinionOpenOrder[];
+    const orders = Array.isArray(data) ? data : (data.orders || []);
+
+    return orders.map((o) => ({
+      orderId: o.orderId || o.id,
+      platform: 'opinion' as const,
+      marketId: o.marketId?.toString() || '',
+      tokenId: o.tokenId,
+      side: o.side.toLowerCase() as OrderSide,
+      price: parseFloat(o.price),
+      originalSize: parseFloat(o.size),
+      remainingSize: parseFloat(o.size) - parseFloat(o.filledSize || '0'),
+      filledSize: parseFloat(o.filledSize || '0'),
+      orderType: (o.type === 'MARKET' ? 'FOK' : 'GTC') as OrderType,
+      status: o.status.toLowerCase() as OrderStatus,
+      createdAt: new Date(o.createdAt),
+    }));
+  } catch (error) {
+    logger.error({ error }, 'Error fetching Opinion orders');
+    return [];
+  }
+}
+
+async function placeOpinionOrdersBatch(
+  auth: OpinionApiAuth & { privateKey?: string; multiSigAddress?: string },
+  orders: Array<{
+    marketId: number;
+    tokenId: string;
+    side: 'BUY' | 'SELL';
+    price: number;
+    amount: number;
+  }>
+): Promise<OrderResult[]> {
+  const url = `${OPINION_API_URL}/orders/batch`;
+  const headers = buildOpinionHeaders(auth);
+
+  const orderInputs = orders.map(o => ({
+    marketId: o.marketId,
+    tokenId: o.tokenId,
+    price: o.price.toString(),
+    side: o.side,
+    orderType: 'LIMIT_ORDER',
+    ...(o.side === 'BUY'
+      ? { makerAmountInQuoteToken: o.amount.toString() }
+      : { makerAmountInBaseToken: o.amount.toString() }),
+  }));
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orders: orderInputs }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      logger.error({ status: response.status, error }, 'Opinion batch order failed');
+      return orders.map(() => ({ success: false, error: `HTTP ${response.status}` }));
+    }
+
+    const data = (await response.json()) as Array<{ orderId?: string; id?: string; error?: string }>;
+    logger.info({ count: orders.length, successful: data.filter(r => r.orderId || r.id).length }, 'Opinion batch orders placed');
+
+    return data.map(r => ({
+      success: !r.error,
+      orderId: r.orderId || r.id,
+      error: r.error,
+    }));
+  } catch (error) {
+    logger.error({ error }, 'Error placing Opinion batch orders');
+    return orders.map(() => ({
+      success: false,
+      error: error instanceof Error ? error.message : 'Batch order failed',
+    }));
+  }
+}
+
+async function cancelOpinionOrdersBatch(
+  auth: OpinionApiAuth,
+  orderIds: string[]
+): Promise<Array<{ orderId: string; success: boolean }>> {
+  const url = `${OPINION_API_URL}/orders/cancel/batch`;
+  const headers = buildOpinionHeaders(auth);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderIds }),
+    });
+
+    if (!response.ok) {
+      logger.error({ status: response.status }, 'Opinion batch cancel failed');
+      return orderIds.map(orderId => ({ orderId, success: false }));
+    }
+
+    const data = (await response.json()) as Array<{ orderId?: string; success?: boolean; error?: string }>;
+    logger.info({ count: orderIds.length, successful: data.filter(r => r.success !== false).length }, 'Opinion batch cancel completed');
+
+    return orderIds.map((orderId, i) => ({
+      orderId,
+      success: data[i]?.success !== false && !data[i]?.error,
+    }));
+  } catch (error) {
+    logger.error({ error }, 'Error cancelling Opinion orders batch');
+    return orderIds.map(orderId => ({ orderId, success: false }));
+  }
+}
+
+// =============================================================================
+// PREDICTFUN EXECUTION
+// =============================================================================
+
+async function placePredictFunOrder(
+  config: NonNullable<ExecutionConfig['predictfun']>,
+  tokenId: string,
+  side: OrderSide,
+  price: number,
+  size: number,
+  marketId: string
+): Promise<OrderResult> {
+  try {
+    const result = await predictfun.createOrder(
+      { ...config, dryRun: false },
+      {
+        marketId,
+        tokenId,
+        side: side.toUpperCase() as 'BUY' | 'SELL',
+        price,
+        quantity: size,
+        isYieldBearing: true, // Default to yield-bearing
+      }
+    );
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error || 'Order placement failed',
+      };
+    }
+
+    logger.info({ orderHash: result.orderHash, tokenId, side, price, size }, 'PredictFun order placed');
+
+    return {
+      success: true,
+      orderId: result.orderHash,
+      status: 'open',
+    };
+  } catch (error) {
+    logger.error({ error }, 'Error placing PredictFun order');
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+async function cancelPredictFunOrder(
+  config: NonNullable<ExecutionConfig['predictfun']>,
+  orderHash: string
+): Promise<boolean> {
+  try {
+    // We need to figure out if it's negRisk/yieldBearing by fetching orders first
+    const orders = await predictfun.getOpenOrders(config);
+    const order = orders.find(o => o.orderHash === orderHash);
+
+    if (!order) {
+      logger.warn({ orderHash }, 'Order not found for cancellation');
+      return false;
+    }
+
+    const result = await predictfun.cancelOrders(
+      config,
+      [orderHash],
+      { isNegRisk: order.isNegRisk, isYieldBearing: order.isYieldBearing }
+    );
+
+    if (!result.success) {
+      logger.error({ orderHash, error: result.error }, 'Failed to cancel PredictFun order');
+      return false;
+    }
+
+    logger.info({ orderHash }, 'PredictFun order cancelled');
+    return true;
+  } catch (error) {
+    logger.error({ error, orderHash }, 'Error cancelling PredictFun order');
+    return false;
+  }
+}
+
+async function cancelAllPredictFunOrders(
+  config: NonNullable<ExecutionConfig['predictfun']>
+): Promise<number> {
+  try {
+    const result = await predictfun.cancelAllOrders(config);
+    return result.cancelled;
+  } catch (error) {
+    logger.error({ error }, 'Error cancelling all PredictFun orders');
+    return 0;
+  }
+}
+
+async function getPredictFunOpenOrders(
+  config: NonNullable<ExecutionConfig['predictfun']>
+): Promise<OpenOrder[]> {
+  try {
+    const orders = await predictfun.getOpenOrders(config);
+
+    return orders.map((o) => ({
+      orderId: o.orderHash,
+      platform: 'predictfun' as const,
+      marketId: o.marketId,
+      tokenId: o.orderHash, // Use hash as tokenId fallback
+      side: o.side.toLowerCase() as OrderSide,
+      price: parseFloat(o.price),
+      originalSize: parseFloat(o.size),
+      remainingSize: parseFloat(o.size) - parseFloat(o.filled),
+      filledSize: parseFloat(o.filled),
+      orderType: 'GTC' as OrderType,
+      status: o.status.toLowerCase() as OrderStatus,
+      createdAt: new Date(o.createdAt),
+    }));
+  } catch (error) {
+    logger.error({ error }, 'Error fetching PredictFun orders');
+    return [];
+  }
+}
+
+/**
+ * Fetch PredictFun orderbook for slippage calculation
+ */
+async function fetchPredictFunOrderbook(
+  config: NonNullable<ExecutionConfig['predictfun']>,
+  marketId: string
+): Promise<OrderbookData | null> {
+  try {
+    const data = await predictfun.getOrderbook(config, marketId) as {
+      bids?: Array<{ price: string; size: string }>;
+      asks?: Array<{ price: string; size: string }>;
+    } | null;
+
+    if (!data) return null;
+
+    const bids: [number, number][] = (data.bids || [])
+      .map(b => [parseFloat(b.price), parseFloat(b.size)] as [number, number])
+      .filter(([price, size]) => !isNaN(price) && !isNaN(size))
+      .sort((a, b) => b[0] - a[0]);
+
+    const asks: [number, number][] = (data.asks || [])
+      .map(a => [parseFloat(a.price), parseFloat(a.size)] as [number, number])
+      .filter(([price, size]) => !isNaN(price) && !isNaN(size))
+      .sort((a, b) => a[0] - b[0]);
+
+    const bestBid = bids[0]?.[0] || 0;
+    const bestAsk = asks[0]?.[0] || 1;
+    const midPrice = (bestBid + bestAsk) / 2;
+
+    return { bids, asks, midPrice };
+  } catch (error) {
+    logger.warn({ error, marketId }, 'Failed to fetch PredictFun orderbook');
+    return null;
+  }
+}
+
+/**
+ * Fetch Opinion orderbook for slippage calculation
+ */
+async function fetchOpinionOrderbook(tokenId: string): Promise<OrderbookData | null> {
+  try {
+    const response = await fetch(`${OPINION_API_URL}/token/orderbook?tokenId=${encodeURIComponent(tokenId)}`);
+    if (!response.ok) return null;
+
+    const data = await response.json() as {
+      bids?: Array<{ price: string; size: string }>;
+      asks?: Array<{ price: string; size: string }>;
+      orderbook?: {
+        bids?: Array<{ price: string; size: string }>;
+        asks?: Array<{ price: string; size: string }>;
+      };
+    };
+
+    const orderbook = data.orderbook || data;
+
+    const bids: [number, number][] = (orderbook.bids || [])
+      .map(b => [parseFloat(b.price), parseFloat(b.size)] as [number, number])
+      .filter(([price, size]) => !isNaN(price) && !isNaN(size))
+      .sort((a, b) => b[0] - a[0]);
+
+    const asks: [number, number][] = (orderbook.asks || [])
+      .map(a => [parseFloat(a.price), parseFloat(a.size)] as [number, number])
+      .filter(([price, size]) => !isNaN(price) && !isNaN(size))
+      .sort((a, b) => a[0] - b[0]);
+
+    const bestBid = bids[0]?.[0] || 0;
+    const bestAsk = asks[0]?.[0] || 1;
+    const midPrice = (bestBid + bestAsk) / 2;
+
+    return { bids, asks, midPrice };
+  } catch (error) {
+    logger.warn({ error, tokenId }, 'Failed to fetch Opinion orderbook');
+    return null;
+  }
+}
+
+// =============================================================================
 // EXECUTION SERVICE
 // =============================================================================
 
@@ -730,6 +1338,42 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
       );
     }
 
+    if (request.platform === 'opinion') {
+      if (!config.opinion) {
+        return { success: false, error: 'Opinion not configured' };
+      }
+      if (!request.tokenId) {
+        return { success: false, error: 'tokenId required for Opinion' };
+      }
+
+      return placeOpinionOrder(
+        config.opinion,
+        request.tokenId,
+        request.side,
+        request.price,
+        request.size,
+        request.orderType
+      );
+    }
+
+    if (request.platform === 'predictfun') {
+      if (!config.predictfun) {
+        return { success: false, error: 'PredictFun not configured' };
+      }
+      if (!request.tokenId) {
+        return { success: false, error: 'tokenId required for PredictFun' };
+      }
+
+      return placePredictFunOrder(
+        config.predictfun,
+        request.tokenId,
+        request.side,
+        request.price,
+        request.size,
+        request.marketId
+      );
+    }
+
     return { success: false, error: `Unknown platform: ${request.platform}` };
   }
 
@@ -775,6 +1419,14 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         return cancelKalshiOrder(config.kalshi, orderId);
       }
 
+      if (platform === 'opinion' && config.opinion) {
+        return cancelOpinionOrder(config.opinion, orderId);
+      }
+
+      if (platform === 'predictfun' && config.predictfun) {
+        return cancelPredictFunOrder(config.predictfun, orderId);
+      }
+
       return false;
     },
 
@@ -802,6 +1454,35 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         }
       }
 
+      // Opinion doesn't have cancel-all endpoint, need to cancel individually
+      if ((!platform || platform === 'opinion') && config.opinion) {
+        const orders = await getOpinionOpenOrders(config.opinion);
+        for (const order of orders) {
+          if (!marketId || order.marketId === marketId) {
+            if (await cancelOpinionOrder(config.opinion, order.orderId)) {
+              count++;
+            }
+          }
+        }
+      }
+
+      // PredictFun has bulk cancel support
+      if ((!platform || platform === 'predictfun') && config.predictfun) {
+        if (marketId) {
+          // Filter by market if specified
+          const orders = await getPredictFunOpenOrders(config.predictfun);
+          for (const order of orders) {
+            if (order.marketId === marketId) {
+              if (await cancelPredictFunOrder(config.predictfun, order.orderId)) {
+                count++;
+              }
+            }
+          }
+        } else {
+          count += await cancelAllPredictFunOrders(config.predictfun);
+        }
+      }
+
       return count;
     },
 
@@ -816,6 +1497,16 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
       if ((!platform || platform === 'kalshi') && config.kalshi) {
         const kalshiOrders = await getKalshiOpenOrders(config.kalshi);
         orders.push(...kalshiOrders);
+      }
+
+      if ((!platform || platform === 'opinion') && config.opinion) {
+        const opinionOrders = await getOpinionOpenOrders(config.opinion);
+        orders.push(...opinionOrders);
+      }
+
+      if ((!platform || platform === 'predictfun') && config.predictfun) {
+        const predictfunOrders = await getPredictFunOpenOrders(config.predictfun);
+        orders.push(...predictfunOrders);
       }
 
       return orders;
@@ -834,6 +1525,10 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
           orderbook = await fetchPolymarketOrderbook(request.tokenId);
         } else if (request.platform === 'kalshi') {
           orderbook = await fetchKalshiOrderbook(request.marketId);
+        } else if (request.platform === 'opinion' && request.tokenId) {
+          orderbook = await fetchOpinionOrderbook(request.tokenId);
+        } else if (request.platform === 'predictfun' && config.predictfun) {
+          orderbook = await fetchPredictFunOrderbook(config.predictfun, request.marketId);
         }
 
         if (!orderbook) {
@@ -941,6 +1636,10 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
           orderbook = await fetchPolymarketOrderbook(request.tokenId);
         } else if (request.platform === 'kalshi') {
           orderbook = await fetchKalshiOrderbook(request.marketId);
+        } else if (request.platform === 'opinion' && request.tokenId) {
+          orderbook = await fetchOpinionOrderbook(request.tokenId);
+        } else if (request.platform === 'predictfun' && config.predictfun) {
+          orderbook = await fetchPredictFunOrderbook(config.predictfun, request.marketId);
         }
 
         if (!orderbook || (orderbook.bids.length === 0 && orderbook.asks.length === 0)) {
@@ -994,13 +1693,95 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         };
       }
     },
+
+    async placeOrdersBatch(orders) {
+      // Currently only Opinion supports batch orders
+      const opinionOrders = orders.filter(o => o.platform === 'opinion');
+      const otherOrders = orders.filter(o => o.platform !== 'opinion');
+
+      const results: OrderResult[] = [];
+
+      // Execute Opinion batch if we have Opinion orders and config
+      if (opinionOrders.length > 0 && config.opinion) {
+        try {
+          const batchInput = opinionOrders.map(o => ({
+            marketId: parseInt(o.marketId, 10),
+            tokenId: o.tokenId!,
+            side: o.side.toUpperCase() as 'BUY' | 'SELL',
+            price: o.price,
+            amount: o.size,
+          }));
+
+          const batchResults = await placeOpinionOrdersBatch(config.opinion, batchInput);
+          results.push(...batchResults.map(r => ({
+            success: r.success,
+            orderId: r.orderId,
+            error: r.error,
+          })));
+        } catch (err) {
+          // All Opinion orders failed
+          results.push(...opinionOrders.map(() => ({
+            success: false,
+            error: err instanceof Error ? err.message : 'Batch order failed',
+          })));
+        }
+      } else if (opinionOrders.length > 0) {
+        // No Opinion config
+        results.push(...opinionOrders.map(() => ({
+          success: false,
+          error: 'Opinion trading not configured',
+        })));
+      }
+
+      // Execute other orders individually (fallback)
+      for (const order of otherOrders) {
+        try {
+          const result = order.side === 'buy'
+            ? await this.buyLimit(order)
+            : await this.sellLimit(order);
+          results.push(result);
+        } catch (err) {
+          results.push({
+            success: false,
+            error: err instanceof Error ? err.message : 'Order failed',
+          });
+        }
+      }
+
+      return results;
+    },
+
+    async cancelOrdersBatch(platform, orderIds) {
+      if (platform === 'opinion' && config.opinion) {
+        try {
+          return await cancelOpinionOrdersBatch(config.opinion, orderIds);
+        } catch (err) {
+          return orderIds.map(orderId => ({
+            orderId,
+            success: false,
+          }));
+        }
+      }
+
+      // Fallback: cancel individually
+      const results: Array<{ orderId: string; success: boolean }> = [];
+      for (const orderId of orderIds) {
+        try {
+          const success = await this.cancelOrder(platform, orderId);
+          results.push({ orderId, success });
+        } catch {
+          results.push({ orderId, success: false });
+        }
+      }
+      return results;
+    },
   };
 
   return service;
 }
 
 // Export types
-export type { PolymarketApiKeyAuth, KalshiApiKeyAuth };
+export type { PolymarketApiKeyAuth, KalshiApiKeyAuth, OpinionApiAuth };
 
 // Exchange addresses
 export const POLYMARKET_EXCHANGES = {
@@ -1013,3 +1794,4 @@ export * from './smart-router';
 export * from './mev-protection';
 export * from './circuit-breaker';
 export * from './position-manager';
+export * from './futures';

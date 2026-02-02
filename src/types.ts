@@ -14,6 +14,7 @@ export type Platform =
   | 'metaculus'
   | 'drift'
   | 'predictit'
+  | 'predictfun'
   | 'betfair'
   | 'smarkets'
   | 'opinion'
@@ -356,6 +357,9 @@ export interface TradingContext {
   executionService?: ExecutionServiceRef;
 }
 
+/** Platform type for prediction markets */
+export type PredictionPlatform = 'polymarket' | 'kalshi' | 'opinion' | 'predictfun';
+
 /** Order result from execution service */
 export interface OrderResultRef {
   success: boolean;
@@ -370,7 +374,7 @@ export interface OrderResultRef {
 /** Open order from execution service */
 export interface OpenOrderRef {
   orderId: string;
-  platform: 'polymarket' | 'kalshi' | 'opinion';
+  platform: PredictionPlatform;
   marketId: string;
   tokenId?: string;
   outcome?: string;
@@ -388,41 +392,43 @@ export interface OpenOrderRef {
 /** Minimal interface for execution service (to avoid circular imports) */
 export interface ExecutionServiceRef {
   buyLimit(request: {
-    platform: 'polymarket' | 'kalshi' | 'opinion';
+    platform: PredictionPlatform;
     marketId: string;
     tokenId?: string;
     outcome?: string;
     price: number;
     size: number;
-    orderType?: string;
+    orderType?: 'GTC' | 'FOK' | 'GTD';
     postOnly?: boolean;
+    negRisk?: boolean;
   }): Promise<OrderResultRef>;
   sellLimit(request: {
-    platform: 'polymarket' | 'kalshi' | 'opinion';
+    platform: PredictionPlatform;
     marketId: string;
     tokenId?: string;
     outcome?: string;
     price: number;
     size: number;
-    orderType?: string;
+    orderType?: 'GTC' | 'FOK' | 'GTD';
     postOnly?: boolean;
+    negRisk?: boolean;
   }): Promise<OrderResultRef>;
   marketBuy(request: {
-    platform: 'polymarket' | 'kalshi' | 'opinion';
+    platform: PredictionPlatform;
     marketId: string;
     tokenId?: string;
     outcome?: string;
     size: number;
   }): Promise<OrderResultRef>;
   marketSell(request: {
-    platform: 'polymarket' | 'kalshi' | 'opinion';
+    platform: PredictionPlatform;
     marketId: string;
     tokenId?: string;
     outcome?: string;
     size: number;
   }): Promise<OrderResultRef>;
   makerBuy(request: {
-    platform: 'polymarket' | 'kalshi' | 'opinion';
+    platform: PredictionPlatform;
     marketId: string;
     tokenId?: string;
     outcome?: string;
@@ -430,16 +436,26 @@ export interface ExecutionServiceRef {
     size: number;
   }): Promise<OrderResultRef>;
   makerSell(request: {
-    platform: 'polymarket' | 'kalshi' | 'opinion';
+    platform: PredictionPlatform;
     marketId: string;
     tokenId?: string;
     outcome?: string;
     price: number;
     size: number;
   }): Promise<OrderResultRef>;
-  cancelOrder(platform: 'polymarket' | 'kalshi' | 'opinion', orderId: string): Promise<boolean>;
-  cancelAllOrders(platform?: 'polymarket' | 'kalshi' | 'opinion', marketId?: string): Promise<number>;
-  getOpenOrders(platform?: 'polymarket' | 'kalshi' | 'opinion'): Promise<OpenOrderRef[]>;
+  cancelOrder(platform: PredictionPlatform, orderId: string): Promise<boolean>;
+  cancelAllOrders(platform?: PredictionPlatform, marketId?: string): Promise<number>;
+  getOpenOrders(platform?: PredictionPlatform): Promise<OpenOrderRef[]>;
+  placeOrdersBatch(orders: Array<{
+    platform: PredictionPlatform;
+    marketId: string;
+    tokenId?: string;
+    outcome?: string;
+    side: 'buy' | 'sell';
+    price: number;
+    size: number;
+  }>): Promise<OrderResultRef[]>;
+  cancelOrdersBatch(platform: 'opinion', orderIds: string[]): Promise<Array<{ orderId: string; success: boolean }>>;
 }
 
 export interface Session {
@@ -1074,6 +1090,52 @@ export interface Config {
     };
     manifold?: {
       apiKey: string;
+    };
+    opinion?: {
+      /** API key for Opinion.trade */
+      apiKey: string;
+      /** Wallet private key for trading (BNB Chain) */
+      privateKey: string;
+      /** Vault/funder address */
+      vaultAddress: string;
+      /** BNB Chain RPC URL (optional) */
+      rpcUrl?: string;
+    };
+    predictfun?: {
+      /** Wallet private key for trading (BNB Chain) */
+      privateKey: string;
+      /** Smart wallet/deposit address (optional) */
+      predictAccount?: string;
+      /** BNB Chain RPC URL (optional) */
+      rpcUrl?: string;
+      /** API key (optional) */
+      apiKey?: string;
+    };
+  };
+  /** Futures/perpetuals trading configuration */
+  futures?: {
+    enabled: boolean;
+    dryRun?: boolean;
+    defaultLeverage?: number;
+    maxPositionSize?: number;
+    binance?: {
+      apiKey: string;
+      secretKey: string;
+      testnet?: boolean;
+    };
+    bybit?: {
+      apiKey: string;
+      secretKey: string;
+      testnet?: boolean;
+    };
+    mexc?: {
+      apiKey: string;
+      secretKey: string;
+    };
+    hyperliquid?: {
+      privateKey: string;
+      vaultAddress?: string;
+      testnet?: boolean;
     };
   };
   alerts: {

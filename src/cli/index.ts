@@ -396,7 +396,8 @@ const skillsCommands = createSkillsCommands();
 skills
   .command('list')
   .description('List installed skills')
-  .action(() => skillsCommands.list());
+  .option('-v, --verbose', 'Show detailed info (requirements, commands)')
+  .action((options: { verbose?: boolean }) => skillsCommands.list({ verbose: options.verbose }));
 
 skills
   .command('search <query>')
