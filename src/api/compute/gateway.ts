@@ -112,7 +112,7 @@ const DEFAULT_CONFIG: Required<ComputeGatewayConfig> = {
   jobTimeout: 300000,
   maxConcurrent: 10,
   usdcAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
-  treasuryWallet: '0x0000000000000000000000000000000000000000', // Set in production
+  treasuryWallet: process.env.CLODDS_TREASURY_WALLET || '', // Set via env var
 };
 
 // Base RPC for payment verification

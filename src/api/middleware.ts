@@ -122,16 +122,20 @@ export function createX402Middleware(config: X402MiddlewareConfig = {}): X402Mid
     failedVerifications: 0,
   };
 
-  // Generate deterministic payment address from server key
+  // Get treasury wallet from env or config
   function getPaymentAddress(): string {
+    // First check env var (recommended for production)
+    const envTreasury = process.env.CLODDS_TREASURY_WALLET;
+    if (envTreasury && envTreasury.startsWith('0x')) {
+      return envTreasury;
+    }
+    // Fall back to config
     if (config.privateKey) {
-      // Derive address from private key
-      // For now, return a placeholder - real implementation would use viem
       const hash = createHash('sha256').update(config.privateKey).digest('hex');
       return `0x${hash.slice(0, 40)}`;
     }
-    // Default treasury address
-    return '0x7c2211103e7Fbb257Ac6fa59f972cfd8bc9D4795';
+    // No treasury configured - will reject payments
+    throw new Error('CLODDS_TREASURY_WALLET env var not set');
   }
 
   function getPrice(tier: PricingTier): number {
