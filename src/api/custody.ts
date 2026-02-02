@@ -9,10 +9,12 @@
  */
 
 import { EventEmitter } from 'eventemitter3';
-import { randomBytes, createCipheriv, createDecipheriv, scryptSync, createHash } from 'crypto';
+import { randomBytes, createCipheriv, createDecipheriv, scryptSync, createHash, createHmac } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { privateKeyToAccount } from 'viem/accounts';
+import { Keypair } from '@solana/web3.js';
 import { logger } from '../utils/logger';
 import type { CustodyConfig, ManagedWalletData } from './types';
 
@@ -131,21 +133,45 @@ interface WalletKeys {
 }
 
 function generateWalletFromIndex(derivationIndex: number, masterSeed: string): WalletKeys {
-  // Derive deterministic keys from master seed + index
-  // In production, use proper BIP-32/BIP-44 derivation
+  // Derive deterministic private key using HMAC-SHA512 (BIP-32 style)
+  // This creates a secure, deterministic derivation from master seed + index
 
-  // For EVM: sha256(masterSeed + index)
-  const evmSeedMaterial = `${masterSeed}:evm:${derivationIndex}`;
-  const evmPrivateKey = createHash('sha256').update(evmSeedMaterial).digest('hex');
-  const evmAddress = `0x${createHash('sha256').update(evmPrivateKey).digest('hex').slice(0, 40)}`;
+  // EVM key derivation
+  const evmDerivation = createHmac('sha512', masterSeed)
+    .update(`clodds:evm:${derivationIndex}`)
+    .digest();
+  const evmPrivateKey = `0x${evmDerivation.subarray(0, 32).toString('hex')}` as `0x${string}`;
 
-  // For Solana: sha256(masterSeed + index + solana)
-  const solanaSeedMaterial = `${masterSeed}:solana:${derivationIndex}`;
-  const solanaPrivateKey = createHash('sha256').update(solanaSeedMaterial).digest('hex');
-  const solanaAddress = createHash('sha256').update(solanaPrivateKey).digest('hex').slice(0, 44);
+  // Derive actual EVM address from private key using secp256k1
+  let evmAddress: string;
+  try {
+    const account = privateKeyToAccount(evmPrivateKey);
+    evmAddress = account.address;
+  } catch {
+    // Fallback if viem not available
+    evmAddress = `0x${createHash('keccak256').update(evmDerivation.subarray(0, 32)).digest('hex').slice(-40)}`;
+  }
+
+  // Solana key derivation (Ed25519 requires 32 bytes)
+  const solanaDerivation = createHmac('sha512', masterSeed)
+    .update(`clodds:solana:${derivationIndex}`)
+    .digest();
+  const solanaSeed = solanaDerivation.subarray(0, 32);
+
+  let solanaPrivateKey: string | undefined;
+  let solanaAddress: string | undefined;
+  try {
+    const keypair = Keypair.fromSeed(solanaSeed);
+    solanaPrivateKey = Buffer.from(keypair.secretKey).toString('hex');
+    solanaAddress = keypair.publicKey.toBase58();
+  } catch {
+    // Fallback if @solana/web3.js not available
+    solanaPrivateKey = solanaSeed.toString('hex');
+    solanaAddress = undefined;
+  }
 
   return {
-    evmPrivateKey: `0x${evmPrivateKey}`,
+    evmPrivateKey,
     evmAddress,
     solanaPrivateKey,
     solanaAddress,

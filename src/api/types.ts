@@ -285,4 +285,156 @@ export interface ApiMetrics {
   uniqueWallets: number;
   /** Uptime in seconds */
   uptime: number;
+  /** Trading volume in USD */
+  tradingVolume: number;
+  /** Trading fees earned in USD */
+  tradingFees: number;
 }
+
+// =============================================================================
+// SUBSCRIPTION TYPES
+// =============================================================================
+
+export type SubscriptionTier = 'free' | 'pro' | 'business' | 'enterprise';
+
+export interface SubscriptionConfig {
+  /** Tier name */
+  tier: SubscriptionTier;
+  /** Monthly price in USD (0 for free) */
+  priceMonthly: number;
+  /** Prompts per day limit */
+  promptsPerDay: number;
+  /** Can execute trades */
+  canTrade: boolean;
+  /** Can use copy trading */
+  canCopyTrade: boolean;
+  /** Can use signals */
+  canUseSignals: boolean;
+  /** Can use automation */
+  canAutomate: boolean;
+  /** Trading fee discount (0-1) */
+  tradingFeeDiscount: number;
+  /** Priority support */
+  prioritySupport: boolean;
+}
+
+export const SUBSCRIPTION_TIERS: Record<SubscriptionTier, SubscriptionConfig> = {
+  free: {
+    tier: 'free',
+    priceMonthly: 0,
+    promptsPerDay: 5,
+    canTrade: false,
+    canCopyTrade: false,
+    canUseSignals: false,
+    canAutomate: false,
+    tradingFeeDiscount: 0,
+    prioritySupport: false,
+  },
+  pro: {
+    tier: 'pro',
+    priceMonthly: 29,
+    promptsPerDay: 500,
+    canTrade: true,
+    canCopyTrade: false,
+    canUseSignals: true,
+    canAutomate: false,
+    tradingFeeDiscount: 0.1,
+    prioritySupport: false,
+  },
+  business: {
+    tier: 'business',
+    priceMonthly: 99,
+    promptsPerDay: -1, // unlimited
+    canTrade: true,
+    canCopyTrade: true,
+    canUseSignals: true,
+    canAutomate: true,
+    tradingFeeDiscount: 0.25,
+    prioritySupport: true,
+  },
+  enterprise: {
+    tier: 'enterprise',
+    priceMonthly: 499,
+    promptsPerDay: -1,
+    canTrade: true,
+    canCopyTrade: true,
+    canUseSignals: true,
+    canAutomate: true,
+    tradingFeeDiscount: 0.5,
+    prioritySupport: true,
+  },
+};
+
+// =============================================================================
+// TRADING FEE TYPES
+// =============================================================================
+
+export interface TradingFeeConfig {
+  /** Base fee as decimal (0.003 = 0.3%) */
+  baseFee: number;
+  /** Minimum fee in USD */
+  minFee: number;
+  /** Maximum fee in USD */
+  maxFee: number;
+  /** Fee discount for $CLODDS token holders */
+  tokenHolderDiscount: number;
+}
+
+export const DEFAULT_TRADING_FEES: TradingFeeConfig = {
+  baseFee: 0.003, // 0.3%
+  minFee: 0.01,   // $0.01 minimum
+  maxFee: 100,    // $100 maximum
+  tokenHolderDiscount: 0.2, // 20% off for $CLODDS holders
+};
+
+// =============================================================================
+// API KEY TYPES
+// =============================================================================
+
+export interface ApiKeyData {
+  /** Key ID (public) */
+  id: string;
+  /** Hashed secret (stored) */
+  secretHash: string;
+  /** Owner wallet */
+  owner: string;
+  /** Key name/label */
+  name: string;
+  /** Subscription tier */
+  tier: SubscriptionTier;
+  /** Created timestamp */
+  createdAt: number;
+  /** Last used timestamp */
+  lastUsedAt: number;
+  /** Expires at (0 = never) */
+  expiresAt: number;
+  /** Is active */
+  active: boolean;
+  /** Daily prompt count */
+  dailyPrompts: number;
+  /** Daily prompt reset time */
+  dailyResetAt: number;
+  /** Referral code (who referred this user) */
+  referredBy?: string;
+  /** This user's referral code */
+  referralCode: string;
+}
+
+// =============================================================================
+// REFERRAL TYPES
+// =============================================================================
+
+export interface ReferralConfig {
+  /** Revenue share for referrer (0-1) */
+  referrerShare: number;
+  /** Bonus for referred user (0-1) */
+  referredBonus: number;
+  /** Minimum payout in USD */
+  minPayout: number;
+}
+
+export const DEFAULT_REFERRAL_CONFIG: ReferralConfig = {
+  referrerShare: 0.1,  // 10% of fees
+  referredBonus: 0.05, // 5% discount
+  minPayout: 10,       // $10 minimum
+};

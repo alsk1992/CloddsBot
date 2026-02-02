@@ -223,35 +223,76 @@ export function createX402Middleware(config: X402MiddlewareConfig = {}): X402Mid
   }
 
   async function verifyOnChain(proof: PaymentProof): Promise<boolean> {
-    // In production, this would:
-    // 1. Query the blockchain for the transaction
-    // 2. Verify the recipient matches our payment address
-    // 3. Verify the amount is correct
-    // 4. Verify the transaction is confirmed
-
-    // For now, basic validation
+    // Basic validation
     if (!proof.txHash || !proof.txHash.startsWith('0x') || proof.txHash.length !== 66) {
+      logger.warn({ txHash: proof.txHash }, 'Invalid tx hash format');
       return false;
     }
 
     if (proof.amountUsd <= 0) {
+      logger.warn({ amount: proof.amountUsd }, 'Invalid payment amount');
       return false;
     }
 
-    // TODO: Implement actual on-chain verification using viem
-    // const publicClient = createPublicClient({ chain: base, transport: http() });
-    // const receipt = await publicClient.getTransactionReceipt({ hash: proof.txHash });
-    // return receipt.status === 'success';
+    // Check timestamp (payment must be recent - within 10 minutes)
+    const maxAge = 10 * 60 * 1000; // 10 minutes
+    if (Date.now() - proof.timestamp > maxAge) {
+      logger.warn({ timestamp: proof.timestamp }, 'Payment proof expired');
+      return false;
+    }
 
-    // For development, accept all well-formed proofs
+    // Dev mode: accept well-formed proofs
     if (process.env.NODE_ENV === 'development' || process.env.CLODDS_DEV_MODE === 'true') {
-      logger.debug({ proof }, 'Dev mode: accepting payment without on-chain verification');
+      logger.debug({ proof }, 'Dev mode: accepting payment');
       return true;
     }
 
-    // Production: require actual verification
-    logger.warn({ proof }, 'On-chain verification not implemented - rejecting payment');
-    return false;
+    // Production: verify on-chain via RPC
+    try {
+      const rpcUrl = proof.network === 'base'
+        ? 'https://mainnet.base.org'
+        : proof.network === 'base-sepolia'
+        ? 'https://sepolia.base.org'
+        : 'https://mainnet.base.org';
+
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_getTransactionReceipt',
+          params: [proof.txHash],
+          id: 1,
+        }),
+      });
+
+      const data = await response.json() as { result?: { status: string; to?: string } };
+
+      if (!data.result) {
+        logger.warn({ txHash: proof.txHash }, 'Transaction not found');
+        return false;
+      }
+
+      // Check transaction succeeded
+      if (data.result.status !== '0x1') {
+        logger.warn({ txHash: proof.txHash, status: data.result.status }, 'Transaction failed');
+        return false;
+      }
+
+      // Verify recipient (should be our payment address or USDC contract)
+      const paymentAddress = getPaymentAddress().toLowerCase();
+      const recipient = data.result.to?.toLowerCase();
+      if (recipient !== paymentAddress && recipient !== tokenAddress.toLowerCase()) {
+        logger.warn({ txHash: proof.txHash, to: recipient, expected: paymentAddress }, 'Wrong recipient');
+        return false;
+      }
+
+      logger.info({ txHash: proof.txHash, amount: proof.amountUsd }, 'Payment verified on-chain');
+      return true;
+    } catch (error) {
+      logger.error({ error, txHash: proof.txHash }, 'On-chain verification failed');
+      return false;
+    }
   }
 
   async function hasValidPayment(proof?: PaymentProof, requiredAmount?: number): Promise<boolean> {

@@ -25,4 +25,6 @@ export { createJobManager, type JobManager, type Job, type JobStats } from './jo
 export { createPromptHandler, type PromptHandler, type PromptResult } from './prompt';
 export { createX402Middleware, type X402MiddlewareConfig } from './middleware';
 export { createCustodyManager, type CustodyManager, type ManagedWallet } from './custody';
+export { createApiKeyManager, type ApiKeyManager, type ApiKeyResult, parseApiKey } from './apikeys';
+export { createFeeCalculator, type FeeCalculator, type FeeResult, type RevenueStats } from './fees';
 export * from './types';

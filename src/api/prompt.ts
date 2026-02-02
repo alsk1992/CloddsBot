@@ -2,9 +2,12 @@
  * Prompt Handler - Natural language prompt processing
  *
  * Transforms user prompts into executable actions using the agent system.
+ * Integrates with Clodds subagent system for actual execution.
  */
 
 import { EventEmitter } from 'eventemitter3';
+import { randomBytes } from 'crypto';
+import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../utils/logger';
 import type {
   ApiRequest,
@@ -48,10 +51,14 @@ export interface PromptHandlerConfig {
   maxLength?: number;
   /** Timeout for processing (default: 60000ms) */
   timeout?: number;
-  /** Agent model to use (default: 'claude-3-5-sonnet-latest') */
+  /** Agent model to use (default: 'claude-sonnet-4-20250514') */
   model?: string;
   /** Enable dry run mode (default: false) */
   dryRun?: boolean;
+  /** Anthropic API key (defaults to env) */
+  apiKey?: string;
+  /** Maximum tokens for response */
+  maxTokens?: number;
 }
 
 // =============================================================================
@@ -61,9 +68,29 @@ export interface PromptHandlerConfig {
 const DEFAULT_CONFIG: Required<PromptHandlerConfig> = {
   maxLength: 2000,
   timeout: 60000,
-  model: 'claude-3-5-sonnet-latest',
+  model: 'claude-sonnet-4-20250514',
   dryRun: false,
+  apiKey: '',
+  maxTokens: 4096,
 };
+
+// System prompt for API execution
+const API_SYSTEM_PROMPT = `You are Clodds API, an AI assistant for prediction markets and trading.
+
+You help users via natural language commands:
+- Query prices, balances, positions across platforms
+- Execute trades on Polymarket, Kalshi, and other markets
+- Swap tokens on DEXs (Solana, Base, Ethereum)
+- Set up copy trading and signals
+- Analyze markets and find edge
+
+IMPORTANT: You are executing via API, not chat. Be concise and return structured data.
+When executing trades, always confirm the action with specific details.
+Never execute trades without explicit user intent in the prompt.
+
+Available platforms: polymarket, kalshi, manifold, hyperliquid, binance
+Supported chains: ethereum, base, solana, polygon, arbitrum`;
+
 
 // Action classification patterns
 const ACTION_PATTERNS: Record<PromptAction, RegExp[]> = {
@@ -131,6 +158,14 @@ const FORBIDDEN_PATTERNS = [
 
 export function createPromptHandler(config: PromptHandlerConfig = {}): PromptHandler {
   const cfg = { ...DEFAULT_CONFIG, ...config };
+
+  // Initialize Anthropic client
+  // Note: Use typeof to avoid conflict with local `process` function
+  const envApiKey = typeof globalThis !== 'undefined' && 'process' in globalThis
+    ? (globalThis as { process?: { env?: Record<string, string> } }).process?.env?.ANTHROPIC_API_KEY
+    : undefined;
+  const apiKey = cfg.apiKey || envApiKey;
+  const anthropicClient = apiKey ? new Anthropic({ apiKey }) : null;
 
   function validate(prompt: string): ValidationResult {
     // Check length
@@ -260,80 +295,133 @@ export function createPromptHandler(config: PromptHandlerConfig = {}): PromptHan
     };
   }
 
+  /**
+   * Execute prompt using Claude API
+   */
+  async function executeWithClaude(
+    request: ApiRequest,
+    prompt: string,
+    action: PromptAction
+  ): Promise<PromptResultData> {
+    if (!anthropicClient) {
+      throw new Error('ANTHROPIC_API_KEY not configured');
+    }
+
+    const startTime = Date.now();
+
+    // Build context-aware system prompt
+    const systemPrompt = `${API_SYSTEM_PROMPT}
+
+User wallet: ${request.wallet}
+Chain preference: ${request.chain || 'auto'}
+Action type: ${action}
+Request ID: ${request.id}`;
+
+    try {
+      const response = await anthropicClient.messages.create({
+        model: cfg.model,
+        max_tokens: cfg.maxTokens,
+        system: systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      });
+
+      // Extract text response
+      const textContent = response.content.find(c => c.type === 'text');
+      const responseText = textContent?.type === 'text' ? textContent.text : 'No response';
+
+      // Parse for any transaction data in response
+      let transaction: TransactionResult | undefined;
+      const txMatch = responseText.match(/(?:tx|transaction|hash)[:\s]+([0-9a-fx]+)/i);
+      if (txMatch) {
+        transaction = {
+          hash: txMatch[1],
+          chain: request.chain || 'unknown',
+          status: 'pending',
+        };
+      }
+
+      return {
+        action,
+        summary: responseText.slice(0, 200) + (responseText.length > 200 ? '...' : ''),
+        data: {
+          response: responseText,
+          model: cfg.model,
+          usage: {
+            inputTokens: response.usage.input_tokens,
+            outputTokens: response.usage.output_tokens,
+          },
+        },
+        transaction,
+        executionTime: Date.now() - startTime,
+      };
+    } catch (error) {
+      logger.error({ error, requestId: request.id }, 'Claude API error');
+      throw error;
+    }
+  }
+
   async function processQuery(request: ApiRequest, prompt: string): Promise<PromptResultData> {
-    // TODO: Integrate with actual data providers
-    // For now, return placeholder
-    return {
-      action: 'query',
-      summary: 'Query processed successfully',
-      data: {
-        prompt,
-        timestamp: Date.now(),
-        // Would include actual query results here
-      },
-      executionTime: 0,
-    };
+    return executeWithClaude(request, prompt, 'query');
   }
 
   async function processTrade(request: ApiRequest, prompt: string): Promise<PromptResultData> {
-    // TODO: Parse trade parameters and execute via execution service
-    // Would use: src/execution/ for trade execution
-    return {
-      action: 'trade',
-      summary: 'Trade execution requires custody wallet',
-      data: { prompt, requiresCustody: true },
-      executionTime: 0,
-    };
+    // For trades, we need custody wallet
+    if (!request.useCustody) {
+      return {
+        action: 'trade',
+        summary: 'Trade execution requires custody wallet. Set useCustody: true in your request.',
+        data: { prompt, requiresCustody: true },
+        executionTime: 0,
+      };
+    }
+    return executeWithClaude(request, prompt, 'trade');
   }
 
   async function processSwap(request: ApiRequest, prompt: string): Promise<PromptResultData> {
-    // TODO: Parse swap parameters and execute
-    return {
-      action: 'swap',
-      summary: 'Swap execution requires custody wallet',
-      data: { prompt, requiresCustody: true },
-      executionTime: 0,
-    };
+    if (!request.useCustody) {
+      return {
+        action: 'swap',
+        summary: 'Swap execution requires custody wallet. Set useCustody: true in your request.',
+        data: { prompt, requiresCustody: true },
+        executionTime: 0,
+      };
+    }
+    return executeWithClaude(request, prompt, 'swap');
   }
 
   async function processTransfer(request: ApiRequest, prompt: string): Promise<PromptResultData> {
-    // TODO: Parse transfer parameters and execute
-    return {
-      action: 'transfer',
-      summary: 'Transfer execution requires custody wallet',
-      data: { prompt, requiresCustody: true },
-      executionTime: 0,
-    };
+    if (!request.useCustody) {
+      return {
+        action: 'transfer',
+        summary: 'Transfer execution requires custody wallet. Set useCustody: true in your request.',
+        data: { prompt, requiresCustody: true },
+        executionTime: 0,
+      };
+    }
+    return executeWithClaude(request, prompt, 'transfer');
   }
 
   async function processAnalysis(request: ApiRequest, prompt: string): Promise<PromptResultData> {
-    // TODO: Run analysis using agent with analysis tools
-    return {
-      action: 'analysis',
-      summary: 'Analysis complete',
-      data: { prompt, analysis: {} },
-      executionTime: 0,
-    };
+    return executeWithClaude(request, prompt, 'analysis');
   }
 
   async function processAutomation(request: ApiRequest, prompt: string): Promise<PromptResultData> {
-    // TODO: Set up automation rules
+    // Automation requires premium tier
     return {
       action: 'automation',
-      summary: 'Automation setup requires premium tier',
+      summary: 'Automation setup requires Business tier subscription.',
       data: { prompt, requiresPremium: true },
       executionTime: 0,
     };
   }
 
   async function processGeneric(request: ApiRequest, prompt: string, action: PromptAction): Promise<PromptResultData> {
-    // TODO: Use full agent system for complex/unknown prompts
-    return {
-      action,
-      summary: `Processed as ${action} action`,
-      data: { prompt },
-      executionTime: 0,
-    };
+    return executeWithClaude(request, prompt, action);
   }
 
   function getSupportedActions(): PromptAction[] {

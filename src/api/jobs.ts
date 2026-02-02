@@ -218,16 +218,32 @@ export function createJobManager(
     if (!callbackUrl) return;
 
     try {
-      const payload: WebhookPayload = {
+      const timestamp = Date.now();
+      const bodyStr = JSON.stringify({
         event: data.status === 'completed' ? 'job.completed' : data.status === 'failed' ? 'job.failed' : 'job.cancelled',
         job: data,
-        timestamp: Date.now(),
-        signature: createHmac('sha256', data.id).update(JSON.stringify(data)).digest('hex'),
+        timestamp,
+      });
+
+      // Create HMAC signature using job ID + wallet as secret
+      // Client can verify: HMAC-SHA256(jobId + wallet, body) === X-Clodds-Signature
+      const secret = `${data.id}:${data.request.wallet}`;
+      const signature = createHmac('sha256', secret).update(bodyStr).digest('hex');
+
+      const payload: WebhookPayload = {
+        ...JSON.parse(bodyStr),
+        signature,
       };
 
       await fetch(callbackUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Clodds-Signature': signature,
+          'X-Clodds-Timestamp': timestamp.toString(),
+          'X-Clodds-Version': '1.0.0',
+          'User-Agent': 'Clodds-Webhook/1.0',
+        },
         body: JSON.stringify(payload),
       });
 

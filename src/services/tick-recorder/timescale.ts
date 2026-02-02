@@ -3,11 +3,11 @@
  * Manages PostgreSQL/TimescaleDB connections with automatic reconnection
  */
 
-import { Pool, PoolClient, QueryResult } from 'pg';
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { logger } from '../../utils/logger';
 
 export interface TimescaleClient {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<QueryResult<T>>;
+  query<T extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<QueryResult<T>>;
   getClient(): Promise<PoolClient>;
   isConnected(): boolean;
   close(): Promise<void>;
@@ -60,7 +60,7 @@ export function createTimescaleClient(config: TimescaleConfig): TimescaleClient 
   };
 
   return {
-    async query<T = unknown>(sql: string, params?: unknown[]): Promise<QueryResult<T>> {
+    async query<T extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<QueryResult<T>> {
       const p = ensurePool();
       try {
         const result = await p.query<T>(sql, params);

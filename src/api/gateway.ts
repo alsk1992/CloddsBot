@@ -114,6 +114,8 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
     activeJobs: 0,
     uniqueWallets: new Set<string>().size,
     uptime: 0,
+    tradingVolume: 0,
+    tradingFees: 0,
   };
 
   const uniqueWallets = new Set<string>();
@@ -162,6 +164,9 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
   function json(res: ServerResponse, status: number, data: unknown): void {
     res.writeHead(status, {
       'Content-Type': 'application/json',
+      'X-Powered-By': 'Clodds',
+      'X-Clodds-Version': '1.0.0',
+      'X-Request-Id': randomBytes(8).toString('hex'),
       ...getCorsHeaders(),
     });
     res.end(JSON.stringify(data));
@@ -351,6 +356,13 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
     }
 
     const data = job.getData();
+
+    // Verify ownership - only job owner can view
+    const requestWallet = req.headers['x-wallet-address']?.toLowerCase();
+    if (requestWallet && data.request.wallet.toLowerCase() !== requestWallet) {
+      json(res, 403, { error: 'Not authorized to view this job' });
+      return;
+    }
     const response: ApiResponse = {
       id: data.request.id,
       jobId: data.id,
@@ -374,9 +386,22 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
       return;
     }
 
+    // Verify ownership before cancel
+    const job = jobs.get(jobId);
+    if (!job) {
+      json(res, 404, { error: 'Job not found' });
+      return;
+    }
+
+    const requestWallet = req.headers['x-wallet-address']?.toLowerCase();
+    if (!requestWallet || job.getData().request.wallet.toLowerCase() !== requestWallet) {
+      json(res, 403, { error: 'Not authorized to cancel this job' });
+      return;
+    }
+
     const success = jobs.cancel(jobId);
     if (!success) {
-      json(res, 400, { error: 'Cannot cancel job (not found or already completed)' });
+      json(res, 400, { error: 'Cannot cancel job (already completed)' });
       return;
     }
 
