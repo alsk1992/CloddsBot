@@ -27,7 +27,7 @@ test('gateway health and info endpoints respond', async () => {
     const healthRes = await fetch(`http://127.0.0.1:${port}/health`);
     assert.equal(healthRes.status, 200);
     const health = await healthRes.json();
-    assert.equal(health.status, 'ok');
+    assert.equal(health.status, 'healthy');
     assert.equal(typeof health.timestamp, 'number');
 
     const infoRes = await fetch(`http://127.0.0.1:${port}/`);
