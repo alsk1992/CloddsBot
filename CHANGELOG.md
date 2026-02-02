@@ -5,6 +5,16 @@ All notable changes to Clodds will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-02
+
+### Security
+
+#### Escrow Keypair Persistence
+- **Critical fix:** Escrow keypairs now encrypted and stored in database (AES-256-GCM)
+- Previously: Keypairs were only in memory - server restart = lost funds
+- Now: Keypairs survive restarts, encrypted with `CLODDS_ESCROW_KEY` or `CLODDS_CREDENTIAL_KEY`
+- Added `encrypted_keypair` column to `acp_escrows` table with auto-migration
+
 ## [0.3.0] - 2026-02-02
 
 ### Added

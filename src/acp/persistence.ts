@@ -124,6 +124,7 @@ function ensureTablesExist(): void {
       agreement_hash TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       escrow_address TEXT,
+      encrypted_keypair TEXT,
       tx_signatures TEXT NOT NULL DEFAULT '[]',
       funded_at INTEGER,
       completed_at INTEGER,
@@ -133,6 +134,14 @@ function ensureTablesExist(): void {
   database.run('CREATE INDEX IF NOT EXISTS idx_acp_escrows_buyer ON acp_escrows(buyer)');
   database.run('CREATE INDEX IF NOT EXISTS idx_acp_escrows_seller ON acp_escrows(seller)');
   database.run('CREATE INDEX IF NOT EXISTS idx_acp_escrows_status ON acp_escrows(status)');
+
+  // Migration: Add encrypted_keypair column if it doesn't exist
+  try {
+    database.run('ALTER TABLE acp_escrows ADD COLUMN encrypted_keypair TEXT');
+    logger.info('Added encrypted_keypair column to acp_escrows');
+  } catch {
+    // Column already exists, ignore
+  }
 
   // Ratings
   database.run(`
@@ -430,6 +439,12 @@ export interface EscrowPersistence {
   listByParty(address: string): Promise<Escrow[]>;
   listByStatus(status: EscrowStatus): Promise<Escrow[]>;
   updateStatus(id: string, status: EscrowStatus, signature?: string): Promise<void>;
+  /** Save encrypted escrow keypair (survives server restarts) */
+  saveEncryptedKeypair(id: string, encryptedKeypair: string): Promise<void>;
+  /** Get encrypted escrow keypair for decryption */
+  getEncryptedKeypair(id: string): Promise<string | null>;
+  /** Clear encrypted keypair after release/refund */
+  clearEncryptedKeypair(id: string): Promise<void>;
 }
 
 export function createEscrowPersistence(): EscrowPersistence {
@@ -510,6 +525,33 @@ export function createEscrowPersistence(): EscrowPersistence {
         `UPDATE acp_escrows SET status = ?, tx_signatures = ?, completed_at = COALESCE(?, completed_at) WHERE id = ?`,
         [status, JSON.stringify(txSignatures), completedAt, id]
       );
+    },
+
+    async saveEncryptedKeypair(id: string, encryptedKeypair: string): Promise<void> {
+      const database = getDb();
+      database.run(
+        'UPDATE acp_escrows SET encrypted_keypair = ? WHERE id = ?',
+        [encryptedKeypair, id]
+      );
+      logger.debug({ escrowId: id }, 'Escrow keypair encrypted and saved to database');
+    },
+
+    async getEncryptedKeypair(id: string): Promise<string | null> {
+      const database = getDb();
+      const rows = database.query<{ encrypted_keypair: string | null }>(
+        'SELECT encrypted_keypair FROM acp_escrows WHERE id = ?',
+        [id]
+      );
+      return rows.length > 0 ? rows[0].encrypted_keypair : null;
+    },
+
+    async clearEncryptedKeypair(id: string): Promise<void> {
+      const database = getDb();
+      database.run(
+        'UPDATE acp_escrows SET encrypted_keypair = NULL WHERE id = ?',
+        [id]
+      );
+      logger.debug({ escrowId: id }, 'Escrow keypair cleared from database');
     },
   };
 }

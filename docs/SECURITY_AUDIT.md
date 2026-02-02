@@ -106,6 +106,13 @@ found 0 vulnerabilities
 - **Fix:** Now uses `crypto.randomBytes(16).toString('hex')`
 - **Status:** ✅ FIXED - Cryptographically secure sessions
 
+#### 2.12 Escrow Keypairs In-Memory Only ✅ FIXED (Feb 2026)
+- **Original:** Escrow keypairs stored only in memory (`Map<string, Keypair>`)
+- **Risk:** Server restart = lost keypairs = funds unrecoverable
+- **Fix:** Keypairs now encrypted (AES-256-GCM) and stored in SQLite database
+- **Encryption:** Uses `CLODDS_ESCROW_KEY` or `CLODDS_CREDENTIAL_KEY` env var
+- **Status:** ✅ FIXED - Keypairs survive server restarts
+
 ### All Previously Accepted Risks - NOW FIXED
 
 | Risk | Original Status | New Status |

@@ -7,6 +7,9 @@
  * - Refund on failure/timeout
  * - Dispute resolution
  *
+ * Keypairs are stored encrypted in the database (AES-256-GCM)
+ * and cached in memory for performance.
+ *
  * Supports both Solana (native) and EVM (Base) chains
  */
 
@@ -19,7 +22,7 @@ import {
   LAMPORTS_PER_SOL,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
-import { createHash, randomBytes } from 'crypto';
+import * as crypto from 'crypto';
 import bs58 from 'bs58';
 import { logger } from '../utils/logger';
 import { getEscrowPersistence } from './persistence';
@@ -28,9 +31,68 @@ import { getEscrowPersistence } from './persistence';
 // For now, escrow supports native SOL only
 // SPL token functionality can be added via dynamic imports when needed
 
-// Escrow keypair cache - stores keypairs for active escrows
-// WARNING: In production, use secure key management (HSM, KMS, etc.)
-const escrowKeypairs = new Map<string, Keypair>();
+// =============================================================================
+// KEYPAIR ENCRYPTION (AES-256-GCM)
+// =============================================================================
+
+const ESCROW_ENCRYPTION_KEY = process.env.CLODDS_ESCROW_KEY || process.env.CLODDS_CREDENTIAL_KEY;
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+
+/**
+ * Encrypt a Solana keypair for database storage
+ */
+function encryptKeypair(keypair: Keypair): string {
+  if (!ESCROW_ENCRYPTION_KEY) {
+    throw new Error('CLODDS_ESCROW_KEY or CLODDS_CREDENTIAL_KEY required for escrow keypair encryption');
+  }
+
+  const secretKeyBase58 = bs58.encode(keypair.secretKey);
+  const salt = crypto.randomBytes(16);
+  const key = crypto.scryptSync(ESCROW_ENCRYPTION_KEY, salt, 32);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  let encrypted = cipher.update(secretKeyBase58, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag();
+
+  return [
+    'escrow_v1',
+    salt.toString('hex'),
+    iv.toString('hex'),
+    authTag.toString('hex'),
+    encrypted,
+  ].join(':');
+}
+
+/**
+ * Decrypt a Solana keypair from database storage
+ */
+function decryptKeypair(encryptedData: string): Keypair {
+  if (!ESCROW_ENCRYPTION_KEY) {
+    throw new Error('CLODDS_ESCROW_KEY or CLODDS_CREDENTIAL_KEY required for escrow keypair decryption');
+  }
+
+  const parts = encryptedData.split(':');
+  if (parts[0] !== 'escrow_v1' || parts.length < 5) {
+    throw new Error('Invalid escrow keypair format');
+  }
+
+  const [, saltHex, ivHex, authTagHex, encrypted] = parts;
+  const salt = Buffer.from(saltHex, 'hex');
+  const iv = Buffer.from(ivHex, 'hex');
+  const authTag = Buffer.from(authTagHex, 'hex');
+  const key = crypto.scryptSync(ESCROW_ENCRYPTION_KEY, salt, 32);
+  const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+
+  const secretKey = bs58.decode(decrypted);
+  return Keypair.fromSecretKey(secretKey);
+}
+
+// In-memory cache for performance (DB is source of truth)
+const escrowKeypairCache = new Map<string, Keypair>();
 
 // =============================================================================
 // TYPES
@@ -130,6 +192,56 @@ const ESCROW_SEED = 'acp_escrow_v1';
 const ESCROW_TIMEOUT_DEFAULT = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // =============================================================================
+// KEYPAIR MANAGEMENT
+// =============================================================================
+
+/**
+ * Get escrow keypair - checks cache first, then loads from DB
+ */
+async function getEscrowKeypair(escrowId: string): Promise<Keypair | null> {
+  // Check cache first
+  const cached = escrowKeypairCache.get(escrowId);
+  if (cached) {
+    return cached;
+  }
+
+  // Load from database
+  const persistence = getEscrowPersistence();
+  const encryptedKeypair = await persistence.getEncryptedKeypair(escrowId);
+  if (!encryptedKeypair) {
+    return null;
+  }
+
+  try {
+    const keypair = decryptKeypair(encryptedKeypair);
+    escrowKeypairCache.set(escrowId, keypair);
+    return keypair;
+  } catch (error) {
+    logger.error({ escrowId, error }, 'Failed to decrypt escrow keypair');
+    return null;
+  }
+}
+
+/**
+ * Store escrow keypair - saves to DB and caches in memory
+ */
+async function storeEscrowKeypair(escrowId: string, keypair: Keypair): Promise<void> {
+  const encrypted = encryptKeypair(keypair);
+  const persistence = getEscrowPersistence();
+  await persistence.saveEncryptedKeypair(escrowId, encrypted);
+  escrowKeypairCache.set(escrowId, keypair);
+}
+
+/**
+ * Clear escrow keypair from cache and DB (after release/refund)
+ */
+async function clearEscrowKeypair(escrowId: string): Promise<void> {
+  escrowKeypairCache.delete(escrowId);
+  const persistence = getEscrowPersistence();
+  await persistence.clearEncryptedKeypair(escrowId);
+}
+
+// =============================================================================
 // SOLANA ESCROW IMPLEMENTATION
 // =============================================================================
 
@@ -148,7 +260,7 @@ function deriveEscrowAddress(escrowId: string, programId: PublicKey): [PublicKey
  */
 function generateEscrowId(): string {
   const timestamp = Date.now().toString(36);
-  const random = randomBytes(8).toString('hex');
+  const random = crypto.randomBytes(8).toString('hex');
   return `escrow_${timestamp}_${random}`;
 }
 
@@ -163,7 +275,7 @@ function hashEscrowConfig(config: EscrowConfig): string {
     tokenMint: config.tokenMint,
     expiresAt: config.expiresAt,
   });
-  return createHash('sha256').update(data).digest('hex');
+  return crypto.createHash('sha256').update(data).digest('hex');
 }
 
 /**
@@ -177,11 +289,7 @@ export function createSolanaEscrowService(connection: Connection): EscrowService
       const id = config.id || generateEscrowId();
 
       // Generate escrow keypair for holding funds
-      // WARNING: In production, use a proper escrow program with PDAs
       const escrowKeypair = Keypair.generate();
-
-      // Store keypair in memory for later release/refund
-      escrowKeypairs.set(id, escrowKeypair);
 
       const escrow: Escrow = {
         ...config,
@@ -192,10 +300,13 @@ export function createSolanaEscrowService(connection: Connection): EscrowService
         txSignatures: [],
       };
 
-      // Save to database
+      // Save escrow record to database first (creates the row)
       await persistence.save(escrow);
 
-      logger.info({ escrowId: id, buyer: config.buyer, seller: config.seller, amount: config.amount }, 'Escrow created');
+      // Store keypair encrypted in database (UPDATE on existing row)
+      await storeEscrowKeypair(id, escrowKeypair);
+
+      logger.info({ escrowId: id, buyer: config.buyer, seller: config.seller, amount: config.amount }, 'Escrow created with encrypted keypair');
 
       return escrow;
     },
@@ -271,10 +382,10 @@ export function createSolanaEscrowService(connection: Connection): EscrowService
       }
 
       try {
-        // Get escrow keypair (required to sign transfer from escrow account)
-        const escrowKeypair = escrowKeypairs.get(escrowId);
+        // Get escrow keypair from encrypted DB storage
+        const escrowKeypair = await getEscrowKeypair(escrowId);
         if (!escrowKeypair) {
-          return { success: false, escrowId, error: 'Escrow keypair not available - cannot release funds' };
+          return { success: false, escrowId, error: 'Escrow keypair not available - check CLODDS_ESCROW_KEY env var' };
         }
 
         if (escrow.tokenMint) {
@@ -309,8 +420,8 @@ export function createSolanaEscrowService(connection: Connection): EscrowService
         escrow.txSignatures.push(signature);
         await persistence.save(escrow);
 
-        // Clean up keypair
-        escrowKeypairs.delete(escrowId);
+        // Clear keypair from cache and DB (funds transferred, no longer needed)
+        await clearEscrowKeypair(escrowId);
 
         logger.info({ escrowId, signature, seller: escrow.seller }, 'Escrow released');
 
@@ -345,10 +456,10 @@ export function createSolanaEscrowService(connection: Connection): EscrowService
       }
 
       try {
-        // Get escrow keypair (required to sign transfer from escrow account)
-        const escrowKeypair = escrowKeypairs.get(escrowId);
+        // Get escrow keypair from encrypted DB storage
+        const escrowKeypair = await getEscrowKeypair(escrowId);
         if (!escrowKeypair) {
-          return { success: false, escrowId, error: 'Escrow keypair not available - cannot refund funds' };
+          return { success: false, escrowId, error: 'Escrow keypair not available - check CLODDS_ESCROW_KEY env var' };
         }
 
         const buyerPubkey = new PublicKey(escrow.buyer);
@@ -376,8 +487,8 @@ export function createSolanaEscrowService(connection: Connection): EscrowService
         escrow.txSignatures.push(signature);
         await persistence.save(escrow);
 
-        // Clean up keypair
-        escrowKeypairs.delete(escrowId);
+        // Clear keypair from cache and DB (funds transferred, no longer needed)
+        await clearEscrowKeypair(escrowId);
 
         logger.info({ escrowId, signature, buyer: escrow.buyer }, 'Escrow refunded');
 
