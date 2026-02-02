@@ -9,6 +9,7 @@ import { EventEmitter } from 'events';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { pipeline } from 'stream/promises';
+import { Readable } from 'stream';
 import { createHash, randomBytes } from 'crypto';
 import { logger } from '../utils/logger';
 
@@ -302,7 +303,9 @@ export class SkillsRegistryClient {
     }
 
     const fileStream = createWriteStream(destPath);
-    await pipeline(response.body, fileStream);
+    // Convert web ReadableStream to Node.js stream
+    const nodeStream = Readable.fromWeb(response.body as import('stream/web').ReadableStream);
+    await pipeline(nodeStream, fileStream);
   }
 
   /** Verify file checksum */

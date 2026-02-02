@@ -317,7 +317,7 @@ export async function createMatrixChannel(
           'Content-Type': resolved.mimeType || 'application/octet-stream',
           'Content-Length': resolved.buffer.length.toString(),
         },
-        body: resolved.buffer,
+        body: new Uint8Array(resolved.buffer),
       }
     );
 

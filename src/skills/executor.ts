@@ -14,6 +14,7 @@ import mexcFuturesSkill from './bundled/mexc-futures';
 import hyperliquidSkill from './bundled/hyperliquid';
 import opinionSkill from './bundled/opinion';
 import hardenSkill from './bundled/harden';
+import tweetIdeasSkill from './bundled/tweet-ideas';
 
 // =============================================================================
 // TYPES
@@ -91,6 +92,7 @@ registerSkill(mexcFuturesSkill as unknown as SkillHandler);
 registerSkill(hyperliquidSkill as unknown as SkillHandler);
 registerSkill(opinionSkill as unknown as SkillHandler);
 registerSkill(hardenSkill as unknown as SkillHandler);
+registerSkill(tweetIdeasSkill as unknown as SkillHandler);
 
 logger.info({ count: registeredSkills.length }, 'Bundled skill handlers registered');
 
