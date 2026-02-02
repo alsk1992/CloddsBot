@@ -40,6 +40,42 @@ Built on Claude with arbitrage detection algorithms based on [arXiv:2508.03474](
 |--------|----------|------------|----------|
 | **[Self-Hosted](#quick-start)** | Full control, all features | 5 min | 22 channels, trading, DeFi, bots |
 | **[Cloudflare Worker](#cloudflare-worker)** | Lightweight, edge deployment | 2 min | 3 webhook channels, market data, arbitrage |
+| **[Compute API](#compute-api)** | Agents paying for compute | Live | LLM, code, web, data, storage |
+
+## Compute API
+
+**Live at:** https://api.cloddsbot.com
+
+Agents can pay USDC for compute resources — no API keys needed, just a wallet.
+
+```bash
+# Check health
+curl https://api.cloddsbot.com/health
+
+# See pricing
+curl https://api.cloddsbot.com/pricing
+
+# Check balance
+curl https://api.cloddsbot.com/balance/0xYourWallet
+```
+
+**Services:**
+| Service | Pricing | Description |
+|---------|---------|-------------|
+| `llm` | $0.000003/token | Claude, GPT-4, Llama, Mixtral |
+| `code` | $0.001/second | Sandboxed Python, JS, Rust, Go |
+| `web` | $0.005/request | Web scraping with JS rendering |
+| `data` | $0.001/request | Prices, orderbooks, candles |
+| `storage` | $0.0001/MB | Key-value file storage |
+| `trade` | $0.01/call | Trade execution (Polymarket, DEXs) |
+
+**Payment flow:**
+1. Send USDC to treasury wallet on Base
+2. Include payment proof in request
+3. API credits your balance
+4. Use compute services
+
+See [docs/API.md](./docs/API.md#clodds-compute-api) for full documentation.
 
 ## Quick Start
 

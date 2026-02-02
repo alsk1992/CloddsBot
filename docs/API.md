@@ -996,3 +996,318 @@ console.log(`Fair value: ${edge.fairValue}, Edge: ${edge.edgePct}%`);
 const kelly = calculateKelly(0.45, 0.52, 10000);
 console.log(`Half Kelly: $${kelly.halfKelly}`);
 ```
+
+---
+
+# Clodds Compute API
+
+The Compute API allows agents to pay for compute resources with USDC. No API keys needed - just a wallet.
+
+## Base URL
+
+```
+https://api.cloddsbot.com
+```
+
+## Authentication
+
+No API keys required. Agents authenticate by:
+1. Depositing USDC to the treasury wallet on Base
+2. Including payment proof in requests
+
+Treasury wallet: Set via `CLODDS_TREASURY_WALLET` env var on the server.
+
+## Endpoints
+
+### GET /health
+
+Health check and service info.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "service": "clodds-compute",
+  "treasury": "0x...",
+  "services": ["llm", "code", "web", "trade", "data", "storage", "gpu", "ml"]
+}
+```
+
+### GET /pricing
+
+Get pricing for all compute services.
+
+**Response:**
+```json
+{
+  "llm": {
+    "service": "llm",
+    "basePrice": 0,
+    "unit": "token",
+    "pricePerUnit": 0.000003,
+    "minCharge": 0.001,
+    "maxCharge": 10
+  },
+  "code": {
+    "service": "code",
+    "basePrice": 0.01,
+    "unit": "second",
+    "pricePerUnit": 0.001,
+    "minCharge": 0.01,
+    "maxCharge": 1
+  },
+  "web": {
+    "service": "web",
+    "basePrice": 0.005,
+    "unit": "request",
+    "pricePerUnit": 0.005,
+    "minCharge": 0.005,
+    "maxCharge": 0.1
+  },
+  "trade": {
+    "service": "trade",
+    "basePrice": 0.01,
+    "unit": "call",
+    "pricePerUnit": 0.01,
+    "minCharge": 0.01,
+    "maxCharge": 0.5
+  },
+  "data": {
+    "service": "data",
+    "basePrice": 0.001,
+    "unit": "request",
+    "pricePerUnit": 0.001,
+    "minCharge": 0.001,
+    "maxCharge": 0.1
+  },
+  "storage": {
+    "service": "storage",
+    "basePrice": 0,
+    "unit": "mb",
+    "pricePerUnit": 0.0001,
+    "minCharge": 0.001,
+    "maxCharge": 1
+  }
+}
+```
+
+### GET /balance/:wallet
+
+Check wallet balance and usage stats.
+
+**Response:**
+```json
+{
+  "wallet": "0x...",
+  "available": 10.50,
+  "pending": 0.25,
+  "totalDeposited": 15.00,
+  "totalSpent": 4.25
+}
+```
+
+### GET /job/:jobId
+
+Get status of an async compute job.
+
+**Response:**
+```json
+{
+  "id": "req_123",
+  "jobId": "job_456",
+  "service": "llm",
+  "status": "completed",
+  "result": { ... },
+  "cost": 0.05,
+  "usage": {
+    "units": 1500,
+    "unitType": "token",
+    "durationMs": 2300,
+    "breakdown": {
+      "base": 0,
+      "usage": 0.0045,
+      "total": 0.0045
+    }
+  },
+  "timestamp": 1706500000000
+}
+```
+
+### POST /compute/:service
+
+Submit a compute request. Replace `:service` with: `llm`, `code`, `web`, `trade`, `data`, or `storage`.
+
+**Request body:**
+```json
+{
+  "wallet": "0x...",
+  "payload": { ... },
+  "paymentProof": {
+    "txHash": "0x...",
+    "network": "base",
+    "amountUsd": 10.00,
+    "token": "USDC",
+    "timestamp": 1706500000000
+  },
+  "callbackUrl": "https://your-server.com/webhook"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "req_123",
+  "jobId": "job_456",
+  "service": "llm",
+  "status": "pending",
+  "cost": 0.05,
+  "timestamp": 1706500000000
+}
+```
+
+## Service Payloads
+
+### LLM Service
+
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "model": "claude-sonnet-4-20250514",
+    "messages": [
+      { "role": "user", "content": "What's the weather?" }
+    ],
+    "system": "You are a helpful assistant",
+    "maxTokens": 1000,
+    "temperature": 0.7
+  }
+}
+```
+
+**Available models:**
+- `claude-sonnet-4-20250514`
+- `claude-3-5-haiku-latest`
+- `claude-opus-4-20250514`
+- `gpt-4o`
+- `gpt-4o-mini`
+- `llama-3.1-70b`
+- `llama-3.1-8b`
+- `mixtral-8x7b`
+
+### Code Execution Service
+
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "language": "python",
+    "code": "print('Hello World')",
+    "stdin": "",
+    "timeout": 30000,
+    "memoryMb": 256
+  }
+}
+```
+
+**Supported languages:** `python`, `javascript`, `typescript`, `rust`, `go`, `bash`
+
+### Web Scraping Service
+
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "url": "https://example.com",
+    "method": "GET",
+    "headers": {},
+    "javascript": false,
+    "extract": {
+      "title": "title",
+      "heading": "h1"
+    }
+  }
+}
+```
+
+### Data Service
+
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "type": "price",
+    "query": {
+      "asset": "bitcoin"
+    }
+  }
+}
+```
+
+**Data types:** `price`, `orderbook`, `candles`, `trades`, `markets`, `positions`, `balance`, `news`, `sentiment`
+
+### Storage Service
+
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "operation": "put",
+    "key": "my-file.txt",
+    "content": "Hello World",
+    "contentType": "text/plain",
+    "ttl": 3600
+  }
+}
+```
+
+**Operations:** `put`, `get`, `delete`, `list`
+
+## Payment Flow
+
+1. **Deposit USDC** to the treasury wallet on Base network
+2. **Include payment proof** in your first request:
+   ```json
+   {
+     "paymentProof": {
+       "txHash": "0x...",
+       "network": "base",
+       "amountUsd": 10.00,
+       "token": "USDC",
+       "timestamp": 1706500000000
+     }
+   }
+   ```
+3. **API verifies on-chain** and credits your balance
+4. **Subsequent requests** just need your wallet address - balance is tracked server-side
+
+## Error Responses
+
+```json
+{
+  "id": "req_123",
+  "jobId": "job_456",
+  "service": "llm",
+  "status": "failed",
+  "error": "Insufficient balance. Need $0.05, have $0.00",
+  "cost": 0,
+  "timestamp": 1706500000000
+}
+```
+
+## Webhooks
+
+If you provide a `callbackUrl`, the API will POST results when jobs complete:
+
+```json
+{
+  "id": "req_123",
+  "jobId": "job_456",
+  "service": "llm",
+  "status": "completed",
+  "result": { ... },
+  "cost": 0.05,
+  "timestamp": 1706500000000
+}
+```
+
+The webhook includes an `X-Clodds-Signature` header (HMAC-SHA256) for verification.
