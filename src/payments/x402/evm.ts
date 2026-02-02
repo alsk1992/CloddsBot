@@ -2,9 +2,13 @@
  * x402 EVM (Base) Payment Signing
  *
  * Uses EIP-712 typed data signing for secure payments
+ * Uses proper Keccak256 (not SHA3-256) for Ethereum compatibility
  */
 
-import { createHash, randomBytes, createPrivateKey, sign as cryptoSign } from 'crypto';
+import { randomBytes } from 'crypto';
+import { keccak_256 } from '@noble/hashes/sha3';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { secp256k1 } from '@noble/curves/secp256k1';
 import { logger } from '../../utils/logger';
 import type { X402PaymentOption, X402PaymentPayload, X402Network } from './index';
 
@@ -69,51 +73,27 @@ const PAYMENT_TYPES = {
 
 /**
  * Derive Ethereum address from private key using secp256k1
+ * Uses @noble/curves for reliable key derivation
  */
 export function deriveEvmAddress(privateKey: string): string {
   // Remove 0x prefix if present
-  const keyBytes = privateKey.startsWith('0x') ? privateKey.slice(2) : privateKey;
+  const keyHex = privateKey.startsWith('0x') ? privateKey.slice(2) : privateKey;
 
-  // Create EC key object and get uncompressed public key
-  const keyObject = createPrivateKey({
-    key: Buffer.concat([
-      // DER header for secp256k1 private key
-      Buffer.from('302e0201010420', 'hex'),
-      Buffer.from(keyBytes, 'hex'),
-      Buffer.from('a00706052b8104000a', 'hex'),
-    ]),
-    format: 'der',
-    type: 'sec1',
-  });
-
-  // Export public key in uncompressed format (65 bytes: 04 || x || y)
-  const publicKeyDer = keyObject.export({ type: 'spki', format: 'der' });
-  // Skip the DER header (26 bytes for secp256k1 SPKI) to get raw public key
-  const publicKeyRaw = publicKeyDer.subarray(publicKeyDer.length - 65);
+  // Get uncompressed public key (65 bytes: 04 || x || y) and skip the 0x04 prefix
+  const pubKey = secp256k1.getPublicKey(keyHex, false).slice(1);
 
   // Ethereum address = last 20 bytes of keccak256(public_key_without_prefix)
-  // Skip the 0x04 prefix byte
-  const publicKeyNoPrefix = publicKeyRaw.subarray(1);
-  const hash = keccak256(publicKeyNoPrefix);
+  const hash = keccak256(pubKey);
 
   return '0x' + hash.slice(-40);
 }
 
 /**
- * Keccak256 hash function (Ethereum's SHA3)
+ * Keccak256 hash function (Ethereum's pre-NIST SHA3 variant)
+ * Uses @noble/hashes for proper Ethereum compatibility
  */
-function keccak256(data: Buffer): string {
-  // Node.js crypto doesn't have keccak256, but sha3-256 in OpenSSL 3.x
-  // We'll implement a simple keccak256 or use the shake256 approximation
-  // For now, use the 'sha3-256' which is close but not identical
-  // In production, use a proper keccak library like 'keccak' or 'js-sha3'
-  try {
-    return createHash('sha3-256').update(data).digest('hex');
-  } catch {
-    // Fallback for older Node versions - this won't be Ethereum-compatible
-    // but maintains functionality. For real deployment, add keccak256 library.
-    return createHash('sha256').update(data).digest('hex');
-  }
+function keccak256(data: Buffer | Uint8Array): string {
+  return bytesToHex(keccak_256(data));
 }
 
 /**
@@ -203,40 +183,22 @@ function createTypedDataHash(domain: EIP712Domain, message: X402PaymentMessage):
 
 /**
  * Sign a message hash with ECDSA secp256k1
- * Returns Ethereum-style signature (r || s || v)
+ * Returns Ethereum-style signature (r || s || v) with proper recovery bit
+ * Uses @noble/curves for correct signing with recovery
  */
 function signMessage(messageHash: string, privateKey: string): string {
   const keyBytes = privateKey.startsWith('0x') ? privateKey.slice(2) : privateKey;
-  const hashBytes = Buffer.from(messageHash.slice(2), 'hex');
+  const hashBytes = hexToBytes(messageHash.startsWith('0x') ? messageHash.slice(2) : messageHash);
 
-  // Create secp256k1 private key object
-  const keyObject = createPrivateKey({
-    key: Buffer.concat([
-      Buffer.from('302e0201010420', 'hex'),
-      Buffer.from(keyBytes, 'hex'),
-      Buffer.from('a00706052b8104000a', 'hex'),
-    ]),
-    format: 'der',
-    type: 'sec1',
-  });
+  // Sign with secp256k1 including recovery bit
+  const sig = secp256k1.sign(hashBytes, keyBytes);
 
-  // Sign with ECDSA using secp256k1
-  const signature = cryptoSign(null, hashBytes, {
-    key: keyObject,
-    dsaEncoding: 'ieee-p1363', // Raw r || s format (64 bytes)
-  });
+  // Get r, s, and recovery bit
+  const r = sig.r.toString(16).padStart(64, '0');
+  const s = sig.s.toString(16).padStart(64, '0');
+  const v = sig.recovery + 27; // Ethereum uses 27/28 for v
 
-  // Extract r and s (each 32 bytes)
-  const r = signature.subarray(0, 32);
-  const s = signature.subarray(32, 64);
-
-  // Calculate recovery id (v)
-  // For EIP-155, v = recovery_id + 27 (or + chainId * 2 + 35 for replay protection)
-  // We use v = 27 or 28 for standard signatures
-  // To determine correct v, we'd need to try both and verify - using 27 as default
-  const v = 27;
-
-  return '0x' + r.toString('hex') + s.toString('hex') + v.toString(16);
+  return '0x' + r + s + v.toString(16).padStart(2, '0');
 }
 
 // =============================================================================
@@ -288,7 +250,51 @@ export async function signEvmPayment(
 }
 
 /**
- * Verify an EVM payment signature
+ * Recover Ethereum address from signature using ecrecover
+ * Uses @noble/curves/secp256k1 for proper cryptographic verification
+ */
+function ecrecover(msgHash: string, signature: string): string | null {
+  try {
+    const sig = signature.startsWith('0x') ? signature.slice(2) : signature;
+    const r = sig.slice(0, 64);
+    const s = sig.slice(64, 128);
+    const v = parseInt(sig.slice(128, 130), 16);
+
+    // Convert v to recovery bit (0 or 1)
+    // v is typically 27 or 28, recovery bit = v - 27
+    // For EIP-155: recovery bit = (v - chainId * 2 - 35) or (v - 27)
+    let recoveryBit: number;
+    if (v === 27 || v === 28) {
+      recoveryBit = v - 27;
+    } else if (v >= 35) {
+      // EIP-155: v = chainId * 2 + 35 + recovery
+      recoveryBit = (v - 35) % 2;
+    } else {
+      return null;
+    }
+
+    // Parse hash and signature
+    const hashBytes = hexToBytes(msgHash.startsWith('0x') ? msgHash.slice(2) : msgHash);
+    const sigBytes = hexToBytes(r + s);
+
+    // Create signature object and recover public key
+    const sigObj = secp256k1.Signature.fromCompact(sigBytes).addRecoveryBit(recoveryBit);
+    const recoveredPubKey = sigObj.recoverPublicKey(hashBytes);
+
+    // Get uncompressed public key (65 bytes) and skip the 0x04 prefix
+    const pubKeyBytes = recoveredPubKey.toRawBytes(false).slice(1);
+
+    // Ethereum address = last 20 bytes of keccak256(pubkey)
+    const addressHash = keccak256(pubKeyBytes);
+    return '0x' + addressHash.slice(-40);
+  } catch (error) {
+    logger.debug({ error }, 'ecrecover failed');
+    return null;
+  }
+}
+
+/**
+ * Verify an EVM payment signature using ecrecover
  * Reconstructs the signed message and verifies the signature matches the payer address
  */
 export function verifyEvmPayment(payload: X402PaymentPayload): boolean {
@@ -300,7 +306,7 @@ export function verifyEvmPayment(payload: X402PaymentPayload): boolean {
     return false;
   }
 
-  // Extract signature components
+  // Extract signature components for validation
   const sig = payload.signature.slice(2);
   const r = sig.slice(0, 64);
   const s = sig.slice(64, 128);
@@ -316,7 +322,7 @@ export function verifyEvmPayment(payload: X402PaymentPayload): boolean {
     return false;
   }
 
-  // Reconstruct the message hash to verify
+  // Reconstruct the message hash
   const option = payload.paymentOption;
   const chainId = CHAIN_IDS[option.network] || 8453;
   const domain: EIP712Domain = { ...X402_DOMAIN, chainId };
@@ -330,22 +336,27 @@ export function verifyEvmPayment(payload: X402PaymentPayload): boolean {
     validUntil: option.validUntil || 0,
   };
 
-  // Verify the hash matches expected format
   const expectedHash = createTypedDataHash(domain, message);
   if (!expectedHash.startsWith('0x') || expectedHash.length !== 66) {
     return false;
   }
 
-  // Note: Full ecrecover requires elliptic curve point recovery
-  // For complete verification, use a library like 'secp256k1' or 'ethers'
-  // This validates structure and format; full cryptographic verification
-  // would recover the public key from (r, s, v) and compare to payer address
+  // Recover address from signature and compare to claimed payer
+  const recoveredAddress = ecrecover(expectedHash, payload.signature);
+  if (!recoveredAddress) {
+    logger.debug({ payer: payload.payer }, 'x402: Failed to recover address from signature');
+    return false;
+  }
+
+  // Compare addresses (case-insensitive)
+  const isValid = recoveredAddress.toLowerCase() === payload.payer.toLowerCase();
+
   logger.debug(
-    { payer: payload.payer, hash: expectedHash },
-    'x402: Payment signature format validated'
+    { payer: payload.payer, recovered: recoveredAddress, valid: isValid },
+    'x402: Payment signature verified with ecrecover'
   );
 
-  return true;
+  return isValid;
 }
 
 // =============================================================================

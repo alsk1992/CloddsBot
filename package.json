@@ -1,6 +1,6 @@
 {
   "name": "@alsk1992/clodds",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "AI trading terminal for 700+ markets. Prediction markets, crypto, futures up to 200x. 22 chat channels, arbitrage, whale tracking, copy trading, MEV protection. Built on Claude.",
   "main": "dist/index.js",
   "bin": {
