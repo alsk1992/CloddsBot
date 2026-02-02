@@ -29,6 +29,7 @@ import type { Platform } from '../types';
 import type { OpportunityFinder, Opportunity, ExecutionStep } from './index';
 import type { ExecutionService, OrderResult } from '../execution/index';
 import { getMarketFeatures, checkLiquidity, checkSpread, isArbitrageReady, type FeatureThresholds } from '../services/feature-engineering';
+import type { CircuitBreaker } from '../risk/circuit-breaker';
 
 // =============================================================================
 // TYPES
@@ -61,6 +62,8 @@ export interface OpportunityExecutorConfig {
   useFeatureFilters?: boolean;
   /** Feature thresholds for filtering (overrides defaults) */
   featureThresholds?: Partial<FeatureThresholds>;
+  /** Circuit breaker for risk management */
+  circuitBreaker?: CircuitBreaker;
 }
 
 export interface ExecutionResult {
@@ -175,6 +178,15 @@ export function createOpportunityExecutor(
 
   function shouldExecute(opp: Opportunity): { execute: boolean; reason?: string } {
     stats.totalOpportunitiesSeen++;
+
+    // Check circuit breaker first
+    if (cfg.circuitBreaker) {
+      for (const market of opp.markets) {
+        if (!cfg.circuitBreaker.canTrade(market.platform, market.marketId)) {
+          return { execute: false, reason: 'circuit_breaker_tripped' };
+        }
+      }
+    }
 
     // Check edge threshold
     if (opp.edgePct < cfg.minEdge) {
@@ -359,10 +371,12 @@ export function createOpportunityExecutor(
           'Opportunity executed successfully'
         );
 
+        cfg.circuitBreaker?.recordTrade({ success: true, pnl: result.actualProfit });
         emitter.emit('executed', opp, result);
       } else {
         recordSkip('execution_failed');
         logger.warn({ oppId: opp.id, error: result.error }, 'Opportunity execution failed');
+        cfg.circuitBreaker?.recordTrade({ success: false });
         emitter.emit('failed', opp, result);
       }
     } catch (error) {
