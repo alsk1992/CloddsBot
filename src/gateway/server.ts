@@ -15,6 +15,7 @@ import {
   getRequestMetrics,
   type HealthStatus,
 } from '../utils/production';
+import type { TickStreamer } from '../services/tick-streamer';
 
 export interface GatewayServer {
   start(): Promise<void>;
@@ -30,6 +31,7 @@ export interface GatewayServer {
   setOHLCHandler(handler: OHLCHandler | null): void;
   setOrderbookHistoryHandler(handler: OrderbookHistoryHandler | null): void;
   setTickRecorderStatsHandler(handler: TickRecorderStatsHandler | null): void;
+  setTickStreamer(streamer: TickStreamer | null): void;
 }
 
 export type ChannelWebhookHandler = (
@@ -171,6 +173,7 @@ export function createServer(
   let ohlcHandler: OHLCHandler | null = null;
   let orderbookHistoryHandler: OrderbookHistoryHandler | null = null;
   let tickRecorderStatsHandler: TickRecorderStatsHandler | null = null;
+  let tickStreamer: TickStreamer | null = null;
 
   // Auth middleware for sensitive endpoints
   const authToken = process.env.CLODDS_TOKEN;
@@ -368,10 +371,12 @@ export function createServer(
       endpoints: {
         websocket: '/ws',
         webchat: '/chat',
+        tickStream: '/api/ticks/stream',
         health: '/health',
         healthDeep: '/health?deep=true',
         metrics: '/metrics',
         dashboard: '/dashboard',
+        tickStreamerStats: '/api/tick-streamer/stats',
       },
     });
   });
@@ -829,6 +834,17 @@ export function createServer(
       logger.error({ error }, 'Tick recorder stats handler failed');
       res.status(500).json({ error: 'Tick recorder stats error' });
     }
+  });
+
+  // Tick streamer stats endpoint
+  app.get('/api/tick-streamer/stats', (_req, res) => {
+    if (!tickStreamer) {
+      res.status(404).json({ error: 'Tick streamer not enabled' });
+      return;
+    }
+
+    const stats = tickStreamer.getStats();
+    res.json({ stats });
   });
 
   // Telegram Mini App
@@ -1302,11 +1318,21 @@ export function createServer(
 
         // Handle upgrade requests
         httpServer.on('upgrade', (request: IncomingMessage, socket, head) => {
-          const pathname = request.url || '';
+          const pathname = request.url?.split('?')[0] || '';
 
           if (pathname === '/ws' || pathname === '/chat') {
             wss!.handleUpgrade(request, socket, head, (ws) => {
               wss!.emit('connection', ws, request);
+            });
+          } else if (pathname === '/api/ticks/stream') {
+            // Tick streaming WebSocket endpoint
+            if (!tickStreamer) {
+              socket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
+              socket.destroy();
+              return;
+            }
+            wss!.handleUpgrade(request, socket, head, (ws) => {
+              tickStreamer!.handleConnection(ws);
             });
           } else {
             socket.destroy();
@@ -1392,6 +1418,9 @@ export function createServer(
     },
     setTickRecorderStatsHandler(handler: TickRecorderStatsHandler | null): void {
       tickRecorderStatsHandler = handler;
+    },
+    setTickStreamer(streamer: TickStreamer | null): void {
+      tickStreamer = streamer;
     },
   };
 }

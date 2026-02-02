@@ -45,6 +45,7 @@ import { createExecutionService, type ExecutionService, createFuturesExecutionSe
 import { createRealtimeAlertsService, connectWhaleTracker, connectOpportunityFinder, type RealtimeAlertsService } from '../alerts';
 import { createOpportunityExecutor, type OpportunityExecutor } from '../opportunity/executor';
 import { createTickRecorder, type TickRecorder } from '../services/tick-recorder';
+import { createTickStreamer, type TickStreamer } from '../services/tick-streamer';
 import chokidar, { FSWatcher } from 'chokidar';
 import path from 'path';
 import { loadConfig, CONFIG_FILE } from '../utils/config';
@@ -616,6 +617,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   // Tick recorder for historical data
   let tickRecorder: TickRecorder | null = null;
 
+  // Tick streamer for real-time WebSocket streaming
+  let tickStreamer: TickStreamer | null = null;
+
   const sendMessage = async (message: OutgoingMessage): Promise<string | null> => {
     if (!channels) {
       logger.warn({ platform: message.platform }, 'Channel manager not ready; dropping message');
@@ -733,6 +737,45 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       'Tick recorder initialized (will start with gateway)'
     );
   }
+
+  // Initialize tick streamer for real-time WebSocket streaming
+  // Always create it - it will be wired to feed events
+  tickStreamer = createTickStreamer({
+    maxSubscriptionsPerClient: 100,
+    pingIntervalMs: 30000,
+    connectionTimeoutMs: 60000,
+  });
+
+  // Wire feed events to tick streamer for real-time broadcasting
+  feeds.on('price', (update) => {
+    if (tickStreamer && update.outcomeId) {
+      tickStreamer.broadcastTick({
+        platform: update.platform,
+        marketId: update.marketId,
+        outcomeId: update.outcomeId,
+        price: update.price,
+        prevPrice: update.prevPrice ?? null,
+        timestamp: update.timestamp,
+      });
+    }
+  });
+
+  feeds.on('orderbook', (update) => {
+    if (tickStreamer) {
+      tickStreamer.broadcastOrderbook({
+        platform: update.platform,
+        marketId: update.marketId,
+        outcomeId: update.outcomeId,
+        bids: update.bids,
+        asks: update.asks,
+        spread: update.spread ?? null,
+        midPrice: update.midPrice ?? null,
+        timestamp: update.timestamp,
+      });
+    }
+  });
+
+  logger.info('Tick streamer initialized for real-time WebSocket streaming');
 
   const startMonitoring = () => {
     monitoring?.stop();
@@ -1716,6 +1759,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     return { stats };
   });
 
+  // Set tick streamer for WebSocket streaming endpoint
+  httpGateway.setTickStreamer(tickStreamer);
+
   return {
     async start(): Promise<void> {
       logger.info('Starting gateway services');
@@ -1731,6 +1777,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         if (realtimeAlerts) realtimeAlerts.stop();
         if (arbitrageExecutor) arbitrageExecutor.stop();
         if (tickRecorder) await tickRecorder.stop();
+        if (tickStreamer) tickStreamer.stop();
         if (cronService) await cronService.stop();
         if (monitoring) monitoring.stop();
         providerHealth?.stop();
@@ -1875,6 +1922,12 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       if (tickRecorder) {
         await tickRecorder.stop();
         tickRecorder = null;
+      }
+
+      // Stop tick streamer
+      if (tickStreamer) {
+        tickStreamer.stop();
+        tickStreamer = null;
       }
 
       // Stop realtime alerts and cleanup subscriptions
