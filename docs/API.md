@@ -1012,14 +1012,25 @@ https://api.cloddsbot.com
 ## Authentication
 
 No API keys required. Agents authenticate by:
-1. Depositing USDC to the treasury wallet on Base
+1. Depositing USDC to the treasury wallet on any supported network
 2. Including payment proof in requests
 
-Treasury wallet: Set via `CLODDS_TREASURY_WALLET` env var on the server.
+**Treasury wallet:** Set via `CLODDS_TREASURY_WALLET` env var on the server.
+
+**Supported networks:** Base, Ethereum, Polygon (USDC)
+
+## Rate Limiting
+
+- **Per-wallet:** 60 requests/minute
+- **Per-IP:** 100 requests/minute
+
+Rate limit headers are included in responses:
+- `X-RateLimit-Remaining`: Remaining requests in window
+- `Retry-After`: Seconds to wait (when rate limited)
 
 ## Endpoints
 
-### GET /health
+### GET /v1/health
 
 Health check and service info.
 
@@ -1028,12 +1039,13 @@ Health check and service info.
 {
   "status": "ok",
   "service": "clodds-compute",
-  "treasury": "0x...",
-  "services": ["llm", "code", "web", "trade", "data", "storage", "gpu", "ml"]
+  "version": "v1",
+  "uptime": 123456,
+  "activeJobs": 2
 }
 ```
 
-### GET /pricing
+### GET /v1/pricing
 
 Get pricing for all compute services.
 
@@ -1087,13 +1099,54 @@ Get pricing for all compute services.
     "pricePerUnit": 0.0001,
     "minCharge": 0.001,
     "maxCharge": 1
+  },
+  "gpu": {
+    "service": "gpu",
+    "basePrice": 0,
+    "unit": "second",
+    "pricePerUnit": 0.01,
+    "minCharge": 0.1,
+    "maxCharge": 100
+  },
+  "ml": {
+    "service": "ml",
+    "basePrice": 0.01,
+    "unit": "request",
+    "pricePerUnit": 0.01,
+    "minCharge": 0.01,
+    "maxCharge": 1
   }
 }
 ```
 
-### GET /balance/:wallet
+### GET /v1/metrics
 
-Check wallet balance and usage stats.
+Get API metrics and statistics.
+
+**Response:**
+```json
+{
+  "uptime": 123456,
+  "totalRequests": 1500,
+  "totalRevenue": 45.50,
+  "activeJobs": 2,
+  "jobsByStatus": {
+    "pending": 1,
+    "processing": 1,
+    "completed": 1450,
+    "failed": 48
+  },
+  "requestsByService": {
+    "llm": 1200,
+    "code": 200,
+    "web": 100
+  }
+}
+```
+
+### GET /v1/balance/:wallet
+
+Check wallet balance.
 
 **Response:**
 ```json
@@ -1106,9 +1159,92 @@ Check wallet balance and usage stats.
 }
 ```
 
-### GET /job/:jobId
+### POST /v1/deposit
+
+Deposit credits to a wallet.
+
+**Request body:**
+```json
+{
+  "wallet": "0x...",
+  "paymentProof": {
+    "txHash": "0x...",
+    "network": "base",
+    "amountUsd": 10.00,
+    "token": "USDC",
+    "timestamp": 1706500000000
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "credits": 10.00,
+  "txHash": "0x..."
+}
+```
+
+### GET /v1/usage/:wallet
+
+Get usage statistics for a wallet.
+
+**Query parameters:**
+- `period` (optional): `day`, `week`, `month`, or `all` (default: `all`)
+
+**Response:**
+```json
+{
+  "wallet": "0x...",
+  "period": "week",
+  "byService": {
+    "llm": {
+      "requests": 50,
+      "cost": 2.50,
+      "avgDuration": 1500
+    },
+    "code": {
+      "requests": 10,
+      "cost": 0.50,
+      "avgDuration": 3000
+    }
+  },
+  "totalCost": 3.00,
+  "totalRequests": 60
+}
+```
+
+### GET /v1/jobs/:wallet
+
+List jobs for a wallet.
+
+**Query parameters:**
+- `limit` (optional): Max results (default: 50, max: 100)
+
+**Response:**
+```json
+{
+  "jobs": [
+    {
+      "id": "req_123",
+      "jobId": "job_456",
+      "service": "llm",
+      "status": "completed",
+      "cost": 0.05,
+      "timestamp": 1706500000000
+    }
+  ],
+  "count": 1
+}
+```
+
+### GET /v1/job/:jobId
 
 Get status of an async compute job.
+
+**Headers:**
+- `X-Wallet-Address` (optional): Wallet address for ownership verification
 
 **Response:**
 ```json
@@ -1117,7 +1253,12 @@ Get status of an async compute job.
   "jobId": "job_456",
   "service": "llm",
   "status": "completed",
-  "result": { ... },
+  "result": {
+    "content": "The weather is sunny.",
+    "model": "claude-sonnet-4-20250514",
+    "usage": { "inputTokens": 10, "outputTokens": 5 },
+    "stopReason": "end_turn"
+  },
   "cost": 0.05,
   "usage": {
     "units": 1500,
@@ -1133,7 +1274,26 @@ Get status of an async compute job.
 }
 ```
 
-### POST /compute/:service
+**Status values:** `pending`, `processing`, `completed`, `failed`
+
+### DELETE /v1/job/:jobId
+
+Cancel a pending job and refund the reserved balance.
+
+**Headers:**
+- `X-Wallet-Address` (required): Wallet address for ownership verification
+
+**Response:**
+```json
+{
+  "success": true,
+  "jobId": "job_456"
+}
+```
+
+**Note:** Only pending jobs can be cancelled. Processing/completed jobs cannot be cancelled.
+
+### POST /v1/compute/:service
 
 Submit a compute request. Replace `:service` with: `llm`, `code`, `web`, `trade`, `data`, or `storage`.
 
@@ -1311,3 +1471,92 @@ If you provide a `callbackUrl`, the API will POST results when jobs complete:
 ```
 
 The webhook includes an `X-Clodds-Signature` header (HMAC-SHA256) for verification.
+
+## Streaming LLM Endpoint
+
+### POST /v1/stream/llm
+
+Stream LLM responses via Server-Sent Events (SSE). This endpoint streams text chunks in real-time as the model generates them.
+
+**Request body:**
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "model": "claude-sonnet-4-20250514",
+    "messages": [
+      { "role": "user", "content": "Write a poem about coding" }
+    ],
+    "system": "You are a creative writer",
+    "maxTokens": 1000,
+    "temperature": 0.7
+  }
+}
+```
+
+**Response:** Server-Sent Events stream
+
+```
+data: {"type": "start", "requestId": "req_123"}
+
+data: {"type": "text", "text": "In "}
+
+data: {"type": "text", "text": "the "}
+
+data: {"type": "text", "text": "realm "}
+
+data: {"type": "text", "text": "of "}
+
+data: {"type": "text", "text": "code..."}
+
+data: {"type": "usage", "usage": {"inputTokens": 25, "outputTokens": 150}}
+
+data: {"type": "done", "response": {"content": "In the realm of code...", "model": "claude-sonnet-4-20250514", "usage": {"inputTokens": 25, "outputTokens": 150}, "stopReason": "end_turn"}}
+```
+
+**Event types:**
+- `start`: Stream initiated, includes requestId
+- `text`: Text chunk from the model
+- `usage`: Token usage statistics
+- `error`: Error occurred
+- `done`: Stream complete, includes full response
+
+**JavaScript example:**
+```javascript
+const response = await fetch('https://api.cloddsbot.com/v1/stream/llm', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    wallet: '0x...',
+    payload: {
+      model: 'claude-sonnet-4-20250514',
+      messages: [{ role: 'user', content: 'Hello' }]
+    }
+  })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  const chunk = decoder.decode(value);
+  const lines = chunk.split('\n');
+
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const data = JSON.parse(line.slice(6));
+      if (data.type === 'text') {
+        process.stdout.write(data.text);
+      }
+    }
+  }
+}
+```
+
+**Supported streaming models:**
+- All Claude models (via Anthropic streaming API)
+- All GPT models (via OpenAI streaming API)
+- All Together models (Llama, Mixtral)

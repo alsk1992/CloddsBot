@@ -13,7 +13,7 @@
  */
 
 export { createComputeGateway, type ComputeGateway, type ComputeGatewayConfig, type WalletBalance, type DepositResult, type UsageStats } from './gateway';
-export { createLLMService, type LLMService, type LLMServiceConfig } from './llm';
+export { createLLMService, type LLMService, type LLMServiceConfig, type LLMStreamChunk } from './llm';
 export { createCodeRunner, type CodeRunner, type CodeRunnerConfig } from './code';
 export { createWebScraper, type WebScraper, type WebScraperConfig } from './web';
 export { createTradeExecutor, type TradeExecutor, type TradeExecutorConfig, type PlatformConfig } from './trade';
