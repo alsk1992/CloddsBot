@@ -356,3 +356,9 @@ export type {
 
 // Export indicators for direct use
 export { indicators };
+
+// Export threshold helpers
+export * from './thresholds';
+
+// Export accessor for global access
+export { setFeatureEngine, getFeatureEngine, getMarketFeatures } from './accessor';

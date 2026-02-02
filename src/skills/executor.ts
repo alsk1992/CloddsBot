@@ -16,6 +16,7 @@ import opinionSkill from './bundled/opinion';
 import hardenSkill from './bundled/harden';
 import tweetIdeasSkill from './bundled/tweet-ideas';
 import ticksSkill from './bundled/ticks';
+import featuresSkill from './bundled/features';
 
 // =============================================================================
 // TYPES
@@ -95,6 +96,7 @@ registerSkill(opinionSkill as unknown as SkillHandler);
 registerSkill(hardenSkill as unknown as SkillHandler);
 registerSkill(tweetIdeasSkill as unknown as SkillHandler);
 registerSkill(ticksSkill as unknown as SkillHandler);
+registerSkill(featuresSkill as unknown as SkillHandler);
 
 logger.info({ count: registeredSkills.length }, 'Bundled skill handlers registered');
 

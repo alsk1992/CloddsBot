@@ -28,6 +28,7 @@ import { generateId as generateSecureId } from '../utils/id';
 import type { Platform } from '../types';
 import type { OpportunityFinder, Opportunity, ExecutionStep } from './index';
 import type { ExecutionService, OrderResult } from '../execution/index';
+import { getMarketFeatures, checkLiquidity, checkSpread, isArbitrageReady, type FeatureThresholds } from '../services/feature-engineering';
 
 // =============================================================================
 // TYPES
@@ -56,6 +57,10 @@ export interface OpportunityExecutorConfig {
   confirmationDelayMs?: number;
   /** Skip if price moved more than this % (default: 0.5) */
   maxPriceSlippage?: number;
+  /** Enable feature-based filtering (default: true) */
+  useFeatureFilters?: boolean;
+  /** Feature thresholds for filtering (overrides defaults) */
+  featureThresholds?: Partial<FeatureThresholds>;
 }
 
 export interface ExecutionResult {
@@ -131,6 +136,8 @@ const DEFAULT_CONFIG: Required<OpportunityExecutorConfig> = {
   dryRun: true, // Safe default
   confirmationDelayMs: 0,
   maxPriceSlippage: 0.5,
+  useFeatureFilters: true,
+  featureThresholds: {},
 };
 
 export function createOpportunityExecutor(
@@ -203,6 +210,30 @@ export function createOpportunityExecutor(
     // Check if already taken
     if (opp.status !== 'active') {
       return { execute: false, reason: `opportunity_not_active (${opp.status})` };
+    }
+
+    // Feature-based checks (if enabled)
+    if (cfg.useFeatureFilters) {
+      for (const market of opp.markets) {
+        const features = getMarketFeatures(market.platform, market.marketId, market.outcomeId);
+
+        // Skip if features unavailable - don't block execution
+        if (!features) continue;
+
+        // Check if market is ready for arbitrage (liquidity + spread)
+        if (!isArbitrageReady(features, cfg.featureThresholds)) {
+          const liquidityScore = features.signals.liquidityScore;
+          const spreadPct = features.orderbook?.spreadPct ?? 0;
+          logger.debug(
+            { oppId: opp.id, market: market.marketId, liquidityScore, spreadPct },
+            'Skip arb: market conditions unfavorable'
+          );
+          return {
+            execute: false,
+            reason: `feature_check_failed (liquidity=${liquidityScore.toFixed(2)}, spread=${spreadPct.toFixed(2)}%)`,
+          };
+        }
+      }
     }
 
     return { execute: true };

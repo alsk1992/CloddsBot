@@ -18,6 +18,7 @@ import { EventEmitter } from 'eventemitter3';
 import { logger } from '../utils/logger';
 import type { Platform, Orderbook } from '../types';
 import type { FeedManager } from '../feeds/index';
+import { getMarketFeatures, getLiquidityScore, getSpreadPct } from '../services/feature-engineering';
 
 // =============================================================================
 // TYPES
@@ -40,6 +41,10 @@ export interface SmartRouterConfig {
   maxSplitPlatforms?: number;
   /** Minimum improvement % to justify split (default: 0.5) */
   minSplitImprovement?: number;
+  /** Use feature-based scoring for route selection (default: true) */
+  useFeatureScoring?: boolean;
+  /** Weight for liquidity score in balanced mode (default: 0.2) */
+  liquidityWeight?: number;
 }
 
 export interface RouteQuote {
@@ -99,6 +104,8 @@ const DEFAULT_CONFIG: Required<SmartRouterConfig> = {
   allowSplitting: false,
   maxSplitPlatforms: 3,
   minSplitImprovement: 0.5,
+  useFeatureScoring: true,
+  liquidityWeight: 0.2,
 };
 
 // Platform fee structures (in basis points)
@@ -263,7 +270,7 @@ export function createSmartRouter(
   // ROUTE SELECTION
   // ==========================================================================
 
-  function selectBestRoute(quotes: RouteQuote[], side: 'buy' | 'sell'): RouteQuote {
+  function selectBestRoute(quotes: RouteQuote[], side: 'buy' | 'sell', params: OrderRouteParams): RouteQuote {
     const sorted = [...quotes].sort((a, b) => {
       switch (cfg.mode) {
         case 'best_price':
@@ -277,13 +284,37 @@ export function createSmartRouter(
 
         case 'balanced':
         default: {
-          // Weighted score: 50% price, 30% liquidity, 20% fees
-          const scoreA = (side === 'buy' ? -a.netPrice : a.netPrice) * 0.5 +
+          // Weighted score: 50% price, 30% liquidity (from orderbook), 20% fees
+          let scoreA = (side === 'buy' ? -a.netPrice : a.netPrice) * 0.5 +
             a.availableSize / 10000 * 0.3 +
             -a.estimatedFees / 100 * 0.2;
-          const scoreB = (side === 'buy' ? -b.netPrice : b.netPrice) * 0.5 +
+          let scoreB = (side === 'buy' ? -b.netPrice : b.netPrice) * 0.5 +
             b.availableSize / 10000 * 0.3 +
             -b.estimatedFees / 100 * 0.2;
+
+          // Add feature-based liquidity scoring (if enabled)
+          if (cfg.useFeatureScoring) {
+            const marketIdA = params.alternativeIds?.[a.platform] || params.marketId;
+            const marketIdB = params.alternativeIds?.[b.platform] || params.marketId;
+
+            const featuresA = getMarketFeatures(a.platform, marketIdA);
+            const featuresB = getMarketFeatures(b.platform, marketIdB);
+
+            // Boost score for markets with better liquidity scores
+            const liquidityScoreA = getLiquidityScore(featuresA) ?? 0.5;
+            const liquidityScoreB = getLiquidityScore(featuresB) ?? 0.5;
+
+            scoreA += liquidityScoreA * cfg.liquidityWeight;
+            scoreB += liquidityScoreB * cfg.liquidityWeight;
+
+            // Penalize wide spreads
+            const spreadA = getSpreadPct(featuresA) ?? 0;
+            const spreadB = getSpreadPct(featuresB) ?? 0;
+
+            scoreA -= spreadA * 0.05; // Slight penalty for spread
+            scoreB -= spreadB * 0.05;
+          }
+
           return scoreB - scoreA;
         }
       }
@@ -355,7 +386,7 @@ export function createSmartRouter(
         throw error;
       }
 
-      const bestRoute = selectBestRoute(quotes, params.side);
+      const bestRoute = selectBestRoute(quotes, params.side, params);
       const splitRoutes = calculateSplitRoutes(quotes, params);
 
       // Calculate savings compared to worst route

@@ -46,7 +46,7 @@ import { createRealtimeAlertsService, connectWhaleTracker, connectOpportunityFin
 import { createOpportunityExecutor, type OpportunityExecutor } from '../opportunity/executor';
 import { createTickRecorder, type TickRecorder } from '../services/tick-recorder';
 import { createTickStreamer, type TickStreamer } from '../services/tick-streamer';
-import { createFeatureEngineering, type FeatureEngineering } from '../services/feature-engineering';
+import { createFeatureEngineering, setFeatureEngine, type FeatureEngineering } from '../services/feature-engineering';
 import chokidar, { FSWatcher } from 'chokidar';
 import path from 'path';
 import { loadConfig, CONFIG_FILE } from '../utils/config';
@@ -788,6 +788,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     momentumLookback: 20,
     volatilityLookback: 50,
   });
+
+  // Make feature engine available globally for other services
+  setFeatureEngine(featureEngine);
 
   // Wire feed events to feature engineering
   feeds.on('price', (update) => {

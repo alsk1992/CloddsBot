@@ -17,6 +17,7 @@ import type { ExecutionService, OrderResult } from '../execution/index';
 import type { WhaleTracker, WhaleTrade, WhalePosition, MarketCategory, CategoryPerformance } from '../feeds/polymarket/whale-tracker';
 import { detectMarketCategory } from '../feeds/polymarket/whale-tracker';
 import { hasIdentity, verifyAgent, type VerificationResult } from '../identity/erc8004';
+import { getMarketFeatures, checkLiquidity, checkSpread, isHighVolatility } from '../services/feature-engineering';
 
 // =============================================================================
 // TYPES
@@ -71,6 +72,16 @@ export interface CopyTradingConfig {
   minReputationScore?: number;
   /** Network for identity verification (default: 'base-sepolia') */
   identityNetwork?: string;
+
+  // Feature-based Filtering
+  /** Enable feature-based market filtering (default: true) */
+  useFeatureFilters?: boolean;
+  /** Maximum volatility % to allow copying into (default: 10.0) */
+  maxVolatility?: number;
+  /** Minimum liquidity score to copy (default: 0.2) */
+  minLiquidityScore?: number;
+  /** Maximum spread % to copy into (default: 3.0) */
+  maxSpreadPct?: number;
 }
 
 export interface CopiedTrade {
@@ -146,6 +157,11 @@ const DEFAULT_CONFIG: Required<CopyTradingConfig> = {
   requireVerifiedIdentity: false,
   minReputationScore: 0,
   identityNetwork: 'base',  // Mainnet (live Jan 29, 2026)
+  // Feature-based Filtering
+  useFeatureFilters: true,
+  maxVolatility: 10.0,
+  minLiquidityScore: 0.2,
+  maxSpreadPct: 3.0,
 };
 
 // =============================================================================
@@ -340,6 +356,43 @@ export function createCopyTradingService(
     );
     if (existingPosition && existingPosition.size * existingPosition.entryPrice >= cfg.maxPositionSize) {
       return { copy: false, reason: 'max_position_reached' };
+    }
+
+    // Feature-based market condition checks
+    if (cfg.useFeatureFilters) {
+      const features = getMarketFeatures('polymarket', trade.marketId, trade.tokenId);
+
+      if (features) {
+        // Check volatility
+        if (isHighVolatility(features, cfg.maxVolatility)) {
+          const volatilityPct = features.tick?.volatilityPct ?? 0;
+          logger.debug(
+            { marketId: trade.marketId, volatilityPct, maxVolatility: cfg.maxVolatility },
+            'Skip copy: market too volatile'
+          );
+          return { copy: false, reason: `high_volatility (${volatilityPct.toFixed(2)}% > ${cfg.maxVolatility}%)` };
+        }
+
+        // Check liquidity
+        if (!checkLiquidity(features, cfg.minLiquidityScore)) {
+          const liquidityScore = features.signals.liquidityScore;
+          logger.debug(
+            { marketId: trade.marketId, liquidityScore, minLiquidityScore: cfg.minLiquidityScore },
+            'Skip copy: low liquidity'
+          );
+          return { copy: false, reason: `low_liquidity (${liquidityScore.toFixed(2)} < ${cfg.minLiquidityScore})` };
+        }
+
+        // Check spread
+        if (!checkSpread(features, cfg.maxSpreadPct)) {
+          const spreadPct = features.orderbook?.spreadPct ?? 0;
+          logger.debug(
+            { marketId: trade.marketId, spreadPct, maxSpreadPct: cfg.maxSpreadPct },
+            'Skip copy: wide spread'
+          );
+          return { copy: false, reason: `wide_spread (${spreadPct.toFixed(2)}% > ${cfg.maxSpreadPct}%)` };
+        }
+      }
     }
 
     return { copy: true };
