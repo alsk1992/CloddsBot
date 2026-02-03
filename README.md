@@ -1,156 +1,298 @@
 <p align="center">
-  <img src="https://cloddsbot.com/logo.png" alt="Clodds" width="200">
-</p>
-
-<h3 align="center">AI Trading Terminal</h3>
-
-<p align="center">
-  Trade prediction markets, crypto & futures through natural conversation.
-  <br />
-  <a href="https://cloddsbot.com/docs"><strong>Docs</strong></a> · <a href="#quick-start"><strong>Quick Start</strong></a> · <a href="https://api.cloddsbot.com"><strong>API</strong></a>
+  <img src="https://cloddsbot.com/logo.png" alt="Clodds Logo" width="280">
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" alt="Node">
+  <strong>AI-powered trading terminal for prediction markets, crypto & futures</strong>
+  <br>
+  <sub>Claude + Odds = Clodds</sub>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.3.4-blue" alt="Version">
+  <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" alt="Node.js">
   <img src="https://img.shields.io/badge/typescript-5.3-blue" alt="TypeScript">
-  <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/channels-22-purple" alt="22 Channels">
+  <img src="https://img.shields.io/badge/markets-9-orange" alt="9 Markets">
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#everything-we-built">Everything We Built</a> •
+  <a href="#screenshots">Screenshots</a> •
+  <a href="#channels">Channels</a> •
+  <a href="#commands">Commands</a> •
+  <a href="./docs/USER_GUIDE.md">Docs</a>
 </p>
 
 ---
 
+**Clodds** is a personal AI trading terminal for prediction markets, crypto spot, and **perpetual futures with leverage**. Run it on your own machine, chat via any of **22 messaging platforms**, trade across **9 prediction markets + 5 futures exchanges**, and manage your portfolio — all through natural conversation.
+
+Built on Claude with arbitrage detection algorithms based on [arXiv:2508.03474](https://arxiv.org/abs/2508.03474), which documented arbitrage patterns on Polymarket. See [Arbitrage Limitations](#arbitrage-limitations) for practical considerations.
+
+---
+
+## Deployment Options
+
+| Option | Best For | Setup Time | Features |
+|--------|----------|------------|----------|
+| **[Self-Hosted](#quick-start)** | Full control, all features | 5 min | 22 channels, trading, DeFi, bots |
+| **[Cloudflare Worker](#cloudflare-worker)** | Lightweight, edge deployment | 2 min | 3 webhook channels, market data, arbitrage |
+| **[Compute API](#compute-api)** | Agents paying for compute | Live | LLM, code, web, data, storage |
+
+## Compute API
+
+**Live at:** https://api.cloddsbot.com
+
+Agents can pay USDC for compute resources — no API keys needed, just a wallet.
+
+```bash
+# Check health
+curl https://api.cloddsbot.com/health
+
+# See pricing
+curl https://api.cloddsbot.com/pricing
+
+# Check balance
+curl https://api.cloddsbot.com/balance/0xYourWallet
+```
+
+**Services:**
+| Service | Pricing | Description |
+|---------|---------|-------------|
+| `llm` | $0.000003/token | Claude, GPT-4, Llama, Mixtral |
+| `code` | $0.001/second | Sandboxed Python, JS, Rust, Go |
+| `web` | $0.005/request | Web scraping with JS rendering |
+| `data` | $0.001/request | Prices, orderbooks, candles |
+| `storage` | $0.0001/MB | Key-value file storage |
+| `trade` | $0.01/call | Trade execution (Polymarket, DEXs) |
+
+**Payment flow:**
+1. Send USDC to treasury wallet on Base
+2. Include payment proof in request
+3. API credits your balance
+4. Use compute services
+
+See [docs/API.md](./docs/API.md#clodds-compute-api) for full documentation.
+
 ## Quick Start
 
 ```bash
-git clone https://github.com/alsk1992/CloddsBot.git && cd CloddsBot
-npm install && cp .env.example .env
+git clone https://github.com/alsk1992/CloddsBot.git
+cd CloddsBot
+npm install
+cp .env.example .env
 # Add ANTHROPIC_API_KEY to .env
 npm run build && npm start
 ```
 
 Open `http://localhost:18789/webchat` — no account needed.
 
----
-
-## What You Can Do
-
-**Trade** across 9 prediction markets (Polymarket, Kalshi, Betfair) and 4 futures exchanges (Binance, Bybit, Hyperliquid, MEXC) with up to 200x leverage.
-
-**Chat** via 22 platforms — Telegram, Discord, Slack, WhatsApp, and more.
-
-**Automate** with copy trading, whale tracking, arbitrage detection, and custom bots.
-
-**DeFi** on Solana (Jupiter, Raydium, Orca) and EVM chains (Uniswap, 1inch) with MEV protection.
-
----
-
-## Examples
-
-```
-"Buy $100 of Trump YES on Polymarket"
-"What's the arbitrage between Poly and Kalshi on the election?"
-"Open a 10x long on BTC with stop loss at 95k"
-"Copy trade the top Polymarket whale"
-"Alert me when ETH drops below 3000"
-```
-
----
-
-## Compute API
-
-Agents can pay USDC for compute — no API keys needed, just a wallet.
-
-```bash
-curl https://api.cloddsbot.com/v1/health
-curl https://api.cloddsbot.com/v1/pricing
-```
-
-| Service | Price | Description |
-|---------|-------|-------------|
-| `llm` | $0.000003/token | Claude, GPT-4, Llama |
-| `code` | $0.001/sec | Sandboxed execution |
-| `web` | $0.005/req | Scraping with JS |
-| `data` | $0.001/req | Market data |
-| `trade` | $0.01/call | Order execution |
-
-**SDK:**
-```typescript
-import { CloddsClient } from '@clodds/sdk';
-
-const client = new CloddsClient({ wallet: '0x...' });
-const response = await client.llm({
-  model: 'claude-sonnet-4-20250514',
-  messages: [{ role: 'user', content: 'Hello' }],
-});
-```
-
-[Full API Docs →](./docs/API.md)
-
----
-
-## Platform Support
-
-<table>
-<tr>
-<td width="33%">
-
-**Prediction Markets**
-- Polymarket
-- Kalshi
-- Betfair
-- Smarkets
-- Drift
-- Manifold
-- Metaculus
-- PredictIt
-
-</td>
-<td width="33%">
-
-**Futures Exchanges**
-- Binance (125x)
-- Bybit (100x)
-- Hyperliquid (50x)
-- MEXC (200x)
-
-</td>
-<td width="33%">
-
-**Messaging**
-- Telegram
-- Discord
-- Slack
-- WhatsApp
-- Teams
-- Matrix
-- Signal
-- +15 more
-
-</td>
-</tr>
-</table>
-
----
-
-## Key Features
-
-| Feature | Description |
-|---------|-------------|
-| **Arbitrage Detection** | Cross-platform and combinatorial opportunities |
-| **Whale Tracking** | Follow large traders on Polymarket + multi-chain crypto |
-| **Copy Trading** | Mirror successful wallets automatically |
-| **Smart Routing** | Best price across platforms |
-| **Risk Management** | Circuit breakers, position limits, stop-loss |
-| **Backtesting** | Validate strategies before deploying |
-
----
+For Telegram: add `TELEGRAM_BOT_TOKEN` to `.env` and message your bot.
 
 ## CLI
 
 ```bash
-clodds start          # Start the gateway
-clodds repl           # Interactive REPL
-clodds doctor         # Run diagnostics
-clodds secure         # Harden security
+clodds start       # Start the gateway
+clodds repl        # Interactive REPL
+clodds doctor      # System diagnostics
+clodds secure      # Harden security
+```
+
+See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
+
+---
+
+## Everything We Built
+
+### At a Glance
+
+| Category | What's Included |
+|----------|-----------------|
+| **Messaging** | 22 platforms (Telegram, Discord, WhatsApp, Slack, Teams, Signal, Matrix, iMessage, LINE, Nostr, and more) |
+| **Prediction Markets** | 9 platforms (Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt) |
+| **Perpetual Futures** | 4 exchanges (Binance, Bybit, Hyperliquid, MEXC) with up to 200x leverage, database tracking, A/B testing |
+| **Trading** | Order execution on 5 platforms, portfolio tracking, P&L, trade logging |
+| **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
+| **AI** | 6 LLM providers, 4 specialized agents, semantic memory, 21 tools |
+| **Solana DeFi** | Jupiter, Raydium, Orca, Meteora, Pump.fun integration |
+| **EVM DeFi** | Uniswap V3, 1inch aggregator (ETH, ARB, OP, Base, Polygon) |
+| **Smart Trading** | Whale tracking, copy trading, smart routing, MEV protection |
+| **Crypto Whale Tracking** | Multi-chain whale monitoring (Solana, ETH, Polygon, ARB, Base, OP) |
+| **Payments** | x402 protocol for machine-to-machine USDC payments (Base + Solana) |
+| **Bridging** | Wormhole cross-chain token transfers |
+| **Automation** | Trading bots, cron jobs, webhooks, skills system |
+
+---
+
+## Channels (22)
+
+Telegram, Discord, Slack, WhatsApp, Teams, Matrix, Signal, iMessage, LINE, Nostr, Twitch, WebChat, and more.
+
+All channels support real-time sync, rich media, and offline queuing.
+
+---
+
+## Prediction Markets (9)
+
+| Platform | Trading | Type |
+|----------|:-------:|------|
+| Polymarket | ✓ | Crypto (USDC) |
+| Kalshi | ✓ | US Regulated |
+| Betfair | ✓ | Sports Exchange |
+| Smarkets | ✓ | Sports |
+| Drift | ✓ | Solana DEX |
+| Manifold | data | Play Money |
+| Metaculus | data | Forecasting |
+| PredictIt | data | US Politics |
+
+Supports limit/market orders, maker rebates, real-time orderbooks, P&L tracking, and smart routing.
+
+---
+
+## Crypto & DeFi
+
+**Solana:** Jupiter, Raydium, Orca, Meteora, Pump.fun — with Jito MEV protection
+
+**EVM (5 chains):** Uniswap V3, 1inch on Ethereum, Arbitrum, Optimism, Base, Polygon — with Flashbots MEV protection
+
+**Bridging:** Wormhole cross-chain transfers (ETH ↔ Solana, Polygon ↔ Base)
+
+**Payments:** x402 protocol for agent-to-agent USDC payments
+
+---
+
+## Perpetual Futures (4 Exchanges)
+
+| Exchange | Max Leverage | KYC |
+|----------|--------------|-----|
+| Binance | 125x | Yes |
+| Bybit | 100x | Yes |
+| Hyperliquid | 50x | No |
+| MEXC | 200x | No |
+
+Long/short, cross/isolated margin, TP/SL, liquidation alerts, funding tracking, database logging.
+
+```
+/futures long BTCUSDT 0.1 10x
+/futures sl BTCUSDT 95000
+```
+
+---
+
+## AI System
+
+**6 LLM providers:** Claude (primary), GPT-4, Gemini, Groq, Together, Ollama
+
+**4 agents:** Main, Trading, Research, Alerts
+
+**21 tools:** Browser, docker, exec, files, git, email, sms, webhooks, sql, vision
+
+**Memory:** Semantic search (LanceDB), hybrid BM25, user profiles, persistent facts
+
+---
+
+## Arbitrage Detection
+
+Based on [arXiv:2508.03474](https://arxiv.org/abs/2508.03474). Detects internal, cross-platform, and combinatorial arbitrage with semantic matching, liquidity scoring, and Kelly sizing.
+
+```
+YES: 45c + NO: 52c = 97c → Buy both → 3c profit
+Polymarket @ 52c vs Kalshi @ 55c → 3c spread
+```
+
+**Note:** Defaults to dry-run mode. Cross-platform has currency/settlement complexity.
+
+---
+
+## Advanced Trading
+
+**Whale Tracking:** Multi-chain monitoring (Solana, ETH, Polygon, ARB, Base, OP) with configurable thresholds
+
+**Copy Trading:** Mirror successful wallets with sizing controls and SL/TP
+
+**Swarm Trading:** Coordinated multi-wallet Pump.fun trading (20 wallets, Jito bundles)
+
+**Smart Routing:** Best price, liquidity, or fees across platforms
+
+**External Data:** FedWatch, 538, Silver Bulletin, RCP, Odds API for edge detection
+
+**Safety:** Circuit breaker, position limits, Kelly sizing, daily loss limits ($500 default), kill switch
+
+---
+
+## Trading Bots
+
+Built-in strategies: Mean Reversion, Momentum, Arbitrage
+
+Features: Configurable sizing, SL/TP, backtesting, live trading with safety limits
+
+---
+
+## Security
+
+- Sandboxed execution (shell commands need approval)
+- Encrypted credentials (AES-256-GCM)
+- Audit logging for all trades
+
+---
+
+## Skills & Extensions
+
+**84 bundled skills** across trading, data, automation, and infrastructure.
+
+| Category | Skills |
+|----------|--------|
+| Trading | Polymarket, Kalshi, Betfair, Hyperliquid, Binance, Bybit, MEXC, Jupiter, Raydium |
+| Analysis | Arbitrage detection, edge finding, whale tracking, copy trading |
+| Automation | Cron jobs, triggers, bots, webhooks |
+| AI | Memory, embeddings, multi-agent routing |
+
+**7 extensions** for Copilot, OpenTelemetry, LanceDB, and more.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                            GATEWAY                                   │
+│       HTTP • WebSocket • Auth • Rate Limiting • 1000 connections     │
+└─────────────────────────────────┬───────────────────────────────────┘
+                                  │
+        ┌─────────────────────────┼─────────────────────────┐
+        ▼                         ▼                         ▼
+┌───────────────┐         ┌───────────────┐         ┌───────────────┐
+│   CHANNELS    │         │    AGENTS     │         │    FEEDS      │
+│   (22)        │         │    (4)        │         │    (9+)       │
+├───────────────┤         ├───────────────┤         ├───────────────┤
+│ Telegram      │         │ Main          │         │ Polymarket    │
+│ Discord       │         │ Trading       │         │ Kalshi        │
+│ WhatsApp      │         │ Research      │         │ Betfair       │
+│ Slack         │         │ Alerts        │         │ Manifold      │
+│ Teams         │         │               │         │ Crypto (10)   │
+│ Matrix        │         │ Tools (21)    │         │               │
+│ Signal        │         │ Skills (80)   │         │ Arbitrage     │
+│ +15 more      │         │ Memory        │         │ Detector      │
+└───────────────┘         └───────────────┘         └───────────────┘
+        │                         │                         │
+        └─────────────────────────┼─────────────────────────┘
+                                  │
+        ┌─────────────────────────┼─────────────────────────┐
+        ▼                         ▼                         ▼
+┌───────────────┐         ┌───────────────┐         ┌───────────────┐
+│   TRADING     │         │   SOLANA      │         │   PAYMENTS    │
+│               │         │   DeFi        │         │   (x402)      │
+├───────────────┤         ├───────────────┤         ├───────────────┤
+│ Execution     │         │ Jupiter       │         │ Base USDC     │
+│ Portfolio     │         │ Raydium       │         │ Solana USDC   │
+│ Trade Logger  │         │ Orca          │         │ Auto-approve  │
+│ Bots          │         │ Meteora       │         │               │
+│ Risk Manager  │         │ Pump.fun      │         │ Wormhole      │
+│ Backtesting   │         │               │         │ Bridge        │
+└───────────────┘         └───────────────┘         └───────────────┘
 ```
 
 ---
@@ -161,25 +303,25 @@ clodds secure         # Harden security
 # Required
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Trading (optional)
-POLYMARKET_API_KEY=...
-KALSHI_API_KEY=...
-BINANCE_API_KEY=...
-
-# Messaging (pick any)
+# Channels (pick any)
 TELEGRAM_BOT_TOKEN=...
 DISCORD_BOT_TOKEN=...
+
+# Trading
+POLYMARKET_API_KEY=...
+SOLANA_PRIVATE_KEY=...
 ```
+
+Data stored in `~/.clodds/` (SQLite database, auto-created on first run).
 
 ---
 
 ## Documentation
 
-- [User Guide](./docs/USER_GUIDE.md) — Commands and daily usage
+- [User Guide](./docs/USER_GUIDE.md) — Commands and usage
 - [Trading](./docs/TRADING.md) — Execution, bots, safety
 - [API Reference](./docs/API.md) — HTTP endpoints
 - [Deployment](./docs/DEPLOYMENT_GUIDE.md) — Production setup
-- [Security](./docs/SECURITY_AUDIT.md) — Hardening guide
 
 ---
 
@@ -187,18 +329,42 @@ DISCORD_BOT_TOKEN=...
 
 ```bash
 npm run dev          # Hot reload
-npm test             # Tests
+npm test             # Run tests
 npm run typecheck    # Type check
+npm run lint         # Lint
+npm run build        # Build
 ```
+
+### Docker
+```bash
+docker compose up --build
+```
+
+---
+
+## Summary
+
+| Category | Count |
+|----------|------:|
+| Messaging Channels | **22** |
+| Prediction Markets | **9** |
+| AI Tools | **21** |
+| Skills | **84** |
+| LLM Providers | **6** |
+| Solana DEX Protocols | **5** |
+| Trading Strategies | **3** |
+| Extensions | **7** |
 
 ---
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE)
 
 ---
 
 <p align="center">
-  <sub>Built with Claude</sub>
+  <strong>Clodds</strong> — Claude + Odds
+  <br>
+  <sub>Built with Claude by Anthropic</sub>
 </p>
