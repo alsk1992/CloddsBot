@@ -150,6 +150,7 @@ const PLATFORM_RISK_SCORES: Record<Platform, number> = {
   smarkets: 15,     // Established, lower fees
   opinion: 40,      // BNB Chain, newer platform
   virtuals: 50,     // Base chain AI agents, high volatility
+  hedgehog: 40,     // Solana-based prediction market, newer
 };
 
 // =============================================================================

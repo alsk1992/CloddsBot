@@ -6,12 +6,14 @@
  * - Subscription tier management
  * - Daily prompt limits
  * - Referral tracking
+ * - Validation caching for performance
  */
 
 import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { createApiKeyCache, type ApiKeyCacheKey } from '../cache/index';
 import { logger } from '../utils/logger';
 import type {
   ApiKeyData,
@@ -71,6 +73,10 @@ export interface ApiKeyManagerConfig {
   storageDir?: string;
   /** Enable persistence */
   persist?: boolean;
+  /** Validation cache TTL in ms (default: 10000 = 10s) */
+  validationCacheTtl?: number;
+  /** Max cached validations (default: 200) */
+  validationCacheSize?: number;
 }
 
 // =============================================================================
@@ -91,6 +97,12 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
 
   // Storage
   const keys = new Map<string, ApiKeyData>();
+
+  // Validation cache - brief caching to reduce repeated hash comparisons
+  const validationCache = createApiKeyCache<ApiKeyData | null>({
+    maxSize: config.validationCacheSize ?? 200,
+    defaultTtl: config.validationCacheTtl ?? 10000, // 10 seconds
+  });
 
   // Ensure storage directory
   if (cfg.persist) {
@@ -176,21 +188,42 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
   }
 
   function validate(keyId: string, secret: string): ApiKeyData | null {
+    const providedHash = hashSecret(secret);
+    const cacheKey: ApiKeyCacheKey = { keyId, secretHash: providedHash };
+
+    // Check validation cache first
+    const cached = validationCache.get(cacheKey);
+    if (cached !== undefined) {
+      // Return cached result (could be null for invalid keys)
+      if (cached) {
+        // Update last used timestamp (but don't save frequently)
+        cached.lastUsedAt = Date.now();
+      }
+      return cached;
+    }
+
     const data = keys.get(keyId);
-    if (!data) return null;
+    if (!data) {
+      // Cache negative result briefly
+      validationCache.set(cacheKey, null);
+      return null;
+    }
 
     // Check if active
-    if (!data.active) return null;
+    if (!data.active) {
+      validationCache.set(cacheKey, null);
+      return null;
+    }
 
     // Check expiry
     if (data.expiresAt > 0 && Date.now() > data.expiresAt) {
       data.active = false;
       saveKeys();
+      validationCache.set(cacheKey, null);
       return null;
     }
 
     // Verify secret (timing-safe comparison)
-    const providedHash = hashSecret(secret);
     const storedHash = data.secretHash;
 
     try {
@@ -198,14 +231,21 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
         Buffer.from(providedHash, 'hex'),
         Buffer.from(storedHash, 'hex')
       );
-      if (!match) return null;
+      if (!match) {
+        validationCache.set(cacheKey, null);
+        return null;
+      }
     } catch {
+      validationCache.set(cacheKey, null);
       return null;
     }
 
     // Update last used
     data.lastUsedAt = Date.now();
     saveKeys();
+
+    // Cache successful validation
+    validationCache.set(cacheKey, data);
 
     return data;
   }
@@ -226,6 +266,9 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
     data.tier = tier;
     saveKeys();
 
+    // Invalidate any cached validation for this key
+    validationCache.clear(); // Simple approach: clear all (keys update rarely)
+
     logger.info({ keyId, tier }, 'API key tier updated');
     return true;
   }
@@ -236,6 +279,9 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
 
     data.active = false;
     saveKeys();
+
+    // Invalidate any cached validation for this key
+    validationCache.clear();
 
     logger.info({ keyId }, 'API key revoked');
     return true;

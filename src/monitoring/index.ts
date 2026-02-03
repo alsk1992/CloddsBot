@@ -1,5 +1,11 @@
 /**
  * Monitoring & Alerting - health checks + error notifications.
+ *
+ * This module provides:
+ * - Prometheus-compatible metrics (metrics.ts)
+ * - Health check endpoints (health.ts)
+ * - Alert thresholds and webhooks (alerts.ts)
+ * - Legacy monitoring service (below)
  */
 
 import type { OutgoingMessage, Config, MonitoringTarget } from '../types';
@@ -7,6 +13,11 @@ import type { ProviderHealthMonitor, ProviderHealthSnapshot } from '../providers
 import { createEmailTool } from '../tools/email';
 import { getSystemHealth } from '../infra';
 import { logger } from '../utils/logger';
+
+// Re-export new monitoring modules
+export * from './metrics';
+export * from './health';
+export * from './alerts';
 
 export interface MonitoringService {
   start(): void;

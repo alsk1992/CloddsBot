@@ -18,7 +18,8 @@ export type Platform =
   | 'betfair'
   | 'smarkets'
   | 'opinion'
-  | 'virtuals';
+  | 'virtuals'
+  | 'hedgehog';
 
 // =============================================================================
 // MARKETS
@@ -329,6 +330,20 @@ export interface VirtualsCredentials {
 }
 
 /**
+ * Hedgehog Markets credentials (decrypted form)
+ */
+export interface HedgehogCredentials {
+  /** Solana wallet private key (base58) */
+  privateKey?: string;
+  /** Path to keypair file */
+  keypairPath?: string;
+  /** API key for higher rate limits */
+  apiKey?: string;
+  /** Solana RPC URL (default: https://api.mainnet-beta.solana.com) */
+  rpcUrl?: string;
+}
+
+/**
  * Union of all platform credentials
  */
 export type PlatformCredentials =
@@ -339,7 +354,8 @@ export type PlatformCredentials =
   | { platform: 'drift'; data: DriftCredentials }
   | { platform: 'smarkets'; data: SmarketsCredentials }
   | { platform: 'opinion'; data: OpinionCredentials }
-  | { platform: 'virtuals'; data: VirtualsCredentials };
+  | { platform: 'virtuals'; data: VirtualsCredentials }
+  | { platform: 'hedgehog'; data: HedgehogCredentials };
 
 /**
  * Trading execution context passed to tools
@@ -1027,6 +1043,25 @@ export interface Config {
       /** Minimum market cap to include agents (default: 0) */
       minMarketCap?: number;
       /** Categories to filter (e.g., ['Entertainment', 'Productivity']) */
+      categories?: string[];
+    };
+    hedgehog?: {
+      enabled: boolean;
+      /** API key for Hedgehog Markets (optional, for higher rate limits) */
+      apiKey?: string;
+      /** Solana wallet private key for trading (base58) */
+      privateKey?: string;
+      /** Path to keypair file */
+      keypairPath?: string;
+      /** Solana RPC URL (default: https://api.mainnet-beta.solana.com) */
+      rpcUrl?: string;
+      /** WebSocket URL (default: wss://ws.hedgehog.markets) */
+      wsUrl?: string;
+      /** Polling interval in ms (default: 10000) */
+      pollIntervalMs?: number;
+      /** Minimum volume to include markets (default: 0) */
+      minVolume?: number;
+      /** Categories to filter (optional) */
       categories?: string[];
     };
     news: {

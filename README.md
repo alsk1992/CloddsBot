@@ -19,11 +19,10 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
-  <a href="#everything-we-built">Everything We Built</a> •
-  <a href="#screenshots">Screenshots</a> •
+  <a href="#everything-we-built">Features</a> •
   <a href="#channels">Channels</a> •
-  <a href="#commands">Commands</a> •
-  <a href="./docs/USER_GUIDE.md">Docs</a>
+  <a href="#prediction-markets-9">Markets</a> •
+  <a href="#documentation">Docs</a>
 </p>
 
 ---
@@ -352,10 +351,15 @@ Data stored in `~/.clodds/` (SQLite database, auto-created on first run).
 
 ## Documentation
 
-- [User Guide](./docs/USER_GUIDE.md) — Commands and usage
-- [Trading](./docs/TRADING.md) — Execution, bots, safety
-- [API Reference](./docs/API.md) — HTTP endpoints
-- [Deployment](./docs/DEPLOYMENT_GUIDE.md) — Production setup
+| Document | Description |
+|----------|-------------|
+| [User Guide](./docs/USER_GUIDE.md) | Commands, chat usage, workflows |
+| [API Reference](./docs/API_REFERENCE.md) | HTTP/WebSocket endpoints, authentication, error codes |
+| [Architecture](./docs/ARCHITECTURE.md) | System design, components, data flow, extension points |
+| [Deployment](./docs/DEPLOYMENT.md) | Environment variables, Docker, systemd, production checklist |
+| [Trading](./docs/TRADING.md) | Execution, bots, risk management, safety controls |
+| [Security](./docs/SECURITY_AUDIT.md) | Security hardening, audit checklist |
+| [OpenAPI Spec](./docs/openapi.yaml) | Full OpenAPI 3.0 specification |
 
 ---
 

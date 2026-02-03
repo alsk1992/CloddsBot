@@ -7,8 +7,11 @@
  * - POST /v2/job/:id/cancel  Cancel pending job
  * - GET  /v2/jobs         List jobs for wallet
  * - GET  /v2/wallet       Get managed wallet info
- * - GET  /health          Health check
- * - GET  /metrics         API metrics (auth required)
+ * - GET  /health          Basic health check
+ * - GET  /health/live     Liveness check (is the process alive?)
+ * - GET  /health/ready    Readiness check (is the service ready for traffic?)
+ * - GET  /metrics         API metrics (JSON, auth required)
+ * - GET  /metrics/prometheus  Prometheus-format metrics (auth required)
  */
 
 import { EventEmitter } from 'eventemitter3';
@@ -20,6 +23,25 @@ import { createX402Middleware, type X402Middleware } from './middleware';
 import { createJobManager, type JobManager, type Job } from './jobs';
 import { createPromptHandler, type PromptHandler } from './prompt';
 import { createCustodyManager, type CustodyManager } from './custody';
+import {
+  registry,
+  httpRequestsTotal,
+  httpRequestDuration,
+  httpActiveConnections,
+  httpErrorsTotal,
+  jobsTotal,
+  jobsActive,
+  jobDuration,
+  startMetricsCollection,
+  stopMetricsCollection,
+} from '../monitoring/metrics';
+import {
+  healthChecker,
+  createMemoryHealthCheck,
+  type HealthCheckResult,
+  type ReadinessResult,
+  type LivenessResult,
+} from '../monitoring/health';
 import type {
   ApiGatewayConfig,
   ApiRequest,
@@ -450,11 +472,34 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
   }
 
   async function handleHealth(req: ParsedRequest, res: ServerResponse): Promise<void> {
-    json(res, 200, {
-      status: 'healthy',
-      timestamp: Date.now(),
-      uptime: Math.floor((Date.now() - startTime) / 1000),
+    // Full health check with component status
+    const health: HealthCheckResult = await healthChecker.checkHealth();
+
+    const status = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
+    json(res, status, {
+      status: health.status,
+      timestamp: health.timestamp,
+      uptime: health.uptime,
+      version: health.version,
+      components: health.components,
+      summary: health.summary,
     });
+  }
+
+  async function handleLiveness(req: ParsedRequest, res: ServerResponse): Promise<void> {
+    // Liveness check - is the process alive and not stuck?
+    const liveness: LivenessResult = await healthChecker.checkLiveness();
+
+    const status = liveness.alive && liveness.eventLoop.healthy ? 200 : 503;
+    json(res, status, liveness);
+  }
+
+  async function handleReadiness(req: ParsedRequest, res: ServerResponse): Promise<void> {
+    // Readiness check - is the service ready to accept traffic?
+    const readiness: ReadinessResult = await healthChecker.checkReadiness();
+
+    const status = readiness.ready ? 200 : 503;
+    json(res, status, readiness);
   }
 
   async function handleMetrics(req: ParsedRequest, res: ServerResponse): Promise<void> {
@@ -481,6 +526,27 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
     });
   }
 
+  async function handlePrometheusMetrics(req: ParsedRequest, res: ServerResponse): Promise<void> {
+    // Auth check for metrics endpoint
+    const authToken = process.env.CLODDS_TOKEN;
+    if (authToken) {
+      const providedToken = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+      if (providedToken !== authToken) {
+        res.writeHead(401, { 'Content-Type': 'text/plain' });
+        res.end('Unauthorized');
+        return;
+      }
+    }
+
+    // Return Prometheus-format metrics
+    const prometheusText = registry.toPrometheusText();
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+      ...getCorsHeaders(),
+    });
+    res.end(prometheusText);
+  }
+
   // Register routes
   addRoute('POST', '/v2/prompt', handlePrompt);
   addRoute('GET', '/v2/job/:id', handleGetJob);
@@ -488,13 +554,27 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
   addRoute('GET', '/v2/jobs', handleListJobs);
   addRoute('GET', '/v2/wallet', handleWallet);
   addRoute('POST', '/v2/wallet', handleWallet);
+  // Health endpoints
   addRoute('GET', '/health', handleHealth);
+  addRoute('GET', '/health/live', handleLiveness);
+  addRoute('GET', '/health/ready', handleReadiness);
+  // Metrics endpoints
   addRoute('GET', '/metrics', handleMetrics);
+  addRoute('GET', '/metrics/prometheus', handlePrometheusMetrics);
 
   // Request handler
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const requestStart = Date.now();
+    const method = req.method || 'GET';
+
+    // Track active connections
+    httpActiveConnections.inc();
+    res.on('finish', () => {
+      httpActiveConnections.dec();
+    });
+
     // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
+    if (method === 'OPTIONS') {
       res.writeHead(204, getCorsHeaders());
       res.end();
       return;
@@ -503,9 +583,12 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
     const url = parseUrl(req.url || '/', true);
     const path = url.pathname || '/';
 
+    // Normalize path for metrics (replace IDs with :id)
+    const normalizedPath = path.replace(/\/[a-f0-9-]{8,}(?:\/|$)/gi, '/:id/').replace(/\/$/, '');
+
     // Parse body for POST requests
     let body: unknown = {};
-    if (req.method === 'POST') {
+    if (method === 'POST') {
       body = await new Promise((resolve) => {
         let data = '';
         req.on('data', chunk => { data += chunk; });
@@ -521,7 +604,7 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
 
     // Build parsed request
     const parsed: ParsedRequest = {
-      method: req.method || 'GET',
+      method,
       path,
       params: {},
       query: url.query as Record<string, string>,
@@ -534,6 +617,9 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
     // Match route
     const matched = matchRoute(parsed.method, path);
     if (!matched) {
+      // Track 404 in metrics
+      httpRequestsTotal.inc({ method, path: normalizedPath, status: '404' });
+      httpRequestDuration.observe({ method, path: normalizedPath }, Date.now() - requestStart);
       json(res, 404, { error: 'Not found' });
       return;
     }
@@ -542,8 +628,19 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
 
     try {
       await matched.handler(parsed, res);
+
+      // Track successful request in metrics
+      const statusCode = res.statusCode || 200;
+      httpRequestsTotal.inc({ method, path: normalizedPath, status: String(statusCode) });
+      httpRequestDuration.observe({ method, path: normalizedPath }, Date.now() - requestStart);
     } catch (error) {
       logger.error({ error, path }, 'Request handler error');
+
+      // Track error in metrics
+      httpRequestsTotal.inc({ method, path: normalizedPath, status: '500' });
+      httpErrorsTotal.inc({ method, path: normalizedPath, error_type: 'internal_error' });
+      httpRequestDuration.observe({ method, path: normalizedPath }, Date.now() - requestStart);
+
       json(res, 500, { error: 'Internal server error' });
     }
   }
@@ -561,6 +658,8 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
       server.listen(cfg.port, cfg.host, () => {
         logger.info({ port: cfg.port, host: cfg.host }, 'Clodds API Gateway started');
         jobs.start();
+        // Start collecting system metrics
+        startMetricsCollection(15000);
         emitter.emit('started');
         resolve();
       });
@@ -570,6 +669,8 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
   async function stop(): Promise<void> {
     return new Promise((resolve) => {
       jobs.stop();
+      // Stop collecting system metrics
+      stopMetricsCollection();
 
       if (server) {
         server.close(() => {

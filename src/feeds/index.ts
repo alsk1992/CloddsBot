@@ -15,8 +15,10 @@ import { createSmarketsFeed, SmarketsFeed } from './smarkets/index';
 import { createOpinionFeed, OpinionFeed } from './opinion/index';
 import { createVirtualsFeed, VirtualsFeed } from './virtuals/index';
 import { createPredictFunFeed, PredictFunFeed } from './predictfun/index';
+import { createHedgehogFeed, HedgehogFeed } from './hedgehog/index';
 import { createNewsFeed, NewsFeed } from './news/index';
 import { analyzeEdge, calculateKelly, EdgeAnalysis } from './external/index';
+import { createMarketCache, type MarketCacheKey } from '../cache/index';
 import { logger } from '../utils/logger';
 import type { Config, Market, PriceUpdate, OrderbookUpdate, Orderbook, NewsItem, Platform } from '../types';
 
@@ -41,6 +43,10 @@ export interface FeedManager extends EventEmitter {
   getRecentNews(limit?: number): NewsItem[];
   searchNews(query: string): NewsItem[];
   getNewsForMarket(marketQuestion: string): NewsItem[];
+
+  // Cache stats
+  getCacheStats(): { hits: number; misses: number; size: number; hitRate: number };
+  clearCache(): void;
 
   // Edge detection
   analyzeEdge(
@@ -75,6 +81,20 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
   const feeds = new Map<string, FeedAdapter>();
   let newsFeed: NewsFeed | null = null;
   let polymarketRtds: PolymarketRtds | null = null;
+
+  // Market cache for getMarket lookups (30s TTL, max 500 entries)
+  const marketCache = createMarketCache<Market | null>({
+    maxSize: 500,
+    defaultTtl: 30000,
+    onEvict: (key, _value, reason) => {
+      if (reason !== 'manual') {
+        logger.debug({ platform: key.platform, marketId: key.marketId, reason }, 'Market cache eviction');
+      }
+    },
+  });
+
+  // Subscription tracking for deduplication
+  const activeSubscriptions = new Map<string, Set<(update: PriceUpdate) => void>>();
 
   // Initialize Polymarket
   if (config.polymarket?.enabled) {
@@ -241,6 +261,28 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
     });
   }
 
+  // Initialize Hedgehog Markets (Solana prediction market)
+  if ((config as any).hedgehog?.enabled) {
+    logger.info('Initializing Hedgehog Markets feed');
+    const hedgehogConfig = (config as any).hedgehog;
+    const hedgehog = await createHedgehogFeed({
+      apiKey: hedgehogConfig.apiKey,
+      wsUrl: hedgehogConfig.wsUrl,
+      pollIntervalMs: hedgehogConfig.pollIntervalMs,
+      minVolume: hedgehogConfig.minVolume,
+      categories: hedgehogConfig.categories,
+    });
+    feeds.set('hedgehog', hedgehog as unknown as FeedAdapter);
+
+    hedgehog.on('price', (update: PriceUpdate) => {
+      emitter.emit('price', update);
+    });
+
+    hedgehog.on('orderbook', (update: OrderbookUpdate) => {
+      emitter.emit('orderbook', update);
+    });
+  }
+
   // Initialize News feed
   if (config.news?.enabled) {
     logger.info('Initializing News feed');
@@ -296,22 +338,34 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
     }
   };
 
-  // Get market by ID
+  // Get market by ID (with caching)
   emitter.getMarket = async (marketId: string, platform?: string): Promise<Market | null> => {
+    const cacheKey: MarketCacheKey = { platform, marketId };
+
+    // Check cache first
+    const cached = marketCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    let market: Market | null = null;
+
     if (platform) {
       const feed = feeds.get(platform);
       if (feed) {
-        return feed.getMarket(marketId);
+        market = await feed.getMarket(marketId);
       }
-      return null;
+    } else {
+      // Try all feeds
+      for (const [, feed] of feeds) {
+        market = await feed.getMarket(marketId);
+        if (market) break;
+      }
     }
 
-    // Try all feeds
-    for (const [, feed] of feeds) {
-      const market = await feed.getMarket(marketId);
-      if (market) return market;
-    }
-    return null;
+    // Cache the result (including null to avoid repeated lookups)
+    marketCache.set(cacheKey, market);
+    return market;
   };
 
   // Search markets
@@ -385,22 +439,36 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
     return null;
   };
 
-  // Subscribe to price updates
+  // Subscribe to price updates (with deduplication)
   emitter.subscribePrice = (
     platform: string,
     marketId: string,
     callback: (update: PriceUpdate) => void
   ): (() => void) => {
+    const subKey = `${platform}:${marketId}`;
     const feed = feeds.get(platform) as FeedAdapter & {
       subscribeToMarket?: (id: string) => void;
       unsubscribeFromMarket?: (id: string) => void;
     };
 
-    if (feed?.subscribeToMarket) {
-      feed.subscribeToMarket(marketId);
+    // Get or create subscription set for this market
+    let callbacks = activeSubscriptions.get(subKey);
+    const isFirstSubscription = !callbacks || callbacks.size === 0;
+
+    if (!callbacks) {
+      callbacks = new Set();
+      activeSubscriptions.set(subKey, callbacks);
     }
 
-    // Listen for price events matching this market
+    // Only subscribe to feed if this is the first callback for this market
+    if (isFirstSubscription && feed?.subscribeToMarket) {
+      feed.subscribeToMarket(marketId);
+      logger.debug({ platform, marketId }, 'New market subscription');
+    }
+
+    callbacks.add(callback);
+
+    // Listen for price events matching this market (shared handler)
     const handler = (update: PriceUpdate) => {
       if (update.platform === platform && update.marketId === marketId) {
         callback(update);
@@ -411,8 +479,20 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
 
     return () => {
       emitter.off('price', handler);
-      if (feed?.unsubscribeFromMarket) {
-        feed.unsubscribeFromMarket(marketId);
+
+      // Remove callback from set
+      const subs = activeSubscriptions.get(subKey);
+      if (subs) {
+        subs.delete(callback);
+
+        // Only unsubscribe from feed if no more callbacks
+        if (subs.size === 0) {
+          activeSubscriptions.delete(subKey);
+          if (feed?.unsubscribeFromMarket) {
+            feed.unsubscribeFromMarket(marketId);
+            logger.debug({ platform, marketId }, 'Market subscription removed');
+          }
+        }
       }
     };
   };
@@ -447,6 +527,22 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
 
   emitter.calculateKelly = (price: number, estimate: number, bankroll: number) => {
     return calculateKelly(price, estimate, bankroll);
+  };
+
+  // Cache stats and management
+  emitter.getCacheStats = () => {
+    const stats = marketCache.stats();
+    return {
+      hits: stats.hits,
+      misses: stats.misses,
+      size: stats.size,
+      hitRate: stats.hitRate,
+    };
+  };
+
+  emitter.clearCache = () => {
+    marketCache.clear();
+    logger.info('Market cache cleared');
   };
 
   return emitter;
