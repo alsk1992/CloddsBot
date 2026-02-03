@@ -937,4 +937,10 @@ Monitor RSS, Twitter, and webhooks to trigger automatic trades.
   }
 }
 
-export default { execute };
+export default {
+  name: 'signals',
+  description: 'Signals trading - monitor RSS, Twitter, and webhooks to trigger automatic trades',
+  commands: ['/signals'],
+  requires: { env: ['SOLANA_PRIVATE_KEY'] },
+  handle: execute,
+};

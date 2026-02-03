@@ -207,20 +207,29 @@ src/agents/
 | `calendar` | Calendar events |
 | `cron` | Scheduled tasks |
 
-**Skills (84 Bundled):**
-Skills extend agent capabilities via a plugin system:
+**Skills (103 Bundled):**
+Skills extend agent capabilities via a plugin system. They are lazy-loaded via
+dynamic `import()` on first use, with each skill isolated in its own try/catch
+so a missing dependency (e.g., `viem`, `@solana/web3.js`) only disables that
+skill without crashing others.
 
 ```typescript
-interface Skill {
+interface SkillHandler {
   name: string;
   description: string;
-  triggers: string[];      // Activation patterns
-  execute(ctx: Context): Promise<SkillResult>;
+  commands: string[] | Array<{ name: string; description: string; usage: string }>;
+  handle?: (args: string) => Promise<string>;
+  handler?: (args: string) => Promise<string>;
+  requires?: { env?: string[] };  // Pre-flight env var checks
 }
 ```
 
+The `SKILL_MANIFEST` array in `src/skills/executor.ts` lists all 103 skill
+directory names. On first command invocation, `initializeSkills()` loads them
+in parallel via `Promise.allSettled`. Use `/skills` to see loaded/failed/needs-config status.
+
 Categories:
-- **Trading**: Polymarket, Kalshi, Betfair, Hyperliquid, Jupiter, Raydium
+- **Trading**: Polymarket, Kalshi, Betfair, Hyperliquid, Binance, Bybit, MEXC, Jupiter, Raydium
 - **Analysis**: Arbitrage, edge finding, whale tracking, copy trading
 - **Automation**: Cron jobs, triggers, bots, webhooks
 - **AI**: Memory, embeddings, multi-agent routing

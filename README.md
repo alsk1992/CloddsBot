@@ -274,7 +274,7 @@ Enable: `clodds config set ledger.enabled true`
 
 ## Skills & Extensions
 
-**84 bundled skills** across trading, data, automation, and infrastructure.
+**103 bundled skills** across trading, data, automation, and infrastructure — lazy-loaded on first use so missing dependencies don't crash the app. Run `/skills` to see status.
 
 | Category | Skills |
 |----------|--------|

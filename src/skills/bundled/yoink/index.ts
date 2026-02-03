@@ -246,4 +246,11 @@ export const tools = [
   },
 ];
 
-export default { execute, tools };
+export default {
+  name: 'yoink',
+  description: 'Yoink - capture the flag game on Base',
+  commands: ['/yoink'],
+  requires: { env: ['PRIVATE_KEY'] },
+  handle: execute,
+  tools,
+};

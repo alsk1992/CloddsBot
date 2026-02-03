@@ -29,23 +29,7 @@ export const name = 'acp';
 export const description = 'Agent Commerce Protocol - agent-to-agent transactions';
 export const version = '1.0.0';
 
-export const commands = [
-  'register',
-  'list-service',
-  'search',
-  'discover',
-  'create-agreement',
-  'sign-agreement',
-  'create-escrow',
-  'fund-escrow',
-  'release-escrow',
-  'refund-escrow',
-  'rate-service',
-  'my-agents',
-  'my-agreements',
-  'my-escrows',
-  'quick-hire',
-];
+export const commands = ['/acp'];
 
 // =============================================================================
 // MAIN EXECUTE
@@ -587,3 +571,5 @@ Ratings:
 
 Categories: llm, trading, data, compute, storage, integration, research, automation, other`;
 }
+
+export default { name, description, commands, requires: { env: ['SOLANA_PRIVATE_KEY'] }, handle: execute };

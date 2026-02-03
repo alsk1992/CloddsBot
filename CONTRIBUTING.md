@@ -72,18 +72,39 @@ src/
 
 ## Adding a New Skill
 
-1. Create `src/skills/bundled/your-skill/SKILL.md`
-2. Use YAML frontmatter:
-   ```yaml
-   ---
-   name: your-skill
-   description: "What this skill does"
-   ---
+### CLI Skill Handler (required)
 
-   # Your Skill
-
-   Instructions for the AI...
+1. Create `src/skills/bundled/your-skill/index.ts` with a default export:
+   ```typescript
+   export default {
+     name: 'your-skill',
+     description: 'What this skill does',
+     commands: ['/your-skill'],
+     // Optional: declare env vars needed before handler runs
+     requires: { env: ['API_KEY'] },
+     handle: async (args: string): Promise<string> => {
+       // ...
+     },
+   };
    ```
+2. Add the directory name to `SKILL_MANIFEST` in `src/skills/executor.ts`
+3. Run `npx tsc --noEmit` to verify
+
+Skills are lazy-loaded via `await import()` on first use. Each skill loads in its own try/catch, so a missing dependency only disables that one skill. If `requires.env` is set, the executor checks those vars before calling the handler and returns a clear message if any are missing.
+
+### Agent Context (optional)
+
+To also give the AI agent context about your skill, create `src/skills/bundled/your-skill/SKILL.md` with YAML frontmatter:
+```yaml
+---
+name: your-skill
+description: "What this skill does"
+---
+
+# Your Skill
+
+Instructions for the AI...
+```
 
 ## Pull Request Guidelines
 

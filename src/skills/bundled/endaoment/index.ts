@@ -307,4 +307,11 @@ export const tools = [
   },
 ];
 
-export default { execute, tools };
+export default {
+  name: 'endaoment',
+  description: 'Endaoment - Donate USDC to 501(c)(3) charities on Base',
+  commands: ['/endaoment', '/donate'],
+  requires: { env: ['PRIVATE_KEY'] },
+  handle: execute,
+  tools,
+};

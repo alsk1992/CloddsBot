@@ -349,4 +349,11 @@ export const tools = [
   },
 ];
 
-export default { execute, tools };
+export default {
+  name: 'qrcoin',
+  description: 'QR Coin auctions on Base - bid, check status, and manage QR code NFTs',
+  commands: ['/qrcoin'],
+  requires: { env: ['PRIVATE_KEY'] },
+  handle: execute,
+  tools,
+};

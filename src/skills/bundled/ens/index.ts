@@ -298,4 +298,11 @@ export const tools = [
   },
 ];
 
-export default { execute, tools };
+export default {
+  name: 'ens',
+  description: 'ENS - Set and verify primary ENS names on Base and other L2 chains',
+  commands: ['/ens'],
+  requires: { env: ['PRIVATE_KEY'] },
+  handle: execute,
+  tools,
+};

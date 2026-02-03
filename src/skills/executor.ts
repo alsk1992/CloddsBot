@@ -1,23 +1,143 @@
 /**
- * Skill Executor - Wire up bundled skill handlers for command execution
+ * Skill Executor - Central registry for all 103 bundled CLI skill handlers.
  *
- * This module loads bundled skill handlers and provides a unified interface
- * for executing skill commands.
+ * ARCHITECTURE:
+ * - Each skill lives in src/skills/bundled/<name>/index.ts
+ * - Each skill exports default { name, description, commands, handle|handler }
+ * - Skills are loaded lazily via dynamic import() on first use
+ * - Each skill is loaded in its own try/catch so one broken skill can't crash others
+ * - Skills can declare `requires: { env: ['VAR'] }` for pre-flight env checks
+ *
+ * ADDING A NEW SKILL:
+ * 1. Create src/skills/bundled/<name>/index.ts with default export
+ * 2. Add the directory name to SKILL_MANIFEST below
+ * 3. Run `npx tsc --noEmit` to verify
+ *
+ * SKILL HANDLER CONTRACT:
+ * - `handle(args: string)` receives everything AFTER the command prefix
+ *   e.g., "/bf balance" calls handle("balance")
+ * - Must return a Promise<string> (the response text)
+ * - Both `handle` and `handler` method names are accepted (normalizeSkill handles both)
+ * - commands can be string[] or {name, description, usage}[] (normalized to string[])
+ *
+ * BACKING MODULES:
+ * - Most skills wrap real modules in src/ (e.g., execution/, trading/, feeds/, etc.)
+ * - Skills use dynamic imports (await import(...)) inside try/catch so the CLI
+ *   still works even if a backing module's dependencies aren't installed
+ * - When a backing module can't load, the skill falls through to help text
  */
 
 import { logger } from '../utils/logger';
 
-// Import bundled skill handlers
-import binanceFuturesSkill from './bundled/binance-futures';
-import bybitFuturesSkill from './bundled/bybit-futures';
-import mexcFuturesSkill from './bundled/mexc-futures';
-import hyperliquidSkill from './bundled/hyperliquid';
-import opinionSkill from './bundled/opinion';
-import hardenSkill from './bundled/harden';
-import tweetIdeasSkill from './bundled/tweet-ideas';
-import ticksSkill from './bundled/ticks';
-import featuresSkill from './bundled/features';
-import ledgerSkill from './bundled/ledger';
+// =============================================================================
+// SKILL MANIFEST - all 103 bundled skill directory names
+// =============================================================================
+
+const SKILL_MANIFEST: string[] = [
+  'acp',
+  'ai-strategy',
+  'alerts',
+  'analytics',
+  'arbitrage',
+  'auto-reply',
+  'automation',
+  'backtest',
+  'bags',
+  'bankr',
+  'betfair',
+  'binance-futures',
+  'botchan',
+  'bridge',
+  'bybit-futures',
+  'clanker',
+  'copy-trading',
+  'copy-trading-solana',
+  'credentials',
+  'doctor',
+  'drift',
+  'drift-sdk',
+  'edge',
+  'embeddings',
+  'endaoment',
+  'ens',
+  'erc8004',
+  'execution',
+  'farcaster',
+  'features',
+  'feeds',
+  'harden',
+  'history',
+  'hyperliquid',
+  'identity',
+  'integrations',
+  'jupiter',
+  'ledger',
+  'market-index',
+  'markets',
+  'mcp',
+  'memory',
+  'metaculus',
+  'meteora',
+  'metrics',
+  'mev',
+  'mexc-futures',
+  'monitoring',
+  'news',
+  'onchainkit',
+  'opinion',
+  'opportunity',
+  'orca',
+  'pairing',
+  'permissions',
+  'plugins',
+  'portfolio',
+  'portfolio-sync',
+  'positions',
+  'predictfun',
+  'predictit',
+  'presence',
+  'processes',
+  'pump-swarm',
+  'pumpfun',
+  'qmd',
+  'qrcoin',
+  'raydium',
+  'remote',
+  'research',
+  'risk',
+  'router',
+  'routing',
+  'sandbox',
+  'search-config',
+  'sessions',
+  'signals',
+  'sizing',
+  'slippage',
+  'smarkets',
+  'strategy',
+  'streaming',
+  'tailscale',
+  'ticks',
+  'trading-evm',
+  'trading-futures',
+  'trading-kalshi',
+  'trading-manifold',
+  'trading-polymarket',
+  'trading-solana',
+  'trading-system',
+  'triggers',
+  'tts',
+  'tweet-ideas',
+  'usage',
+  'veil',
+  'verify',
+  'virtuals',
+  'voice',
+  'weather',
+  'webhooks',
+  'whale-tracking',
+  'yoink',
+];
 
 // =============================================================================
 // TYPES
@@ -30,6 +150,10 @@ export interface SkillHandler {
   /** Handler function (can be named 'handle' or 'handler') */
   handle?: (args: string) => Promise<string>;
   handler?: (args: string) => Promise<string>;
+  /** Optional requirements that must be met before the handler runs */
+  requires?: {
+    env?: string[];
+  };
 }
 
 /** Normalized skill handler with guaranteed handle function */
@@ -53,11 +177,28 @@ function normalizeSkill(skill: SkillHandler): NormalizedSkillHandler {
     throw new Error(`Skill ${skill.name} has no handle or handler method`);
   }
 
+  // Wrap handler with env-var requirement checking if declared
+  const requiredEnv = skill.requires?.env;
+  let wrappedHandle: (args: string) => Promise<string>;
+
+  if (requiredEnv && requiredEnv.length > 0) {
+    const boundHandle = handleFn;
+    wrappedHandle = async (args: string): Promise<string> => {
+      const missing = requiredEnv.filter((v) => !process.env[v]);
+      if (missing.length > 0) {
+        return `⚠ ${skill.name} requires environment variables to be set:\n\n${missing.map((v) => `  • ${v}`).join('\n')}\n\nSet them in your environment or .env file to use this skill.`;
+      }
+      return boundHandle(args);
+    };
+  } else {
+    wrappedHandle = handleFn;
+  }
+
   return {
     name: skill.name,
     description: skill.description,
     commands,
-    handle: handleFn,
+    handle: wrappedHandle,
   };
 }
 
@@ -71,11 +212,22 @@ const commandToSkill = new Map<string, NormalizedSkillHandler>();
 /** All registered skill handlers */
 const registeredSkills: NormalizedSkillHandler[] = [];
 
+/** Track which skills failed to load */
+const failedSkills: Array<{ name: string; error: string }> = [];
+
+/** Track which skills have env requirements */
+const skillRequirements: Map<string, string[]> = new Map();
+
 /**
  * Register a skill handler
  */
 function registerSkill(skill: SkillHandler): void {
   try {
+    // Track requirements before normalizing
+    if (skill.requires?.env) {
+      skillRequirements.set(skill.name, skill.requires.env);
+    }
+
     const normalized = normalizeSkill(skill);
     registeredSkills.push(normalized);
     for (const cmd of normalized.commands) {
@@ -88,19 +240,124 @@ function registerSkill(skill: SkillHandler): void {
   }
 }
 
-// Register bundled skills
-registerSkill(binanceFuturesSkill as unknown as SkillHandler);
-registerSkill(bybitFuturesSkill as unknown as SkillHandler);
-registerSkill(mexcFuturesSkill as unknown as SkillHandler);
-registerSkill(hyperliquidSkill as unknown as SkillHandler);
-registerSkill(opinionSkill as unknown as SkillHandler);
-registerSkill(hardenSkill as unknown as SkillHandler);
-registerSkill(tweetIdeasSkill as unknown as SkillHandler);
-registerSkill(ticksSkill as unknown as SkillHandler);
-registerSkill(featuresSkill as unknown as SkillHandler);
-registerSkill(ledgerSkill as unknown as SkillHandler);
+// =============================================================================
+// LAZY INITIALIZATION
+// =============================================================================
 
-logger.info({ count: registeredSkills.length }, 'Bundled skill handlers registered');
+let initialized = false;
+let initializing: Promise<void> | null = null;
+
+/**
+ * Lazily load and register all skills from SKILL_MANIFEST.
+ * Each skill is loaded in its own try/catch so a missing dependency
+ * (e.g., viem, @solana/web3.js) only takes down that one skill.
+ */
+async function initializeSkills(): Promise<void> {
+  if (initialized) return;
+  if (initializing) return initializing;
+
+  initializing = (async () => {
+    const results = await Promise.allSettled(
+      SKILL_MANIFEST.map(async (name) => {
+        try {
+          const mod = await import(`./bundled/${name}/index`);
+          const skill = mod.default || mod;
+          registerSkill(skill as SkillHandler);
+          return { name, ok: true };
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          failedSkills.push({ name, error: errorMsg });
+          logger.warn({ skill: name, error: errorMsg }, 'Failed to load skill');
+          return { name, ok: false };
+        }
+      })
+    );
+
+    const loaded = results.filter(
+      (r) => r.status === 'fulfilled' && r.value.ok
+    ).length;
+    const failed = SKILL_MANIFEST.length - loaded;
+
+    logger.info(
+      { loaded, failed, total: SKILL_MANIFEST.length },
+      'Skill initialization complete'
+    );
+
+    if (failed > 0 && failed !== SKILL_MANIFEST.length) {
+      logger.warn(
+        { failed, names: failedSkills.map((f) => f.name) },
+        'Some skills failed to load (missing dependencies?)'
+      );
+    }
+
+    // Register the built-in /skills command
+    registerBuiltinSkillsCommand();
+
+    initialized = true;
+  })();
+
+  return initializing;
+}
+
+/**
+ * Register the built-in /skills command that shows skill status
+ */
+function registerBuiltinSkillsCommand(): void {
+  const skillsHandler: SkillHandler = {
+    name: 'skills-status',
+    description: 'Show status of all loaded skills',
+    commands: ['/skills'],
+    handle: async (_args: string): Promise<string> => {
+      const lines: string[] = ['# Skill Status\n'];
+
+      // Ready skills
+      const ready: string[] = [];
+      const needsConfig: string[] = [];
+
+      for (const skill of registeredSkills) {
+        if (skill.name === 'skills-status') continue;
+        const reqs = skillRequirements.get(skill.name);
+        if (reqs && reqs.length > 0) {
+          const missing = reqs.filter((v) => !process.env[v]);
+          if (missing.length > 0) {
+            needsConfig.push(
+              `  ⚙ ${skill.name} — needs: ${missing.join(', ')}`
+            );
+            continue;
+          }
+        }
+        ready.push(`  ✓ ${skill.name}`);
+      }
+
+      lines.push(`## Ready (${ready.length})`);
+      if (ready.length > 0) {
+        lines.push(ready.join('\n'));
+      }
+
+      if (needsConfig.length > 0) {
+        lines.push(`\n## Needs Configuration (${needsConfig.length})`);
+        lines.push(needsConfig.join('\n'));
+      }
+
+      if (failedSkills.length > 0) {
+        lines.push(`\n## Failed to Load (${failedSkills.length})`);
+        for (const f of failedSkills) {
+          // Truncate long error messages
+          const shortErr = f.error.length > 80 ? f.error.slice(0, 77) + '...' : f.error;
+          lines.push(`  ✗ ${f.name} — ${shortErr}`);
+        }
+      }
+
+      lines.push(
+        `\n**Total:** ${registeredSkills.length - 1} loaded, ${failedSkills.length} failed, ${SKILL_MANIFEST.length} in manifest`
+      );
+
+      return lines.join('\n');
+    },
+  };
+
+  registerSkill(skillsHandler);
+}
 
 // =============================================================================
 // EXECUTOR
@@ -120,6 +377,9 @@ export interface SkillExecutionResult {
  * @returns Result of execution
  */
 export async function executeSkillCommand(message: string): Promise<SkillExecutionResult> {
+  // Ensure skills are loaded on first invocation
+  await initializeSkills();
+
   const trimmed = message.trim();
 
   // Check if it's a command
@@ -195,4 +455,11 @@ export function getSkillCommands(): Array<{ command: string; skill: string; desc
     }
   }
   return commands;
+}
+
+/**
+ * Get list of failed skills (for diagnostics)
+ */
+export function getFailedSkills(): Array<{ name: string; error: string }> {
+  return [...failedSkills];
 }

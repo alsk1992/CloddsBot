@@ -322,4 +322,11 @@ export const tools = [
   },
 ];
 
-export default { execute, tools };
+export default {
+  name: 'erc8004',
+  description: 'Register AI agents on Ethereum with verifiable on-chain identity via ERC-8004',
+  commands: ['/erc8004'],
+  requires: { env: ['PRIVATE_KEY'] },
+  handle: execute,
+  tools,
+};

@@ -14,17 +14,102 @@ import { createPublicClient, createWalletClient, http, type Address, encodeFunct
 import { privateKeyToAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
 
-// Net Protocol contracts on Base
-const NET_REGISTRY = '0x000000000000000000000000000000000000dEaD' as Address; // Placeholder
-const BOTCHAN_API = 'https://api.botchan.xyz'; // API endpoint if available
+// Net Protocol messaging contract on Base (deployed via CREATE2 on all supported chains)
+const NET_MESSAGING = '0x00000000B24D62781dB359b07880a105cD0b64e6' as Address;
+const NET_STORAGE = '0x00000000DB40fcB9f4466330982372e27Fd7Bbf5' as Address;
 
-// ABI fragments for Net Protocol interaction
+// Net Protocol ABI - sendMessage / getMessage
 const NET_ABI = [
   {
-    inputs: [{ name: 'topic', type: 'bytes32' }, { name: 'text', type: 'string' }],
-    name: 'post',
+    inputs: [
+      { name: 'text', type: 'string' },
+      { name: 'topic', type: 'string' },
+      { name: 'data', type: 'bytes' },
+    ],
+    name: 'sendMessage',
     outputs: [],
     stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'idx', type: 'uint256' }],
+    name: 'getMessage',
+    outputs: [
+      {
+        components: [
+          { name: 'app', type: 'address' },
+          { name: 'sender', type: 'address' },
+          { name: 'timestamp', type: 'uint256' },
+          { name: 'data', type: 'bytes' },
+          { name: 'text', type: 'string' },
+          { name: 'topic', type: 'string' },
+        ],
+        type: 'tuple',
+      },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'getTotalMessagesCount',
+    outputs: [{ type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'startIdx', type: 'uint256' },
+      { name: 'endIdx', type: 'uint256' },
+    ],
+    name: 'getMessagesInRange',
+    outputs: [
+      {
+        components: [
+          { name: 'app', type: 'address' },
+          { name: 'sender', type: 'address' },
+          { name: 'timestamp', type: 'uint256' },
+          { name: 'data', type: 'bytes' },
+          { name: 'text', type: 'string' },
+          { name: 'topic', type: 'string' },
+        ],
+        type: 'tuple[]',
+      },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'app', type: 'address' },
+      { name: 'topic', type: 'string' },
+    ],
+    name: 'getTotalMessagesForAppTopicCount',
+    outputs: [{ type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'idx', type: 'uint256' },
+      { name: 'app', type: 'address' },
+      { name: 'topic', type: 'string' },
+    ],
+    name: 'getMessageForAppTopic',
+    outputs: [
+      {
+        components: [
+          { name: 'app', type: 'address' },
+          { name: 'sender', type: 'address' },
+          { name: 'timestamp', type: 'uint256' },
+          { name: 'data', type: 'bytes' },
+          { name: 'text', type: 'string' },
+          { name: 'topic', type: 'string' },
+        ],
+        type: 'tuple',
+      },
+    ],
+    stateMutability: 'view',
     type: 'function',
   },
 ] as const;
@@ -47,19 +132,22 @@ function getWalletClient() {
   });
 }
 
-function feedToTopic(feed: string): `0x${string}` {
-  if (feed.startsWith('0x') && feed.length === 42) {
-    // It's an address - use as profile feed
-    return keccak256(toHex(`profile-${feed.toLowerCase()}`));
-  }
-  return keccak256(toHex(`feed-${feed}`));
-}
-
 async function handleFeeds(): Promise<string> {
-  // Note: In production, this would query the Net Protocol registry
-  return `**Registered Feeds**
+  const client = getPublicClient();
 
-Common feeds on Botchan:
+  try {
+    const total = await client.readContract({
+      address: NET_MESSAGING,
+      abi: NET_ABI,
+      functionName: 'getTotalMessagesCount',
+    }) as bigint;
+
+    return `**Net Protocol Feeds**
+
+Contract: \`${NET_MESSAGING}\`
+Total messages on-chain: ${total.toString()}
+
+Common topic feeds:
 - \`general\` - General discussion
 - \`agents\` - AI agent announcements
 - \`builders\` - Developer discussions
@@ -69,10 +157,18 @@ Common feeds on Botchan:
 \`/botchan read general\`
 
 **To view an agent's profile:**
-\`/botchan profile 0x...\`
+\`/botchan profile 0x...\``;
+  } catch {
+    return `**Net Protocol Feeds**
 
-**Note:** Install botchan CLI for full functionality:
-\`npm install -g botchan\``;
+Contract: \`${NET_MESSAGING}\`
+Could not query message count (RPC issue).
+
+Common topic feeds:
+- \`general\`, \`agents\`, \`builders\`, \`market\`
+
+**To read:** \`/botchan read general\``;
+  }
 }
 
 async function handleRead(feed: string, limit: number = 5): Promise<string> {
@@ -80,18 +176,49 @@ async function handleRead(feed: string, limit: number = 5): Promise<string> {
     return 'Usage: /botchan read <feed> [--limit N]\nExample: /botchan read general';
   }
 
-  // Note: Full implementation would query Net Protocol events
-  return `**Reading Feed: ${feed}**
+  const client = getPublicClient();
 
-*Full feed reading requires the botchan CLI.*
+  try {
+    const total = await client.readContract({
+      address: NET_MESSAGING,
+      abi: NET_ABI,
+      functionName: 'getTotalMessagesCount',
+    }) as bigint;
 
-Install: \`npm install -g botchan\`
-Then run: \`botchan read ${feed} --limit ${limit}\`
+    if (total === 0n) {
+      return `**Feed: ${feed}**\n\nNo messages on-chain yet.`;
+    }
 
-**Quick commands:**
-- \`botchan read general --limit 10\`
-- \`botchan read 0x... --limit 5\` (profile)
-- \`botchan feeds\` (list all)`;
+    // Read the last N messages and filter by topic
+    const readCount = Math.min(Number(total), 50); // scan last 50 to find matching topic
+    const startIdx = Number(total) - readCount;
+
+    const messages = await client.readContract({
+      address: NET_MESSAGING,
+      abi: NET_ABI,
+      functionName: 'getMessagesInRange',
+      args: [BigInt(startIdx), total],
+    }) as unknown as Array<{ sender: string; timestamp: bigint; text: string; topic: string }>;
+
+    const filtered = messages
+      .filter(m => m.topic.toLowerCase() === feed.toLowerCase() ||
+                   m.sender.toLowerCase() === feed.toLowerCase())
+      .slice(-limit);
+
+    if (filtered.length === 0) {
+      return `**Feed: ${feed}**\n\nNo messages found for this topic in the last ${readCount} messages.`;
+    }
+
+    let output = `**Feed: ${feed}** (${filtered.length} messages)\n\n`;
+    for (const msg of filtered) {
+      const time = new Date(Number(msg.timestamp) * 1000).toLocaleString();
+      output += `**${msg.sender.slice(0, 6)}...${msg.sender.slice(-4)}** (${time})\n`;
+      output += `${msg.text}\n\n`;
+    }
+    return output;
+  } catch (error) {
+    return `Error reading feed: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 async function handleProfile(address: string): Promise<string> {
@@ -103,18 +230,44 @@ async function handleProfile(address: string): Promise<string> {
     return 'Invalid address format. Use: 0x...';
   }
 
-  return `**Agent Profile**
+  const client = getPublicClient();
 
-Address: \`${address}\`
-Profile Feed: \`${address}\`
+  try {
+    // Read recent messages to count those from this sender
+    const total = await client.readContract({
+      address: NET_MESSAGING,
+      abi: NET_ABI,
+      functionName: 'getTotalMessagesCount',
+    }) as bigint;
 
-**To message this agent:**
-\`/botchan post ${address} "Your message"\`
+    let messageCount = 0;
+    let lastMessage = '';
+    if (total > 0n) {
+      const readCount = Math.min(Number(total), 100);
+      const startIdx = Number(total) - readCount;
+      const messages = await client.readContract({
+        address: NET_MESSAGING,
+        abi: NET_ABI,
+        functionName: 'getMessagesInRange',
+        args: [BigInt(startIdx), total],
+      }) as unknown as Array<{ sender: string; text: string; topic: string }>;
 
-**To view their posts:**
-\`botchan read ${address} --limit 10\`
+      const fromAddr = messages.filter(m => m.sender.toLowerCase() === address.toLowerCase());
+      messageCount = fromAddr.length;
+      if (fromAddr.length > 0) {
+        lastMessage = fromAddr[fromAddr.length - 1].text.slice(0, 100);
+      }
+    }
 
-*For full profile data, use the botchan CLI.*`;
+    let output = `**Agent Profile**\n\n`;
+    output += `Address: \`${address}\`\n`;
+    output += `Messages (last 100 scanned): ${messageCount}\n`;
+    if (lastMessage) output += `Last message: "${lastMessage}"\n`;
+    output += `\n**To message this agent:**\n\`/botchan post ${address} "Your message"\``;
+    return output;
+  } catch {
+    return `**Agent Profile**\n\nAddress: \`${address}\`\n\nCould not query on-chain data.\n\n**To message:** \`/botchan post ${address} "Your message"\``;
+  }
 }
 
 async function handlePost(feed: string, message: string): Promise<string> {
@@ -126,24 +279,27 @@ async function handlePost(feed: string, message: string): Promise<string> {
     const walletClient = getWalletClient();
     const publicClient = getPublicClient();
 
-    // Note: Full implementation would use Net Protocol contracts
-    // This is a placeholder showing the intended workflow
+    // Send message via Net Protocol sendMessage(text, topic, data)
+    const hash = await walletClient.writeContract({
+      address: NET_MESSAGING,
+      abi: NET_ABI,
+      functionName: 'sendMessage',
+      args: [message, feed, '0x' as `0x${string}`],
+    });
 
-    return `**Post Prepared**
+    // Wait for confirmation
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    return `**Message Posted**
 
 Feed: ${feed}
 Message: ${message}
 From: \`${walletClient.account.address}\`
-
-*Full posting requires Net Protocol integration.*
-
-**To post via CLI:**
-\`botchan post ${feed} "${message}"\`
-
-Or use --encode-only to get transaction data:
-\`botchan post ${feed} "${message}" --encode-only\``;
+Tx: \`${hash}\`
+Status: ${receipt.status === 'success' ? 'Confirmed' : 'Failed'}
+Block: ${receipt.blockNumber}`;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return `Error posting: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
@@ -152,14 +308,32 @@ async function handleComment(feed: string, postId: string, message: string): Pro
     return 'Usage: /botchan comment <feed> <post-id> <message>';
   }
 
-  return `**Comment Prepared**
+  try {
+    const walletClient = getWalletClient();
+    const publicClient = getPublicClient();
+
+    // Comments are messages with a topic that references the parent post
+    const commentTopic = `${feed}:reply:${postId}`;
+    const hash = await walletClient.writeContract({
+      address: NET_MESSAGING,
+      abi: NET_ABI,
+      functionName: 'sendMessage',
+      args: [message, commentTopic, '0x' as `0x${string}`],
+    });
+
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    return `**Comment Posted**
 
 Feed: ${feed}
-Post ID: ${postId}
+Reply to: ${postId}
 Comment: ${message}
-
-*Use botchan CLI for full comment functionality:*
-\`botchan comment ${feed} ${postId} "${message}"\``;
+From: \`${walletClient.account.address}\`
+Tx: \`${hash}\`
+Status: ${receipt.status === 'success' ? 'Confirmed' : 'Failed'}`;
+  } catch (error) {
+    return `Error commenting: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 async function handleRegister(feedName: string): Promise<string> {
@@ -167,14 +341,31 @@ async function handleRegister(feedName: string): Promise<string> {
     return 'Usage: /botchan register <feed-name>';
   }
 
-  return `**Register Feed**
+  try {
+    const walletClient = getWalletClient();
+    const publicClient = getPublicClient();
+
+    // Register a feed by posting an initial message to establish the topic
+    const hash = await walletClient.writeContract({
+      address: NET_MESSAGING,
+      abi: NET_ABI,
+      functionName: 'sendMessage',
+      args: [`Feed "${feedName}" registered`, feedName, '0x' as `0x${string}`],
+    });
+
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    return `**Feed Registered**
 
 Feed Name: ${feedName}
+Tx: \`${hash}\`
+Status: ${receipt.status === 'success' ? 'Confirmed' : 'Failed'}
 
-*Feed registration requires the botchan CLI:*
-\`botchan register ${feedName}\`
-
-This will make your feed discoverable in the global registry.`;
+Others can now post to this feed:
+\`/botchan post ${feedName} "Hello!"\``;
+  } catch (error) {
+    return `Error registering: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 export async function execute(args: string): Promise<string> {
@@ -257,4 +448,11 @@ export const tools = [
   },
 ];
 
-export default { execute, tools };
+export default {
+  name: 'botchan',
+  description: 'Botchan - Onchain agent messaging on Base via Net Protocol',
+  commands: ['/botchan'],
+  requires: { env: ['PRIVATE_KEY'] },
+  handle: execute,
+  tools,
+};

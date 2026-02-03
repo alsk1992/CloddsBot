@@ -326,6 +326,7 @@ const skill = {
   name: 'mexc-futures',
   description: 'MEXC Futures trading with DB tracking (No KYC, 200x)',
   commands: ['/mx'],
+  requires: { env: ['MEXC_API_KEY', 'MEXC_API_SECRET'] },
 
   async handle(args: string): Promise<string> {
     const parts = args.trim().split(/\s+/);

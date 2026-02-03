@@ -530,4 +530,10 @@ export async function handle(args: string): Promise<string> {
   }
 }
 
-export default { handle };
+export default {
+  name: 'drift-sdk',
+  description: 'Drift Protocol SDK - Direct SDK integration for perpetual futures trading on Solana',
+  commands: ['/drift-sdk'],
+  requires: { env: ['SOLANA_PRIVATE_KEY'] },
+  handle,
+};

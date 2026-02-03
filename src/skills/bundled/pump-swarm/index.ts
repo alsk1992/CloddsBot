@@ -63,6 +63,37 @@ function getCopyTrader(): SwarmCopyTrader {
 // Helpers
 // ============================================================================
 
+/** Fetch current token price from Jupiter Price API */
+async function fetchTokenPrice(mint: string): Promise<number> {
+  try {
+    const resp = await fetch(`https://api.jup.ag/price/v2?ids=${mint}`);
+    if (resp.ok) {
+      const data = await resp.json() as any;
+      const price = parseFloat(data?.data?.[mint]?.price);
+      if (!isNaN(price) && price > 0) return price;
+    }
+  } catch {
+    // Fall through to quote-based estimate
+  }
+
+  // Fallback: use swarm's getQuotes for a tiny amount to derive price
+  try {
+    const swarm = getSwarm();
+    const quote = await (swarm as any).getQuotes?.({
+      mint,
+      action: 'buy',
+      amountPerWallet: 0.001,
+    });
+    if (quote?.quotes?.[0]?.outputAmount && quote?.quotes?.[0]?.inputAmount) {
+      return quote.quotes[0].inputAmount / quote.quotes[0].outputAmount;
+    }
+  } catch {
+    // ignore
+  }
+
+  throw new Error(`Could not fetch price for ${mint}. Check the mint address.`);
+}
+
 function formatSol(sol: number): string {
   return sol.toFixed(4);
 }
@@ -898,8 +929,7 @@ Buy gradually at lower price levels.
     priceLevels.push({ price: 100 - (i * dropPercent), percent: percentPerLevel });
   }
 
-  // For now we need current price - use a placeholder
-  const currentPrice = 0.0001; // Would need to fetch this
+  const currentPrice = await fetchTokenPrice(mint);
 
   const strategy = StrategyTemplates.scaleIn(mint, totalSol, priceLevels, currentPrice);
 
@@ -953,7 +983,7 @@ Sell gradually at higher price levels.
     priceLevels.push({ price: i * risePercent, percent: percentPerLevel });
   }
 
-  const currentPrice = 0.0001;
+  const currentPrice = await fetchTokenPrice(mint);
   const strategy = StrategyTemplates.scaleOut(mint, priceLevels, currentPrice);
 
   const swarm = getSwarm();
@@ -997,7 +1027,7 @@ Fast entry with automatic take-profit and stop-loss.
   if (isNaN(tp) || tp <= 0) return '❌ Invalid take-profit percent';
   if (isNaN(sl) || sl <= 0) return '❌ Invalid stop-loss percent';
 
-  const currentPrice = 0.0001;
+  const currentPrice = await fetchTokenPrice(mint);
   const strategy = StrategyTemplates.snipeExit(mint, sol, tp, sl, currentPrice);
 
   const swarm = getSwarm();
@@ -1102,7 +1132,7 @@ Set multiple buy orders at decreasing price levels.
   if (isNaN(levels) || levels < 2 || levels > 10) return '❌ Levels must be 2-10';
   if (isNaN(dropPercent) || dropPercent <= 0) return '❌ Invalid drop percent';
 
-  const currentPrice = 0.0001;
+  const currentPrice = await fetchTokenPrice(mint);
   const strategy = StrategyTemplates.ladderBuy(mint, totalSol, levels, dropPercent, currentPrice);
 
   const swarm = getSwarm();
@@ -2444,4 +2474,10 @@ SOL Received: ${formatSol(totalReceived)}
 **Total PnL: ${formatSol(pnl)} SOL**`;
 }
 
-export default { execute };
+export default {
+  name: 'pump-swarm',
+  description: 'Coordinate multiple wallets for synchronized Pump.fun trading',
+  commands: ['/pump-swarm', '/swarm'],
+  requires: { env: ['SOLANA_PRIVATE_KEY'] },
+  handle: execute,
+};

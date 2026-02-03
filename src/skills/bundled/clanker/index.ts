@@ -101,11 +101,11 @@ const RPC_URLS: Record<string, string> = {
   arb: process.env.ARB_RPC_URL || 'https://arb1.arbitrum.io/rpc',
 };
 
-// Clanker Factory addresses per chain
+// Clanker Factory addresses per chain (from docs.clanker.world)
 const CLANKER_FACTORY: Record<string, Address> = {
-  base: '0x0000000000000000000000000000000000000000' as Address, // Replace with actual
-  eth: '0x0000000000000000000000000000000000000000' as Address,
-  arb: '0x0000000000000000000000000000000000000000' as Address,
+  base: '0x375C15db32D28cEcdcAB5C03Ab889bf15cbD2c5E' as Address,  // v3 ClankerPreSale (Base)
+  eth: '0x6C8599779B03B00AAaE63C6378830919Abb75473' as Address,   // v4.0.0 factory (Ethereum)
+  arb: '0xEb9D2A726Edffc887a574dC7f46b3a3638E8E44f' as Address,  // v4.0.0 factory (Arbitrum)
 };
 
 // Standard ERC20 ABI for basic queries
@@ -311,21 +311,60 @@ Example:
       website: options.website || '',
     });
 
-    // Note: This is a placeholder for actual Clanker factory interaction
-    // The real implementation would call the Clanker factory contract
-    return `**Clanker Deployment**
+    const factoryAddress = CLANKER_FACTORY[chainName];
+    if (!factoryAddress || factoryAddress === '0x0000000000000000000000000000000000000000') {
+      return `Clanker factory not configured for chain: ${chainName}`;
+    }
 
-Token deployment is currently in simulation mode.
+    // Clanker factory deployToken ABI
+    const FACTORY_ABI = [
+      {
+        inputs: [
+          { name: '_name', type: 'string' },
+          { name: '_symbol', type: 'string' },
+          { name: '_metadata', type: 'string' },
+        ],
+        name: 'deployToken',
+        outputs: [{ name: '', type: 'address' }],
+        stateMutability: 'payable',
+        type: 'function',
+      },
+    ] as const;
 
-To deploy real tokens, the Clanker factory contract addresses need to be configured.
+    const hash = await walletClient.writeContract({
+      address: factoryAddress,
+      abi: FACTORY_ABI,
+      functionName: 'deployToken',
+      args: [name, symbol, metadata],
+      chain: getChain(chainName),
+      account: account,
+      value: options.devBuy ? parseEther(String(options.devBuy)) : 0n,
+    });
 
-**Simulated Token:**
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    // Try to extract the deployed token address from logs
+    let tokenAddress = 'Check tx for token address';
+    if (receipt.logs.length > 0) {
+      // The first log typically contains the new token address
+      const firstLog = receipt.logs[0];
+      if (firstLog.address && firstLog.address !== factoryAddress) {
+        tokenAddress = firstLog.address;
+      }
+    }
+
+    return `**Token Deployed**
+
   Name: ${name}
   Symbol: ${symbol}
   Chain: ${chainDisplay}
-  Deployer: ${account.address}
-
-For real deployments, install the official @clanker/sdk package or use the Clanker web interface.`;
+  Factory: \`${factoryAddress}\`
+  Deployer: \`${account.address}\`
+  Token: \`${tokenAddress}\`
+  Tx: \`${hash}\`
+  Status: ${receipt.status === 'success' ? 'Confirmed' : 'Failed'}
+  Block: ${receipt.blockNumber}
+${options.devBuy ? `  Dev Buy: ${options.devBuy} ETH` : ''}`;
 
   } catch (error) {
     return `Deployment failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -821,4 +860,11 @@ export const tools = [
   },
 ];
 
-export default { execute, tools };
+export default {
+  name: 'clanker',
+  description: 'Clanker - ERC20 token deployment with Uniswap V4 pools on Base/ETH/Arbitrum',
+  commands: ['/clanker'],
+  requires: { env: ['PRIVATE_KEY'] },
+  handle: execute,
+  tools,
+};
