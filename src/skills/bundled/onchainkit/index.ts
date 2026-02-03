@@ -16,6 +16,19 @@ async function handleCreate(projectName: string): Promise<string> {
 Example: /onchainkit create my-onchain-app`;
   }
 
+  try {
+    const proc = await import('../../../process/index');
+    if (proc.commandExists('npm')) {
+      const result = await proc.execute(`npm create onchain@latest ${projectName}`, { timeout: 60000 });
+      if (result.exitCode === 0) {
+        return `**Project Created: ${projectName}**\n\n${result.stdout.slice(0, 1500)}\n\n**Next steps:**\n1. \`cd ${projectName}\`\n2. Set environment variables\n3. \`npm run dev\`\n\nSee \`/onchainkit docs setup\` for configuration details.`;
+      }
+      // Fall through to manual instructions if command fails
+    }
+  } catch {
+    // Fall through to manual instructions
+  }
+
   return `**Create OnchainKit Project**
 
 Run these commands to create "${projectName}":
@@ -393,4 +406,10 @@ export const tools = [
   },
 ];
 
-export default { execute, tools };
+export default {
+  name: 'onchainkit',
+  description: 'Coinbase OnchainKit - React components for building onchain apps on Base',
+  commands: ['/onchainkit', '/ock'],
+  handle: execute,
+  tools,
+};
