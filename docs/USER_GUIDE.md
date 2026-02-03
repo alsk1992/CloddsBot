@@ -23,6 +23,198 @@ npm run dev
 
 The gateway listens on `http://127.0.0.1:18789` by default.
 
+## CLI Commands Reference
+
+All `clodds` CLI commands:
+
+### Core Commands
+
+```bash
+clodds start                    # Start the gateway
+clodds repl                     # Interactive REPL mode
+clodds doctor                   # System diagnostics and health checks
+clodds status                   # Show gateway status
+clodds endpoints                # List all registered endpoints
+clodds secure [--dry-run]       # Server security hardening (Linux)
+clodds secure audit             # Run security audit only
+```
+
+### Pairing Commands
+
+```bash
+clodds pairing list <channel>              # List pending pairing requests
+clodds pairing approve <channel> <code>    # Approve a pairing request
+clodds pairing reject <channel> <code>     # Reject a pairing request
+clodds pairing users <channel>             # List paired users
+clodds pairing set-owner <channel> <id>    # Set channel owner
+clodds pairing remove-owner <channel> <id> # Remove channel owner
+clodds pairing owners <channel>            # List channel owners
+clodds pairing add <channel> <userId>      # Manually add user
+clodds pairing remove <channel> <userId>   # Remove user
+```
+
+### Configuration Commands
+
+```bash
+clodds config get [key]         # Get config value or show all
+clodds config set <key> <value> # Set config value
+clodds config unset <key>       # Remove config value
+clodds config path              # Show config file path
+```
+
+### Model Commands
+
+```bash
+clodds model list               # List available models
+clodds model default [model]    # Get or set default model
+```
+
+### Session Commands
+
+```bash
+clodds session list             # List active sessions
+clodds session clear [id]       # Clear all or specific session
+```
+
+### Cron Commands (Scheduled Tasks)
+
+```bash
+clodds cron list                # List scheduled jobs
+clodds cron show <id>           # Show job details
+clodds cron enable <id>         # Enable a job
+clodds cron disable <id>        # Disable a job
+clodds cron delete <id>         # Delete a job
+```
+
+### User Management Commands
+
+```bash
+clodds users list                                    # List all users
+clodds users settings <platform> <platformUserId>   # Show user settings
+clodds users settings-by-id <userId>                # Show settings by ID
+clodds users set-settings <platform> <platformUserId> [options]  # Update settings
+clodds users set-settings-by-id <userId> [options]  # Update settings by ID
+```
+
+### Memory Commands
+
+```bash
+clodds memory list <userId>           # List user's memories
+clodds memory search <userId> <query> # Search user's memories
+clodds memory clear <userId>          # Clear user's memories
+clodds memory export <userId>         # Export user's memories
+```
+
+### Hooks Commands
+
+```bash
+clodds hooks list               # List all hooks
+clodds hooks install <path>     # Install a hook from path
+clodds hooks uninstall <name>   # Uninstall a hook
+clodds hooks enable <name>      # Enable a hook
+clodds hooks disable <name>     # Disable a hook
+clodds hooks trace              # Show hook execution trace
+clodds hooks state get <name> [key]        # Get hook state
+clodds hooks state set <name> <key> <val>  # Set hook state
+clodds hooks state clear <name> [key]      # Clear hook state
+```
+
+### MCP (Model Context Protocol) Commands
+
+```bash
+clodds mcp list                 # List MCP servers
+clodds mcp add <name> <command> # Add an MCP server
+clodds mcp remove <name>        # Remove an MCP server
+clodds mcp test <name>          # Test an MCP server
+clodds mcp stats                # Show MCP stats
+clodds mcp sync                 # Sync MCP servers
+```
+
+### Permissions Commands
+
+```bash
+clodds permissions list              # List permission rules
+clodds permissions allow <pattern>   # Allow a command pattern
+clodds permissions remove <entryId>  # Remove permission rule
+clodds permissions mode <mode>       # Set permission mode
+clodds permissions ask <mode>        # Set ask mode
+clodds permissions pending           # Show pending approvals
+clodds permissions approve <reqId>   # Approve pending request
+clodds permissions deny <reqId>      # Deny pending request
+```
+
+### Usage & Analytics Commands
+
+```bash
+clodds usage summary            # Usage summary
+clodds usage by-model           # Usage breakdown by model
+clodds usage by-user            # Usage breakdown by user
+clodds usage export             # Export usage data
+clodds usage today              # Today's usage
+```
+
+### Credentials Commands
+
+```bash
+clodds creds test [platform]    # Test credentials for a platform
+```
+
+### Skills Commands
+
+```bash
+clodds skills list              # List available skills
+clodds skills search <query>    # Search for skills
+clodds skills install <slug>    # Install a skill
+clodds skills update [slug]     # Update skill(s)
+clodds skills uninstall <slug>  # Uninstall a skill
+clodds skills info <slug>       # Show skill details
+clodds skills check-updates     # Check for skill updates
+```
+
+### QMD (Quantitative Market Data) Commands
+
+```bash
+clodds qmd status               # Show QMD status
+clodds qmd update               # Update market data
+clodds qmd embed                # Generate embeddings
+clodds qmd get <target>         # Get market data
+clodds qmd multi-get <targets>  # Get multiple markets
+clodds qmd collection add <path>           # Add collection
+clodds qmd context add <collection> <desc> # Add context
+clodds qmd polymarket <query>   # Search Polymarket
+clodds qmd kalshi <query>       # Search Kalshi
+clodds qmd metaculus <query>    # Search Metaculus
+clodds qmd manifold <query>     # Search Manifold
+```
+
+### Market Index Commands
+
+```bash
+clodds market-index stats       # Show index statistics
+clodds market-index sync        # Sync market index
+```
+
+### WhatsApp Commands
+
+```bash
+clodds whatsapp login           # Login with QR code
+```
+
+### Auth Commands
+
+```bash
+clodds login                    # Login to Clodds
+clodds logout                   # Logout from Clodds
+clodds version                  # Show version
+```
+
+### Other Commands
+
+```bash
+clodds init                     # Initialize config
+clodds upgrade                  # Check for updates
+```
+
 ## Pairing and access control
 
 Clodds uses a pairing flow to protect DMs.
