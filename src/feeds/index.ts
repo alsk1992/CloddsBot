@@ -205,8 +205,9 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
       emitter.emit('price', update);
     });
 
-    // Note: Opinion orderbook events have non-standard format (raw data instead of bids/asks)
-    // TODO: Fix Opinion feed to emit proper OrderbookUpdate format before enabling
+    opinion.on('orderbook', (update: OrderbookUpdate) => {
+      emitter.emit('orderbook', update);
+    });
   }
 
   // Initialize Virtuals Protocol (Base chain AI agents)

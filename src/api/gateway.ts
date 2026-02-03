@@ -458,7 +458,16 @@ export function createApiGateway(config: ApiGatewayConfig = {}): ApiGateway {
   }
 
   async function handleMetrics(req: ParsedRequest, res: ServerResponse): Promise<void> {
-    // TODO: Add auth check for metrics endpoint
+    // Auth check for metrics endpoint
+    const authToken = process.env.CLODDS_TOKEN;
+    if (authToken) {
+      const providedToken = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
+      if (providedToken !== authToken) {
+        json(res, 401, { error: 'Unauthorized - provide valid token via Authorization header or ?token= param' });
+        return;
+      }
+    }
+
     const jobStats = jobs.getStats();
     const paymentStats = x402.getStats();
     const custodyStats = custody.getStats();

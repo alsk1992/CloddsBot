@@ -195,10 +195,23 @@ export async function createOpinionFeed(config?: {
 
         // Handle orderbook updates
         if (message.channel === 'orderbook' && message.data) {
+          const rawData = message.data as { bids?: OpinionOrderbookEntry[]; asks?: OpinionOrderbookEntry[]; tokenId?: string };
+          const bids: [number, number][] = (rawData.bids || [])
+            .map((b) => [parseFloat(b.price), parseFloat(b.size)] as [number, number])
+            .filter(([price, size]) => !isNaN(price) && !isNaN(size) && price > 0 && size > 0)
+            .sort((a, b) => b[0] - a[0]);
+          const asks: [number, number][] = (rawData.asks || [])
+            .map((a) => [parseFloat(a.price), parseFloat(a.size)] as [number, number])
+            .filter(([price, size]) => !isNaN(price) && !isNaN(size) && price > 0 && size > 0)
+            .sort((a, b) => a[0] - b[0]);
+
           emitter.emit('orderbook', {
             platform: 'opinion',
             marketId: message.marketId?.toString() || '',
-            data: message.data,
+            outcomeId: rawData.tokenId || message.marketId?.toString() || '',
+            bids,
+            asks,
+            timestamp: Date.now(),
           });
         }
       } catch (error) {

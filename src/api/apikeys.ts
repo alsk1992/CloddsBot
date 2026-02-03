@@ -40,6 +40,8 @@ export interface ApiKeyManager {
   checkPromptLimit(keyId: string): { allowed: boolean; remaining: number; resetAt: number };
   /** Record prompt usage */
   recordPrompt(keyId: string): void;
+  /** Record spending and credit referrer */
+  recordSpending(keyId: string, amountUsd: number, referralShare?: number): void;
   /** Get referral stats */
   getReferralStats(referralCode: string): ReferralStats;
   /** Get all keys (admin) */
@@ -156,6 +158,8 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
       dailyResetAt: now + 86400000,
       referredBy,
       referralCode: generateReferralCode(),
+      totalSpent: 0,
+      referralEarnings: 0,
     };
 
     keys.set(keyId, data);
@@ -273,11 +277,45 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
     saveKeys();
   }
 
+  /**
+   * Record spending and credit referrer
+   * @param keyId - API key that spent money
+   * @param amountUsd - Amount spent in USD
+   * @param referralShare - Referrer's share (default 10%)
+   */
+  function recordSpending(keyId: string, amountUsd: number, referralShare = 0.1): void {
+    const data = keys.get(keyId);
+    if (!data || amountUsd <= 0) return;
+
+    // Track user's total spending
+    data.totalSpent = (data.totalSpent || 0) + amountUsd;
+    data.lastUsedAt = Date.now();
+
+    // Credit referrer if exists
+    if (data.referredBy) {
+      for (const key of keys.values()) {
+        if (key.referralCode === data.referredBy) {
+          const earnings = amountUsd * referralShare;
+          key.referralEarnings = (key.referralEarnings || 0) + earnings;
+          logger.debug({ referrer: key.id, earnings, from: keyId }, 'Referral earnings credited');
+          break;
+        }
+      }
+    }
+
+    saveKeys();
+  }
+
   function getReferralStats(referralCode: string): ReferralStats {
     let totalReferred = 0;
     let activeReferred = 0;
+    let totalEarnings = 0;
 
+    // Find the key that owns this referral code
     for (const key of keys.values()) {
+      if (key.referralCode === referralCode) {
+        totalEarnings = key.referralEarnings || 0;
+      }
       if (key.referredBy === referralCode) {
         totalReferred++;
         if (key.active) activeReferred++;
@@ -288,7 +326,7 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
       referralCode,
       totalReferred,
       activeReferred,
-      totalEarnings: 0, // TODO: Track actual earnings
+      totalEarnings,
     };
   }
 
@@ -305,6 +343,7 @@ export function createApiKeyManager(config: ApiKeyManagerConfig = {}): ApiKeyMan
     revoke,
     checkPromptLimit,
     recordPrompt,
+    recordSpending,
     getReferralStats,
     listAll,
   };

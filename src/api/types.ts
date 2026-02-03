@@ -418,6 +418,10 @@ export interface ApiKeyData {
   referredBy?: string;
   /** This user's referral code */
   referralCode: string;
+  /** Total USD spent by this user */
+  totalSpent: number;
+  /** Referral earnings for this user (from referred users' spending) */
+  referralEarnings: number;
 }
 
 // =============================================================================
