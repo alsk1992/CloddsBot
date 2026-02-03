@@ -46,7 +46,7 @@ Clodds is a modular AI trading terminal built on three core principles:
     |WhatsApp|     |Alerts |            |Manifold |         |P&L      |
     |Matrix  |      -------             |Crypto   |         |Risk     |
     |Signal  |     |Tools(21)|          |News     |          -------
-    |Teams   |     |Skills(84)|         |External |         |Binance |
+    |Teams   |     |Skills(103)|         |External |         |Binance |
     |WebChat |     |Memory   |           -------            |Bybit   |
     |+14 more|                          |Arbitrage|         |HL      |
     +--------+                          |Detector |         |MEXC    |
@@ -374,10 +374,13 @@ User Intent → Agent → Tool → Execution Engine → Platform API
    - Calculate fill price
    - Check slippage
 
-4. RISK CHECK
-   - Position limits
-   - Exposure limits
-   - Daily loss limits
+4. RISK CHECK (via RiskEngine.validateTrade)
+   - Kill switch + circuit breaker
+   - Position limits + exposure limits
+   - Daily loss / drawdown / concentration
+   - VaR limit check
+   - Volatility regime adjustment
+   - Kelly sizing recommendation
 
 5. SMART ROUTING
    - Compare platforms
@@ -807,15 +810,27 @@ Tool Execution:
 
 ### Risk Controls
 
+The unified `RiskEngine` (`src/risk/engine.ts`) orchestrates all pre-trade validation through a single `validateTrade()` call:
+
 ```typescript
-interface RiskLimits {
-  maxOrderSize: number;        // Max single order
-  maxPositionValue: number;    // Max position per market
-  maxTotalExposure: number;    // Max total exposure
-  maxDailyLoss: number;        // Daily loss limit
-  stopLossPct: number;         // Auto stop-loss %
+interface RiskDecision {
+  approved: boolean;
+  adjustedSize?: number;   // Kelly + regime adjusted
+  reason?: string;         // Rejection reason
+  warnings: string[];      // Non-blocking warnings
+  checks: CheckResult[];   // Per-check pass/fail
+  regime: VolatilityRegime; // low | normal | high | extreme
 }
 ```
+
+Subsystems:
+- **VaR** (`src/risk/var.ts`) — Historical/parametric VaR, CVaR
+- **Volatility** (`src/risk/volatility.ts`) — Regime detection with size multipliers
+- **Stress** (`src/risk/stress.ts`) — 5 predefined scenarios (flash crash, black swan, etc.)
+- **Dashboard** (`src/risk/dashboard.ts`) — Aggregated metrics (HHI, VaR, regime)
+- **Circuit breaker** (`src/risk/circuit-breaker.ts`) — Market-condition-aware
+- **Safety** (`src/trading/safety.ts`) — Daily loss, drawdown, kill switch (SQLite-backed)
+- **Kelly** (`src/trading/kelly.ts`) — Adaptive position sizing
 
 ### Audit Trail
 

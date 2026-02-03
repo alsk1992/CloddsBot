@@ -367,7 +367,11 @@ Send these in any supported channel (Telegram, Discord, WebChat, etc.):
 - `/portfolio` - show positions and P&L
 - `/pnl [24h|7d|30m] [limit=50]` - historical P&L snapshots
 - `/digest [on|off|HH:MM|show|reset]` - daily digest settings
-- `/risk [show|set ...|reset|off]` - risk limits and stop loss
+- `/risk` - risk status, limits, and circuit breaker
+- `/risk dashboard` - real-time risk metrics (VaR, regime, HHI)
+- `/risk var` - Value-at-Risk and CVaR numbers
+- `/risk stress [scenario]` - run stress test
+- `/risk regime` - current volatility regime
 
 ## Trading credentials
 
@@ -407,11 +411,24 @@ These are stored encrypted in the database and loaded at runtime.
 Use `/risk` to control guardrails:
 
 ```
-/risk show
-/risk set maxOrderSize=100 maxPositionValue=500 maxTotalExposure=2000 stopLossPct=0.2
-/risk reset
-/risk off
+/risk                               Current status + portfolio metrics
+/risk status                        Detailed status
+/risk limits                        View all configured limits
+/risk dashboard                     Full dashboard (VaR, regime, concentration, etc.)
+/risk var                           Value-at-Risk / CVaR numbers
+/risk regime                        Volatility regime + position size multiplier
+/risk stress flash_crash            Run a stress test scenario
+/risk set max-loss 1000             Set max daily loss ($)
+/risk set max-drawdown 20           Set max drawdown (%)
+/risk check 500                     Check if a $500 trade is allowed
+/risk trip "reason"                 Manually trip circuit breaker
+/risk reset                         Reset circuit breaker
+/risk kill                          Emergency stop all trading
 ```
+
+**Stress test scenarios:** `flash_crash`, `liquidity_crunch`, `platform_down`, `correlation_spike`, `black_swan`
+
+**Volatility regimes:** low (1.2x size), normal (1.0x), high (0.5x), extreme (0.25x or halt)
 
 Note: automated stop-loss execution respects `trading.dryRun` in config.
 

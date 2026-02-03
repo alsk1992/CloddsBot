@@ -1,12 +1,12 @@
 ---
 name: risk
-description: "Circuit breaker, loss limits, and automated risk controls"
+description: "Unified risk engine with VaR, stress testing, volatility regimes, and automated controls"
 emoji: "🛑"
 ---
 
 # Risk - Complete API Reference
 
-Automatic risk management with circuit breakers, loss limits, and kill switches.
+Full risk management engine: circuit breakers, loss limits, Value-at-Risk, volatility regime detection, stress testing, and kill switches.
 
 ---
 
@@ -16,9 +16,20 @@ Automatic risk management with circuit breakers, loss limits, and kill switches.
 
 ```
 /risk                               Current risk status
-/risk status                        Detailed status
+/risk status                        Detailed status with portfolio metrics
 /risk limits                        View all limits
+/risk dashboard                     Real-time risk metrics (VaR, regime, HHI, etc.)
 ```
+
+### Risk Analytics
+
+```
+/risk var                           Value-at-Risk and CVaR numbers
+/risk regime                        Current volatility regime and size multiplier
+/risk stress [scenario]             Run stress test (flash_crash, black_swan, etc.)
+```
+
+**Available stress scenarios:** `flash_crash`, `liquidity_crunch`, `platform_down`, `correlation_spike`, `black_swan`
 
 ### Configure Limits
 
@@ -37,174 +48,219 @@ Automatic risk management with circuit breakers, loss limits, and kill switches.
 /risk trip "manual stop"            Manually trip breaker
 /risk reset                         Reset after cooldown
 /risk kill                          Emergency stop all trading
+/risk check 500                     Check if a $500 trade is allowed
 ```
 
 ---
 
 ## TypeScript API Reference
 
-### Create Risk Manager
+### Unified Risk Engine
+
+The risk engine is the single entry point for all pre-trade validation. It orchestrates 10 checks in order:
+
+1. Kill switch (SafetyManager)
+2. Circuit breaker (execution-level)
+3. Max order size
+4. Exposure limits
+5. Daily loss limit
+6. Max drawdown
+7. Position concentration
+8. VaR limit
+9. Volatility regime
+10. Kelly sizing recommendation
 
 ```typescript
-import { createRiskManager } from 'clodds/risk';
+import { createRiskEngine } from 'clodds/risk';
 
-const risk = createRiskManager({
-  // Loss limits
-  maxDailyLossUsd: 1000,
-  maxDailyLossPct: 10,
-  maxDrawdownPct: 20,
-
-  // Position limits
-  maxPositionPct: 25,
-  maxTotalExposure: 80,
-
-  // Trade limits
-  maxTradesPerDay: 50,
-  maxConsecutiveLosses: 5,
-
-  // Error handling
-  maxErrorRate: 50,  // % of failed orders
-
-  // Cooldown
-  cooldownMinutes: 60,
-  autoResetHour: 0,  // Reset at midnight
-
-  // Storage
-  storage: 'sqlite',
-  dbPath: './risk.db',
-});
+const engine = createRiskEngine(
+  {
+    varLimit: 500,           // Reject trades if portfolio VaR > $500
+    varConfidence: 0.95,
+    varWindowSize: 100,
+    volatilityConfig: {
+      lookbackWindow: 30,
+      haltOnExtreme: true,   // Stop trading in extreme volatility
+    },
+  },
+  {
+    riskContext,              // From trading/risk.ts
+    safetyManager,           // From trading/safety.ts
+    circuitBreaker,          // From execution/circuit-breaker.ts
+    kellyCalculator,         // From trading/kelly.ts
+    getPositions: () => positions,
+    getPositionValues: () => positions.map(p => p.value),
+  }
+);
 ```
 
-### Check Before Trade
+### Validate a Trade
 
 ```typescript
-// Check if trade is allowed
-const check = await risk.checkTrade({
-  size: 500,
+const decision = engine.validateTrade({
+  userId: 'user-123',
   platform: 'polymarket',
-  market: 'trump-2028',
+  marketId: 'market-456',
+  outcome: 'YES',
+  side: 'buy',
+  size: 500,
+  price: 0.65,
+  estimatedEdge: 0.05,    // 5% edge
+  confidence: 0.8,
+  category: 'politics',
 });
 
-if (check.allowed) {
-  // Execute trade
-  await executeTrade();
+if (decision.approved) {
+  // Use adjustedSize — may be smaller than requested (Kelly + regime)
+  await executeTrade(decision.adjustedSize);
+  console.log(`Regime: ${decision.regime}`);
+  console.log(`Warnings: ${decision.warnings}`);
 } else {
-  console.log(`Blocked: ${check.reason}`);
-  // 'max_daily_loss_exceeded'
-  // 'max_position_exceeded'
-  // 'circuit_breaker_tripped'
-  // 'max_trades_exceeded'
+  console.log(`Blocked: ${decision.reason}`);
+  // Check which step failed:
+  for (const check of decision.checks) {
+    console.log(`  ${check.name}: ${check.passed ? 'PASS' : 'FAIL'} — ${check.message}`);
+  }
 }
 ```
 
-### Record Trade Result
+### Record Trade P&L (feeds VaR + volatility)
 
 ```typescript
-// Record winning trade
-await risk.recordTrade({
-  pnl: 150,
-  platform: 'polymarket',
-  market: 'trump-2028',
+engine.recordPnL({
+  pnlUsd: -45.20,
+  pnlPct: -0.09,
+  positionId: 'polymarket:market-456:YES',
+  timestamp: new Date(),
 });
-
-// Record losing trade
-await risk.recordTrade({
-  pnl: -200,
-  platform: 'polymarket',
-  market: 'fed-rate',
-});
-
-// System checks limits automatically after each trade
 ```
 
-### Get Status
+### Portfolio Risk Snapshot
 
 ```typescript
-const status = await risk.getStatus();
-
-console.log('=== Daily Stats ===');
-console.log(`P&L today: $${status.dailyPnl}`);
-console.log(`Trades today: ${status.tradesToday}`);
-console.log(`Win rate: ${status.winRate}%`);
-
-console.log('=== Limits ===');
-console.log(`Daily loss: $${Math.abs(status.dailyPnl)}/$${status.maxDailyLoss}`);
-console.log(`Drawdown: ${status.currentDrawdown}%/${status.maxDrawdown}%`);
-console.log(`Consecutive losses: ${status.consecutiveLosses}/${status.maxConsecutiveLosses}`);
-
-console.log('=== Status ===');
-console.log(`Circuit breaker: ${status.circuitBreaker}`);  // 'armed' | 'tripped'
-console.log(`Trading allowed: ${status.tradingAllowed}`);
+const risk = engine.getPortfolioRisk();
+console.log(`Total value: $${risk.totalValue}`);
+console.log(`VaR (95%): $${risk.var95}`);
+console.log(`VaR (99%): $${risk.var99}`);
+console.log(`CVaR (95%): $${risk.cvar95}`);
+console.log(`Regime: ${risk.regime}`);
+console.log(`Drawdown: ${risk.drawdownPct}%`);
 ```
 
-### Circuit Breaker
+### Value-at-Risk
 
 ```typescript
-// Manually trip breaker
-await risk.trip('Market too volatile');
+import { createVaRCalculator, calculateVaR, calculateCVaR } from 'clodds/risk';
 
-// Check if tripped
-const tripped = risk.isTripped();
+// Full calculator with rolling window
+const calc = createVaRCalculator({ windowSize: 100, confidenceLevel: 0.95 });
+calc.addObservation({ pnlUsd: -50, pnlPct: -0.05, timestamp: new Date() });
+const result = calc.calculateAt(0.99);
+console.log(`VaR (99%): $${result.historicalVaR}`);
+console.log(`CVaR (99%): $${result.cvar}`);
 
-// Get trip reason
-const reason = risk.getTripReason();
+// Quick one-liners
+const var95 = calculateVaR(pnlArray, 0.95);
+const cvar95 = calculateCVaR(pnlArray, 0.95);
+```
 
-// Reset (after cooldown)
-await risk.reset();
+### Volatility Regime Detection
 
-// Force reset (admin)
-await risk.forceReset();
+```typescript
+import { createVolatilityDetector, detectRegime } from 'clodds/risk';
+
+const detector = createVolatilityDetector({
+  lookbackWindow: 30,
+  haltOnExtreme: false,
+  regimeMultipliers: { low: 1.2, normal: 1.0, high: 0.5, extreme: 0.25 },
+});
+
+detector.addObservation(0.03);  // 3% P&L
+const snapshot = detector.detect();
+console.log(`Regime: ${snapshot.regime}`);          // 'low' | 'normal' | 'high' | 'extreme'
+console.log(`Size multiplier: ${snapshot.sizeMultiplier}x`);
+console.log(`Should halt: ${snapshot.shouldHalt}`);
+
+// One-shot from array
+const regime = detectRegime(recentPnLPcts);
+```
+
+### Stress Testing
+
+```typescript
+import { runStressTest, runAllScenarios, getAvailableScenarios } from 'clodds/risk';
+
+const result = runStressTest(positions, 'flash_crash');
+console.log(`Estimated loss: $${result.estimatedLoss} (${result.estimatedLossPct}%)`);
+console.log(`Severity: ${result.severity}`);
+console.log(`Recommendations: ${result.recommendations.join(', ')}`);
+
+// Run all scenarios at once
+const all = runAllScenarios(positions);  // sorted by severity
+
+// Override scenario parameters
+const custom = runStressTest(positions, 'flash_crash', {
+  scenarios: { flash_crash: { lossPct: 30, description: 'Severe crash' } },
+});
+```
+
+### Risk Dashboard
+
+```typescript
+import { getRiskDashboard } from 'clodds/risk';
+
+const dashboard = engine.getDashboard();
+console.log(`VaR (95%): $${dashboard.portfolioVaR95}`);
+console.log(`Regime: ${dashboard.regime} (${dashboard.regimeSizeMultiplier}x)`);
+console.log(`Daily P&L: $${dashboard.dailyPnL} / $${dashboard.dailyLossLimit}`);
+console.log(`Drawdown: ${dashboard.currentDrawdown}% / ${dashboard.maxDrawdown}%`);
+console.log(`Concentration HHI: ${dashboard.concentrationHHI}`);
+console.log(`Kill switch: ${dashboard.killSwitchActive}`);
+console.log(`Warnings: ${dashboard.warnings}`);
+```
+
+### Circuit Breaker (Standalone)
+
+```typescript
+import { createCircuitBreaker, MODERATE_CONFIG } from 'clodds/risk';
+
+// Feature-engineering circuit breaker (market-condition-aware)
+const breaker = createCircuitBreaker(MODERATE_CONFIG);
+breaker.startMonitoring();
+
+if (!breaker.canTrade('polymarket', marketId)) {
+  return; // Trading halted
+}
+
+breaker.recordTrade({ success: true, pnl: 2.5 });
 ```
 
 ### Kill Switch
 
 ```typescript
-// Emergency stop - cancels all orders, closes positions
-await risk.kill();
+// Emergency stop via SafetyManager — no auto-resume
+safetyManager.killSwitch('Market anomaly detected');
 
-// This will:
-// 1. Cancel all open orders
-// 2. Close all positions (market orders)
-// 3. Trip circuit breaker
-// 4. Disable all trading
-// 5. Send alert to all channels
-```
-
-### Event Handlers
-
-```typescript
-// Circuit breaker tripped
-risk.on('tripped', (reason, stats) => {
-  console.log(`🛑 Circuit breaker tripped: ${reason}`);
-  console.log(`Daily P&L: $${stats.dailyPnl}`);
-  // Send alert
-});
-
-// Approaching limits
-risk.on('warning', (type, current, limit) => {
-  console.log(`⚠️ Warning: ${type} at ${current}/${limit}`);
-});
-
-// Daily reset
-risk.on('reset', () => {
-  console.log('✅ Daily risk counters reset');
-});
-```
-
-### Configure Limits
-
-```typescript
-// Update limits
-risk.setLimits({
-  maxDailyLossUsd: 2000,
-  maxConsecutiveLosses: 3,
-});
-
-// Get current limits
-const limits = risk.getLimits();
+// Resume manually after review
+safetyManager.resumeTrading();
 ```
 
 ---
+
+## Risk Engine Checks
+
+| # | Check | Module | Blocks Trade? |
+|---|-------|--------|---------------|
+| 1 | Kill switch | SafetyManager | Yes |
+| 2 | Circuit breaker | CircuitBreaker | Yes |
+| 3 | Max order size | trading/risk | Yes |
+| 4 | Exposure limits | trading/risk | Yes |
+| 5 | Daily loss limit | SafetyManager | Yes |
+| 6 | Max drawdown | SafetyManager | Yes |
+| 7 | Concentration | SafetyManager | Yes |
+| 8 | VaR limit | VaRCalculator | Yes (if configured) |
+| 9 | Volatility regime | VolatilityDetector | Yes (if extreme + halt) |
+| 10 | Kelly sizing | DynamicKelly | No (adjusts size) |
 
 ## Circuit Breaker Triggers
 
@@ -217,7 +273,24 @@ const limits = risk.getLimits();
 | **Error rate** | 50% | Failed order rate |
 | **Max trades** | 50 | Trades per day |
 
----
+## Volatility Regimes
+
+| Regime | Size Multiplier | Description |
+|--------|----------------|-------------|
+| `low` | 1.2x | Calm markets, slightly larger positions |
+| `normal` | 1.0x | Baseline conditions |
+| `high` | 0.5x | Elevated volatility, half size |
+| `extreme` | 0.25x | Crisis — quarter size or halt trading |
+
+## Stress Test Scenarios
+
+| Scenario | Loss | Description |
+|----------|------|-------------|
+| `flash_crash` | 20% | All positions lose value instantly |
+| `liquidity_crunch` | 10% | Slippage doubles, partial fills |
+| `platform_down` | 15% | Primary platform offline |
+| `correlation_spike` | 25% | All positions move together |
+| `black_swan` | 40% | 3-sigma tail event |
 
 ## Status Levels
 
@@ -232,10 +305,10 @@ const limits = risk.getLimits();
 
 ## Recovery Process
 
-1. **Auto-reset**: Next day at configured hour (default midnight)
-2. **Manual reset**: `/risk reset` after cooldown period
-3. **Force reset**: Admin can force reset anytime
-4. **Kill recovery**: Requires explicit `/risk unkill`
+1. **Auto-reset**: Next day at midnight (daily counters)
+2. **Cooldown**: Circuit breaker auto-resets after cooldown period
+3. **Manual reset**: `/risk reset` to re-arm
+4. **Kill recovery**: `/risk reset` after manual review (no auto-resume)
 
 ---
 
@@ -244,5 +317,7 @@ const limits = risk.getLimits();
 1. **Start conservative** — Lower limits while learning
 2. **Don't override** — Respect the circuit breaker
 3. **Review trips** — Understand why limits were hit
-4. **Adjust limits** — Based on strategy performance
-5. **Test kill switch** — Know how to stop everything
+4. **Monitor VaR** — Use `/risk var` and `/risk dashboard` regularly
+5. **Run stress tests** — Use `/risk stress` before large position changes
+6. **Watch regime** — Use `/risk regime` to understand current volatility
+7. **Adjust limits** — Based on strategy performance and regime

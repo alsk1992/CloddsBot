@@ -231,7 +231,7 @@ Polymarket @ 52c vs Kalshi @ 55c → 3c spread
 
 **External Data:** FedWatch, 538, Silver Bulletin, RCP, Odds API for edge detection
 
-**Safety:** Circuit breaker, position limits, Kelly sizing, daily loss limits ($500 default), kill switch
+**Safety:** Unified risk engine with circuit breaker, VaR/CVaR, volatility regime detection, stress testing, Kelly sizing, daily loss limits, kill switch
 
 ---
 
@@ -307,7 +307,7 @@ Enable: `clodds config set ledger.enabled true`
 │ Slack         │         │ Alerts        │         │ Manifold      │
 │ Teams         │         │               │         │ Crypto (10)   │
 │ Matrix        │         │ Tools (21)    │         │               │
-│ Signal        │         │ Skills (80)   │         │ Arbitrage     │
+│ Signal        │         │ Skills (103)  │         │ Arbitrage     │
 │ +15 more      │         │ Memory        │         │ Detector      │
 └───────────────┘         └───────────────┘         └───────────────┘
         │                         │                         │
@@ -387,7 +387,7 @@ docker compose up --build
 | Messaging Channels | **22** |
 | Prediction Markets | **9** |
 | AI Tools | **21** |
-| Skills | **84** |
+| Skills | **103** |
 | LLM Providers | **6** |
 | Solana DEX Protocols | **5** |
 | Trading Strategies | **3** |
