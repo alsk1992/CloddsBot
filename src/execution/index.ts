@@ -154,7 +154,7 @@ export interface ExecutionService {
 
   // Batch operations (Opinion only for now)
   placeOrdersBatch(orders: Array<Omit<OrderRequest, 'orderType'>>): Promise<OrderResult[]>;
-  cancelOrdersBatch(platform: 'opinion', orderIds: string[]): Promise<Array<{ orderId: string; success: boolean }>>;
+  cancelOrdersBatch(platform: 'polymarket' | 'opinion', orderIds: string[]): Promise<Array<{ orderId: string; success: boolean }>>;
 
   // Utilities
   estimateFill(request: OrderRequest): Promise<{ avgPrice: number; filledSize: number }>;
@@ -627,6 +627,128 @@ async function cancelAllPolymarketOrders(auth: PolymarketApiKeyAuth, marketId?: 
   } catch (error) {
     logger.error({ error }, 'Error cancelling all Polymarket orders');
     return 0;
+  }
+}
+
+/**
+ * Place multiple Polymarket orders in a single batch request (max 15).
+ * Uses POST /orders endpoint.
+ */
+async function placePolymarketOrdersBatch(
+  auth: PolymarketApiKeyAuth,
+  orders: Array<{
+    tokenId: string;
+    side: OrderSide;
+    price: number;
+    size: number;
+    negRisk?: boolean;
+    postOnly?: boolean;
+  }>
+): Promise<OrderResult[]> {
+  if (orders.length === 0) return [];
+  if (orders.length > 15) {
+    logger.warn({ count: orders.length }, 'Polymarket batch limit is 15, splitting');
+  }
+
+  // Process in chunks of 15
+  const results: OrderResult[] = [];
+  for (let i = 0; i < orders.length; i += 15) {
+    const chunk = orders.slice(i, i + 15);
+    const url = `${POLY_CLOB_URL}/orders`;
+
+    const payload = chunk.map(o => {
+      const order: Record<string, unknown> = {
+        tokenID: o.tokenId,
+        side: o.side.toUpperCase(),
+        price: o.price.toString(),
+        size: o.size.toString(),
+        orderType: 'GTC',
+        feeRateBps: '0',
+      };
+      if (o.negRisk !== undefined) order.negRisk = o.negRisk;
+      if (o.postOnly === true) order.postOnly = true;
+      return order;
+    });
+
+    const headers = buildPolymarketHeadersForUrl(auth, 'POST', url, payload);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        logger.error({ status: response.status, error, count: chunk.length }, 'Polymarket batch order failed');
+        results.push(...chunk.map(() => ({ success: false, error: `HTTP ${response.status}` })));
+        continue;
+      }
+
+      const data = (await response.json()) as Array<PolymarketOrderResponse>;
+      logger.info(
+        { count: chunk.length, successful: data.filter(r => r.orderID || r.order_id).length },
+        'Polymarket batch orders placed',
+      );
+
+      for (const r of data) {
+        results.push({
+          success: !r.errorMsg,
+          orderId: r.orderID || r.order_id,
+          error: r.errorMsg,
+          status: r.errorMsg ? 'rejected' : 'open',
+          transactionHash: r.transactionsHashes?.[0],
+        });
+      }
+    } catch (error) {
+      logger.error({ error }, 'Error placing Polymarket batch orders');
+      results.push(...chunk.map(() => ({
+        success: false,
+        error: error instanceof Error ? error.message : 'Batch order failed',
+      })));
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Cancel multiple Polymarket orders in a single batch request.
+ * Uses DELETE /orders endpoint with array of order IDs.
+ */
+async function cancelPolymarketOrdersBatch(
+  auth: PolymarketApiKeyAuth,
+  orderIds: string[]
+): Promise<Array<{ orderId: string; success: boolean }>> {
+  if (orderIds.length === 0) return [];
+
+  const url = `${POLY_CLOB_URL}/orders`;
+  const headers = buildPolymarketHeadersForUrl(auth, 'DELETE', url, orderIds);
+
+  try {
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderIds),
+    });
+
+    if (!response.ok) {
+      logger.error({ status: response.status, count: orderIds.length }, 'Polymarket batch cancel failed');
+      return orderIds.map(orderId => ({ orderId, success: false }));
+    }
+
+    const data = (await response.json()) as { canceled?: string[]; not_canceled?: Record<string, string> };
+    const canceledSet = new Set(data.canceled || []);
+    logger.info(
+      { total: orderIds.length, canceled: canceledSet.size, notCanceled: Object.keys(data.not_canceled || {}).length },
+      'Polymarket batch cancel completed',
+    );
+
+    return orderIds.map(orderId => ({ orderId, success: canceledSet.has(orderId) }));
+  } catch (error) {
+    logger.error({ error }, 'Error cancelling Polymarket orders batch');
+    return orderIds.map(orderId => ({ orderId, success: false }));
   }
 }
 
@@ -1695,11 +1817,37 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
     },
 
     async placeOrdersBatch(orders) {
-      // Currently only Opinion supports batch orders
+      const polyOrders = orders.filter(o => o.platform === 'polymarket');
       const opinionOrders = orders.filter(o => o.platform === 'opinion');
-      const otherOrders = orders.filter(o => o.platform !== 'opinion');
+      const otherOrders = orders.filter(o => o.platform !== 'opinion' && o.platform !== 'polymarket');
 
       const results: OrderResult[] = [];
+
+      // Execute Polymarket batch if we have Polymarket orders and config
+      if (polyOrders.length > 0 && config.polymarket) {
+        try {
+          const batchInput = polyOrders.map(o => ({
+            tokenId: o.tokenId!,
+            side: o.side,
+            price: o.price,
+            size: o.size,
+            negRisk: o.negRisk,
+            postOnly: o.postOnly,
+          }));
+          const batchResults = await placePolymarketOrdersBatch(config.polymarket, batchInput);
+          results.push(...batchResults);
+        } catch (err) {
+          results.push(...polyOrders.map(() => ({
+            success: false,
+            error: err instanceof Error ? err.message : 'Batch order failed',
+          })));
+        }
+      } else if (polyOrders.length > 0) {
+        results.push(...polyOrders.map(() => ({
+          success: false,
+          error: 'Polymarket trading not configured',
+        })));
+      }
 
       // Execute Opinion batch if we have Opinion orders and config
       if (opinionOrders.length > 0 && config.opinion) {
@@ -1752,6 +1900,14 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
     },
 
     async cancelOrdersBatch(platform, orderIds) {
+      if (platform === 'polymarket' && config.polymarket) {
+        try {
+          return await cancelPolymarketOrdersBatch(config.polymarket, orderIds);
+        } catch (err) {
+          return orderIds.map(orderId => ({ orderId, success: false }));
+        }
+      }
+
       if (platform === 'opinion' && config.opinion) {
         try {
           return await cancelOpinionOrdersBatch(config.opinion, orderIds);
