@@ -62,6 +62,7 @@ export * from './devtools';
 export * from './copy-trading';
 export * from './kelly';
 export * from './ml-signals';
+export * from './market-making/index';
 
 import {
   createTradeLogger,

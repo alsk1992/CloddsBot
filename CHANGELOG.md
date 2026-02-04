@@ -5,6 +5,28 @@ All notable changes to Clodds will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.8] - 2026-02-04
+
+### Added
+
+#### Market Making Engine
+- Two-sided quoting engine for prediction markets (Polymarket, Kalshi)
+- Pure calculation functions: fair value (mid/weighted_mid/vwap/ema), volatility-adjusted spreads, inventory skew
+- Strategy adapter integrating with BotManager via existing `Strategy` interface
+- Post-only orders via `makerBuy`/`makerSell` (zero taker fees on Polymarket)
+- Cancel-then-place requote cycle with configurable interval and price threshold
+- Inventory management with asymmetric spread skewing
+- Auto-halt on max loss breach
+- New `market_making` template in strategy builder
+- New `/mm` CLI skill: `start`, `stop`, `status`, `config`, `list` commands
+
+## [0.3.7] - 2026-02-03
+
+### Changed
+- All 103 skills now fully wired to real implementations (previously 30 were unwired stubs)
+- Updated SKILL_AUDIT.md with current-state summary (replaced outdated category-based audit)
+- Updated skill counts in README.md and ARCHITECTURE.md (80/84 -> 103)
+
 ## [0.3.6] - 2026-02-02
 
 ### Added

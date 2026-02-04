@@ -23,6 +23,7 @@ export type StrategyTemplate =
   | 'arbitrage'
   | 'price_threshold'
   | 'volume_spike'
+  | 'market_making'
   | 'custom';
 
 export interface StrategyDefinition {
@@ -157,6 +158,15 @@ const TEMPLATES: Record<StrategyTemplate, { description: string; defaultParams: 
       exit: [{ type: 'time_limit', value: 3600, holdSec: 3600 }],
       risk: { maxPositionSize: 100, stopLossPct: 5, takeProfitPct: 15 },
       intervalMs: 60000,
+    },
+  },
+  market_making: {
+    description: 'Two-sided quoting with inventory management and spread optimization',
+    defaultParams: {
+      entry: [{ type: 'custom', value: 0, customCode: 'market_making' }],
+      exit: [{ type: 'stop_loss', value: 0.1 }, { type: 'take_profit', value: 0.05 }],
+      risk: { maxPositionSize: 500, stopLossPct: 10, takeProfitPct: 5, maxTradesPerDay: 1000 },
+      intervalMs: 5000,
     },
   },
   custom: {

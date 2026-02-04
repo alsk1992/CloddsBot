@@ -237,7 +237,7 @@ Polymarket @ 52c vs Kalshi @ 55c → 3c spread
 
 ## Trading Bots
 
-Built-in strategies: Mean Reversion, Momentum, Arbitrage
+Built-in strategies: Mean Reversion, Momentum, Arbitrage, Market Making
 
 Features: Configurable sizing, SL/TP, backtesting, live trading with safety limits
 
@@ -390,7 +390,7 @@ docker compose up --build
 | Skills | **103** |
 | LLM Providers | **6** |
 | Solana DEX Protocols | **5** |
-| Trading Strategies | **3** |
+| Trading Strategies | **4** |
 | Extensions | **7** |
 
 ---

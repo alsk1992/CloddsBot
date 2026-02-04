@@ -364,6 +364,46 @@ createArbitrageStrategy({
 });
 ```
 
+### Market Making
+Two-sided quoting with inventory management and volatility-adjusted spreads.
+
+```typescript
+import { createMMStrategy } from './trading/market-making';
+
+const strategy = createMMStrategy({
+  id: 'btc-yes',
+  platform: 'polymarket',
+  marketId: '0x...',
+  tokenId: '12345',
+  outcomeName: 'BTC > 100k',
+  baseSpreadCents: 2,       // Quote +-$0.02 from fair value
+  minSpreadCents: 1,
+  maxSpreadCents: 10,
+  orderSize: 50,             // 50 shares per side
+  maxInventory: 500,         // Skew aggressively beyond this
+  skewFactor: 0.5,           // 0 = no skew, 1 = full skew
+  volatilityMultiplier: 10,  // Widen spread in volatile markets
+  fairValueAlpha: 0.3,       // EMA smoothing
+  fairValueMethod: 'weighted_mid',
+  requoteIntervalMs: 5000,
+  requoteThresholdCents: 1,
+  maxPositionValueUsd: 1000,
+  maxLossUsd: 100,
+  maxOrdersPerSide: 1,
+}, { execution, feeds });
+
+botManager.registerStrategy(strategy);
+```
+
+Key features:
+- **Pure calculation engine** — all pricing/quoting logic is side-effect-free and testable
+- **Inventory skew** — asymmetric spreads to reduce directional exposure
+- **Volatility adjustment** — wider spreads in volatile markets to avoid adverse selection
+- **Cancel-then-place** — requotes on each tick (no amendment in prediction market APIs)
+- **Post-only orders** — uses `makerBuy`/`makerSell` for zero taker fees on Polymarket
+- **Auto-halt** — stops quoting when max loss is exceeded
+- **CLI control** — `/mm start`, `/mm stop`, `/mm status`, `/mm config`
+
 **Entity Extraction:**
 The arbitrage strategy extracts entities from market titles for accurate matching:
 - **Year**: "2024 Election" vs "2025 Election" - prevents false matches
