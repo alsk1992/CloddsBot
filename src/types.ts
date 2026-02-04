@@ -258,6 +258,8 @@ export interface PolymarketCredentials {
   apiKey: string;
   apiSecret: string;
   apiPassphrase: string;
+  /** 0=EOA, 1=POLY_PROXY (Magic Link), 2=POLY_GNOSIS_SAFE (MetaMask/browser) */
+  signatureType?: number;
 }
 
 /**

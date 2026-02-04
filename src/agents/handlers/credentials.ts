@@ -21,12 +21,16 @@ async function setupPolymarketCredentialsHandler(
     return errorResult('User context not available');
   }
 
+  // signatureType: 0=EOA (direct wallet), 1=POLY_PROXY (Magic Link), 2=POLY_GNOSIS_SAFE (MetaMask/browser)
+  const sigType = toolInput.signature_type != null ? Number(toolInput.signature_type) : undefined;
+
   const creds: PolymarketCredentials = {
     privateKey: toolInput.private_key as string,
     funderAddress: toolInput.funder_address as string,
     apiKey: toolInput.api_key as string,
     apiSecret: toolInput.api_secret as string,
     apiPassphrase: toolInput.api_passphrase as string,
+    signatureType: sigType,
   };
 
   await context.credentials.setCredentials(context.userId, 'polymarket', creds);

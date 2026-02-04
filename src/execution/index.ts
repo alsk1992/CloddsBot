@@ -18,6 +18,12 @@ import {
   PolymarketApiKeyAuth,
 } from '../utils/polymarket-auth';
 import {
+  buildSignedOrder,
+  buildSignedOrders,
+  type PostOrderBody,
+  type SignerConfig,
+} from '../utils/polymarket-order-signer';
+import {
   buildKalshiHeadersForUrl,
   KalshiApiKeyAuth,
 } from '../utils/kalshi-auth';
@@ -96,8 +102,10 @@ export interface OpenOrder {
 
 export interface ExecutionConfig {
   polymarket?: PolymarketApiKeyAuth & {
-    privateKey?: string;  // For signing (optional, uses API key auth)
-    funderAddress?: string;
+    privateKey?: string;  // For EIP-712 order signing
+    funderAddress?: string;  // Proxy/Safe wallet address (where funds live)
+    /** 0=EOA, 1=POLY_PROXY (Magic Link), 2=POLY_GNOSIS_SAFE (MetaMask/browser) */
+    signatureType?: number;
   };
   kalshi?: KalshiApiKeyAuth;
   opinion?: OpinionApiAuth & {
@@ -497,7 +505,7 @@ interface PolymarketOpenOrder {
 }
 
 async function placePolymarketOrder(
-  auth: PolymarketApiKeyAuth,
+  auth: PolymarketApiKeyAuth & { privateKey?: string; funderAddress?: string; signatureType?: number },
   tokenId: string,
   side: OrderSide,
   price: number,
@@ -506,68 +514,105 @@ async function placePolymarketOrder(
   negRisk?: boolean,
   postOnly?: boolean
 ): Promise<OrderResult> {
-  const url = `${POLY_CLOB_URL}/order`;
+  // If private key available, use EIP-712 signed order (required for real CLOB)
+  if (auth.privateKey) {
+    const signedAuth = { ...auth, privateKey: auth.privateKey };
+    return placeSignedPolymarketOrder(signedAuth, tokenId, side, price, size, orderType, negRisk, postOnly);
+  }
 
-  // Build order payload
-  // Note: The CLOB API auto-detects neg_risk from token_id, but we can pass it explicitly
-  // Supported orderTypes: GTC, GTD, FOK (for market orders)
-  // postOnly is a separate boolean parameter for GTC/GTD to ensure maker-only execution
+  // Fallback: simplified payload (may not work with real CLOB without signing)
+  const url = `${POLY_CLOB_URL}/order`;
   const order: Record<string, unknown> = {
     tokenID: tokenId,
     side: side.toUpperCase(),
     price: price.toString(),
     size: size.toString(),
     orderType: orderType,
-    feeRateBps: '0', // Let API calculate
+    feeRateBps: '0',
   };
-
-  // If neg_risk is explicitly specified, include it
-  if (negRisk !== undefined) {
-    order.negRisk = negRisk;
-  }
-
-  // postOnly ensures order only adds liquidity (rejected if would take)
-  if (postOnly === true) {
-    order.postOnly = true;
-  }
+  if (negRisk !== undefined) order.negRisk = negRisk;
+  if (postOnly === true) order.postOnly = true;
 
   const headers = buildPolymarketHeadersForUrl(auth, 'POST', url, order);
 
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-      },
+      headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(order),
     });
 
     const data = (await response.json()) as PolymarketOrderResponse;
-
     if (!response.ok || data.errorMsg) {
       logger.error({ status: response.status, error: data.errorMsg }, 'Polymarket order failed');
-      return {
-        success: false,
-        error: data.errorMsg || `HTTP ${response.status}`,
-      };
+      return { success: false, error: data.errorMsg || `HTTP ${response.status}` };
     }
 
     const orderId = data.orderID || data.order_id;
     logger.info({ orderId, tokenId, side, price, size }, 'Polymarket order placed');
-
-    return {
-      success: true,
-      orderId,
-      status: 'open',
-      transactionHash: data.transactionsHashes?.[0],
-    };
+    return { success: true, orderId, status: 'open', transactionHash: data.transactionsHashes?.[0] };
   } catch (error) {
     logger.error({ error }, 'Error placing Polymarket order');
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Place a single EIP-712 signed order on Polymarket CLOB.
+ * Uses POST /order with the full signed order payload.
+ */
+async function placeSignedPolymarketOrder(
+  auth: PolymarketApiKeyAuth & { privateKey: string; funderAddress?: string; signatureType?: number },
+  tokenId: string,
+  side: OrderSide,
+  price: number,
+  size: number,
+  orderType: OrderType = 'GTC',
+  negRisk?: boolean,
+  postOnly?: boolean,
+): Promise<OrderResult> {
+  const url = `${POLY_CLOB_URL}/order`;
+
+  const signerCfg: SignerConfig = {
+    privateKey: auth.privateKey,
+    funderAddress: auth.funderAddress,
+    signatureType: auth.signatureType,
+  };
+
+  const postOrder = buildSignedOrder({
+    tokenId,
+    price,
+    size,
+    side: side === 'buy' ? 'buy' : 'sell',
+    negRisk,
+  }, signerCfg);
+
+  // Set owner to API key (required by Polymarket CLOB)
+  postOrder.owner = auth.apiKey;
+  postOrder.orderType = orderType as 'GTC' | 'GTD' | 'FOK';
+  if (postOnly) postOrder.postOnly = true;
+
+  const headers = buildPolymarketHeadersForUrl(auth, 'POST', url, postOrder);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(postOrder),
+    });
+
+    const data = (await response.json()) as PolymarketOrderResponse;
+    if (!response.ok || data.errorMsg) {
+      logger.error({ status: response.status, error: data.errorMsg }, 'Polymarket signed order failed');
+      return { success: false, error: data.errorMsg || `HTTP ${response.status}` };
+    }
+
+    const orderId = data.orderID || data.order_id;
+    logger.info({ orderId, tokenId, side, price, size }, 'Polymarket signed order placed');
+    return { success: true, orderId, status: 'open', transactionHash: data.transactionsHashes?.[0] };
+  } catch (error) {
+    logger.error({ error }, 'Error placing Polymarket signed order');
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
@@ -631,11 +676,13 @@ async function cancelAllPolymarketOrders(auth: PolymarketApiKeyAuth, marketId?: 
 }
 
 /**
- * Place multiple Polymarket orders in a single batch request (max 15).
- * Uses POST /orders endpoint.
+ * Place multiple Polymarket orders in a single batch request.
+ *
+ * If private key is available, uses POST /orders with EIP-712 signed orders
+ * (up to 15 per request). Otherwise falls back to parallel single-order calls.
  */
 async function placePolymarketOrdersBatch(
-  auth: PolymarketApiKeyAuth,
+  auth: PolymarketApiKeyAuth & { privateKey?: string; funderAddress?: string; signatureType?: number },
   orders: Array<{
     tokenId: string;
     side: OrderSide;
@@ -646,37 +693,59 @@ async function placePolymarketOrdersBatch(
   }>
 ): Promise<OrderResult[]> {
   if (orders.length === 0) return [];
-  if (orders.length > 15) {
-    logger.warn({ count: orders.length }, 'Polymarket batch limit is 15, splitting');
+
+  // If no private key, fall back to parallel individual calls
+  if (!auth.privateKey) {
+    const results = await Promise.all(
+      orders.map(o =>
+        placePolymarketOrder(auth, o.tokenId, o.side, o.price, o.size, 'GTC', o.negRisk, o.postOnly)
+          .catch(err => ({ success: false, error: err instanceof Error ? err.message : 'Order failed' } as OrderResult))
+      )
+    );
+    logger.info({ total: orders.length, successful: results.filter(r => r.success).length }, 'Polymarket parallel orders placed');
+    return results;
   }
 
-  // Process in chunks of 15
+  // Build all signed orders
+  const signerCfg: SignerConfig = {
+    privateKey: auth.privateKey,
+    funderAddress: auth.funderAddress,
+    signatureType: auth.signatureType,
+  };
+
+  const postOrders: PostOrderBody[] = buildSignedOrders(
+    orders.map(o => ({
+      tokenId: o.tokenId,
+      price: o.price,
+      size: o.size,
+      side: o.side === 'buy' ? 'buy' as const : 'sell' as const,
+      negRisk: o.negRisk,
+    })),
+    signerCfg,
+  );
+
+  // Set owner to API key on all orders (required by Polymarket CLOB)
+  for (const po of postOrders) {
+    po.owner = auth.apiKey;
+  }
+
+  // Apply postOnly flag
+  for (let i = 0; i < postOrders.length; i++) {
+    if (orders[i].postOnly) postOrders[i].postOnly = true;
+  }
+
+  // Send in chunks of 15 (Polymarket batch limit)
   const results: OrderResult[] = [];
-  for (let i = 0; i < orders.length; i += 15) {
-    const chunk = orders.slice(i, i + 15);
+  for (let i = 0; i < postOrders.length; i += 15) {
+    const chunk = postOrders.slice(i, i + 15);
     const url = `${POLY_CLOB_URL}/orders`;
-
-    const payload = chunk.map(o => {
-      const order: Record<string, unknown> = {
-        tokenID: o.tokenId,
-        side: o.side.toUpperCase(),
-        price: o.price.toString(),
-        size: o.size.toString(),
-        orderType: 'GTC',
-        feeRateBps: '0',
-      };
-      if (o.negRisk !== undefined) order.negRisk = o.negRisk;
-      if (o.postOnly === true) order.postOnly = true;
-      return order;
-    });
-
-    const headers = buildPolymarketHeadersForUrl(auth, 'POST', url, payload);
+    const headers = buildPolymarketHeadersForUrl(auth, 'POST', url, chunk);
 
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(chunk),
       });
 
       if (!response.ok) {
@@ -710,12 +779,16 @@ async function placePolymarketOrdersBatch(
     }
   }
 
+  logger.info({ total: orders.length, successful: results.filter(r => r.success).length }, 'Polymarket batch orders completed');
   return results;
 }
 
 /**
- * Cancel multiple Polymarket orders in a single batch request.
- * Uses DELETE /orders endpoint with array of order IDs.
+ * Cancel multiple Polymarket orders concurrently.
+ *
+ * NOTE: The true batch cancel endpoint (DELETE /orders) accepts an array of
+ * order IDs. It uses L2 HMAC auth (same as other endpoints), so we can use
+ * it directly. Falls back to parallel individual cancels on error.
  */
 async function cancelPolymarketOrdersBatch(
   auth: PolymarketApiKeyAuth,
@@ -723,6 +796,7 @@ async function cancelPolymarketOrdersBatch(
 ): Promise<Array<{ orderId: string; success: boolean }>> {
   if (orderIds.length === 0) return [];
 
+  // DELETE /orders with array of IDs uses L2 HMAC auth (no order signing needed)
   const url = `${POLY_CLOB_URL}/orders`;
   const headers = buildPolymarketHeadersForUrl(auth, 'DELETE', url, orderIds);
 
@@ -734,8 +808,14 @@ async function cancelPolymarketOrdersBatch(
     });
 
     if (!response.ok) {
-      logger.error({ status: response.status, count: orderIds.length }, 'Polymarket batch cancel failed');
-      return orderIds.map(orderId => ({ orderId, success: false }));
+      logger.warn({ status: response.status, count: orderIds.length }, 'Polymarket batch cancel failed, falling back to individual');
+      // Fallback to parallel individual cancels
+      return Promise.all(
+        orderIds.map(async (orderId) => ({
+          orderId,
+          success: await cancelPolymarketOrder(auth, orderId).catch(() => false),
+        }))
+      );
     }
 
     const data = (await response.json()) as { canceled?: string[]; not_canceled?: Record<string, string> };
@@ -747,8 +827,13 @@ async function cancelPolymarketOrdersBatch(
 
     return orderIds.map(orderId => ({ orderId, success: canceledSet.has(orderId) }));
   } catch (error) {
-    logger.error({ error }, 'Error cancelling Polymarket orders batch');
-    return orderIds.map(orderId => ({ orderId, success: false }));
+    logger.error({ error }, 'Error in Polymarket batch cancel, falling back to individual');
+    return Promise.all(
+      orderIds.map(async (orderId) => ({
+        orderId,
+        success: await cancelPolymarketOrder(auth, orderId).catch(() => false),
+      }))
+    );
   }
 }
 

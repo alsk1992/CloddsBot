@@ -2,8 +2,10 @@
  * Market Making Strategy Adapter
  *
  * Wraps the pure engine into a Strategy that BotManager can run.
- * Uses batch order placement/cancellation for Polymarket (single API call
- * for all levels instead of N sequential calls).
+ * Uses concurrent order placement for Polymarket (parallel single-order calls
+ * via Promise.all) and batch cancellation (DELETE /orders).
+ * True batch placement (POST /orders) requires EIP-712 order signing — can be
+ * added when the signing infrastructure is in place.
  */
 
 import type { Strategy, StrategyConfig, Signal, StrategyContext } from '../bots/index';

@@ -499,6 +499,8 @@ export async function createGateway(config: Config): Promise<AppGateway> {
           apiSecret: poly!.apiSecret,
           apiPassphrase: poly!.apiPassphrase,
           privateKey: poly!.privateKey,
+          funderAddress: (poly as any)?.funderAddress || poly!.address,
+          signatureType: (poly as any)?.signatureType as number | undefined,
         } : undefined,
         kalshi: hasKalshiCreds ? {
           apiKeyId: kalshi!.apiKeyId,

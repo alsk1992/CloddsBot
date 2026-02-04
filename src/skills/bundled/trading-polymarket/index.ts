@@ -63,6 +63,7 @@ function getExecution(): ExecutionService | null {
           apiPassphrase: passphrase,
           privateKey: process.env.POLY_PRIVATE_KEY,
           funderAddress,
+          signatureType: process.env.POLY_SIGNATURE_TYPE ? Number(process.env.POLY_SIGNATURE_TYPE) : undefined,
         },
         dryRun: process.env.DRY_RUN === 'true',
       });
