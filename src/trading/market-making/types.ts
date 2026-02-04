@@ -55,6 +55,10 @@ export interface MMConfig {
   maxLossUsd: number;
   /** Max open orders per side */
   maxOrdersPerSide: number;
+  /** Spacing between price levels in cents (default: same as baseSpreadCents) */
+  levelSpacingCents?: number;
+  /** Size decay per level (0-1, e.g. 0.5 = each level is 50% of previous) */
+  levelSizeDecay?: number;
 }
 
 export interface MMState {
@@ -89,8 +93,14 @@ export interface Quote {
 }
 
 export interface QuoteResult {
+  /** Best bid (first level), null if inventory maxed */
   bid: Quote | null;
+  /** Best ask (first level), null if inventory maxed */
   ask: Quote | null;
+  /** All bid levels (closest to fair value first) */
+  bids: Quote[];
+  /** All ask levels (closest to fair value first) */
+  asks: Quote[];
   fairValue: number;
   spread: number;
   skew: number;

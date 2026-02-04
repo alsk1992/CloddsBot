@@ -68,6 +68,8 @@ async function handleStart(args: string): Promise<string> {
     maxPositionValueUsd: Number(flags['max-pos'] || 1000),
     maxLossUsd: Number(flags['max-loss'] || 100),
     maxOrdersPerSide: Number(flags['max-orders'] || 1),
+    levelSpacingCents: flags['level-spacing'] ? Number(flags['level-spacing']) : undefined,
+    levelSizeDecay: flags['level-decay'] ? Number(flags['level-decay']) : undefined,
   };
 
   try {
@@ -97,6 +99,7 @@ async function handleStart(args: string): Promise<string> {
       `| Size | ${mmConfig.orderSize} shares/side |`,
       `| Max Inventory | ${mmConfig.maxInventory} shares |`,
       `| Skew Factor | ${mmConfig.skewFactor} |`,
+      `| Levels/Side | ${mmConfig.maxOrdersPerSide} (spacing: ${mmConfig.levelSpacingCents ?? mmConfig.baseSpreadCents}c, decay: ${mmConfig.levelSizeDecay ?? 0.5}) |`,
       `| FV Method | ${mmConfig.fairValueMethod} |`,
       `| Requote | every ${mmConfig.requoteIntervalMs}ms |`,
       `| Max Loss | $${mmConfig.maxLossUsd} |`,
@@ -193,6 +196,9 @@ async function handleConfig(args: string): Promise<string> {
   if (flags['alpha']) mm.config.fairValueAlpha = Number(flags['alpha']);
   if (flags['interval']) mm.config.requoteIntervalMs = Number(flags['interval']);
   if (flags['max-loss']) mm.config.maxLossUsd = Number(flags['max-loss']);
+  if (flags['max-orders']) mm.config.maxOrdersPerSide = Number(flags['max-orders']);
+  if (flags['level-spacing']) mm.config.levelSpacingCents = Number(flags['level-spacing']);
+  if (flags['level-decay']) mm.config.levelSizeDecay = Number(flags['level-decay']);
 
   return `Config updated for "${id}". Changes take effect on next requote.`;
 }
@@ -232,6 +238,9 @@ function helpText(): string {
     '--fv-method M       Fair value: mid_price|weighted_mid|vwap|ema (default: weighted_mid)',
     '--interval N        Requote interval ms (default: 5000)',
     '--max-loss N        Max loss before halt USD (default: 100)',
+    '--max-orders N      Orders per side / levels (default: 1)',
+    '--level-spacing N   Cents between price levels (default: same as spread)',
+    '--level-decay N     Size decay per level 0-1 (default: 0.5)',
     '--neg-risk true     Enable negative risk mode',
     '--name "Name"       Display name for the outcome',
     '```',

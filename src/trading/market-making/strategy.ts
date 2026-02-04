@@ -115,16 +115,16 @@ export function createMMStrategy(
       // 5. Generate new quotes
       const quotes = generateQuotes(mmConfig, state, orderbook);
 
-      // 6. Place new orders via makerBuy/makerSell
+      // 6. Place new orders via makerBuy/makerSell (all levels)
       const signals: Signal[] = [];
 
-      if (quotes.bid) {
+      for (const bid of quotes.bids) {
         const result = await deps.execution.makerBuy({
           platform: mmConfig.platform,
           marketId: mmConfig.marketId,
           tokenId: mmConfig.tokenId,
-          price: quotes.bid.price,
-          size: quotes.bid.size,
+          price: bid.price,
+          size: bid.size,
           negRisk: mmConfig.negRisk,
         });
         if (result.success && result.orderId) {
@@ -134,21 +134,21 @@ export function createMMStrategy(
             platform: mmConfig.platform,
             marketId: mmConfig.marketId,
             outcome: mmConfig.outcomeName,
-            price: quotes.bid.price,
-            size: quotes.bid.size,
+            price: bid.price,
+            size: bid.size,
             confidence: 1,
-            reason: `MM bid @ ${quotes.bid.price} (fv=${quotes.fairValue.toFixed(2)}, skew=${quotes.skew.toFixed(3)})`,
+            reason: `MM bid L${signals.filter(s => s.type === 'buy').length + 1} @ ${bid.price} (fv=${quotes.fairValue.toFixed(2)}, skew=${quotes.skew.toFixed(3)})`,
           });
         }
       }
 
-      if (quotes.ask) {
+      for (const ask of quotes.asks) {
         const result = await deps.execution.makerSell({
           platform: mmConfig.platform,
           marketId: mmConfig.marketId,
           tokenId: mmConfig.tokenId,
-          price: quotes.ask.price,
-          size: quotes.ask.size,
+          price: ask.price,
+          size: ask.size,
           negRisk: mmConfig.negRisk,
         });
         if (result.success && result.orderId) {
@@ -158,10 +158,10 @@ export function createMMStrategy(
             platform: mmConfig.platform,
             marketId: mmConfig.marketId,
             outcome: mmConfig.outcomeName,
-            price: quotes.ask.price,
-            size: quotes.ask.size,
+            price: ask.price,
+            size: ask.size,
             confidence: 1,
-            reason: `MM ask @ ${quotes.ask.price} (fv=${quotes.fairValue.toFixed(2)}, skew=${quotes.skew.toFixed(3)})`,
+            reason: `MM ask L${signals.filter(s => s.type === 'sell').length + 1} @ ${ask.price} (fv=${quotes.fairValue.toFixed(2)}, skew=${quotes.skew.toFixed(3)})`,
           });
         }
       }

@@ -63,7 +63,9 @@ Automated two-sided quoting on prediction markets with inventory skew, volatilit
 | `--threshold N` | 1 | Min price change (cents) to trigger requote |
 | `--max-pos N` | 1000 | Max position value in USD |
 | `--max-loss N` | 100 | Max loss before auto-halt (USD) |
-| `--max-orders N` | 1 | Max open orders per side |
+| `--max-orders N` | 1 | Orders per side (levels) |
+| `--level-spacing N` | (=spread) | Cents between price levels |
+| `--level-decay N` | 0.5 | Size decay per level (0-1, e.g. 0.5 = each level half of previous) |
 | `--neg-risk true` | false | Enable negative risk mode (Polymarket crypto) |
 | `--name "Name"` | auto | Display name for the outcome |
 
@@ -80,6 +82,9 @@ Automated two-sided quoting on prediction markets with inventory skew, volatilit
 
 # Tight spread for liquid market
 /mm start polymarket 0xabc123 98765 --spread 1 --min-spread 1 --max-spread 5 --interval 2000
+
+# 3-level quoting: L1=50 shares, L2=25, L3=12 — spaced 2c apart
+/mm start polymarket 0xabc123 98765 --max-orders 3 --level-spacing 2 --level-decay 0.5 --size 50
 
 # Check all running MMs
 /mm status

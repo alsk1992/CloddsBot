@@ -179,25 +179,40 @@ export function generateQuotes(
     config.baseSpreadCents,
   );
 
-  // 6. Generate bid and ask prices
-  const bidPrice = clampPrice(emaFairValue - halfSpread - skew);
-  const askPrice = clampPrice(emaFairValue + halfSpread + skew);
+  // 6. Generate multi-level quotes
+  const numLevels = Math.max(1, config.maxOrdersPerSide);
+  const levelSpacing = (config.levelSpacingCents ?? config.baseSpreadCents) / 100;
+  const sizeDecay = config.levelSizeDecay ?? 0.5;
 
-  // 7. Build quotes, nulling out sides that would exceed inventory
-  let bid: Quote | null = null;
-  let ask: Quote | null = null;
+  const bids: Quote[] = [];
+  const asks: Quote[] = [];
+  let cumulativeBuySize = 0;
+  let cumulativeSellSize = 0;
 
-  if (!wouldExceedInventory(state.inventory, config.orderSize, 'buy', config.maxInventory)) {
-    bid = { side: 'buy', price: bidPrice, size: config.orderSize };
-  }
+  for (let i = 0; i < numLevels; i++) {
+    const levelOffset = i * levelSpacing;
+    const levelSize = Math.max(1, Math.round(config.orderSize * Math.pow(sizeDecay, i)));
 
-  if (!wouldExceedInventory(state.inventory, config.orderSize, 'sell', config.maxInventory)) {
-    ask = { side: 'sell', price: askPrice, size: config.orderSize };
+    // Bid levels: each further below fair value
+    const bidPrice = clampPrice(emaFairValue - halfSpread - skew - levelOffset);
+    if (!wouldExceedInventory(state.inventory, cumulativeBuySize + levelSize, 'buy', config.maxInventory)) {
+      bids.push({ side: 'buy', price: bidPrice, size: levelSize });
+      cumulativeBuySize += levelSize;
+    }
+
+    // Ask levels: each further above fair value
+    const askPrice = clampPrice(emaFairValue + halfSpread + skew + levelOffset);
+    if (!wouldExceedInventory(state.inventory, cumulativeSellSize + levelSize, 'sell', config.maxInventory)) {
+      asks.push({ side: 'sell', price: askPrice, size: levelSize });
+      cumulativeSellSize += levelSize;
+    }
   }
 
   return {
-    bid,
-    ask,
+    bid: bids[0] ?? null,
+    ask: asks[0] ?? null,
+    bids,
+    asks,
     fairValue: emaFairValue,
     spread: spreadCents,
     skew,
