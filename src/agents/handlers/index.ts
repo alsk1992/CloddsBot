@@ -33,13 +33,12 @@ import { walletsHandlers } from './wallets';
 import { arbitrageHandlers } from './arbitrage';
 import { paperTradingHandlers } from './paper-trading';
 import { credentialsHandlers } from './credentials';
-// TODO: Add more platform handlers as they're migrated
-// import { kalshiHandlers } from './kalshi';
-// import { predictfunHandlers } from './predictfun';
-// import { manifoldHandlers } from './manifold';
-// import { binanceHandlers } from './binance';
-// import { bybitHandlers } from './bybit';
-// import { hyperliquidHandlers } from './hyperliquid';
+import { binanceHandlers } from './binance';
+import { bybitHandlers } from './bybit';
+import { hyperliquidHandlers } from './hyperliquid';
+import { predictfunHandlers } from './predictfun';
+import { manifoldHandlers } from './manifold';
+import { kalshiHandlers } from './kalshi';
 
 /**
  * All handlers aggregated from platform modules
@@ -57,13 +56,12 @@ const allHandlers: HandlersMap = {
   ...arbitrageHandlers,
   ...paperTradingHandlers,
   ...credentialsHandlers,
-  // TODO: Add more as migrated
-  // ...kalshiHandlers,
-  // ...predictfunHandlers,
-  // ...manifoldHandlers,
-  // ...binanceHandlers,
-  // ...bybitHandlers,
-  // ...hyperliquidHandlers,
+  ...binanceHandlers,
+  ...bybitHandlers,
+  ...hyperliquidHandlers,
+  ...predictfunHandlers,
+  ...manifoldHandlers,
+  ...kalshiHandlers,
 };
 
 /**
@@ -139,3 +137,9 @@ export { walletsHandlers };
 export { arbitrageHandlers };
 export { paperTradingHandlers };
 export { credentialsHandlers };
+export { binanceHandlers };
+export { bybitHandlers };
+export { hyperliquidHandlers };
+export { predictfunHandlers };
+export { manifoldHandlers };
+export { kalshiHandlers };
