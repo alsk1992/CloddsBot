@@ -399,6 +399,16 @@ function wrapExecutionWithLogging(
     sendHeartbeat: execution.sendHeartbeat.bind(execution),
     stopHeartbeat: execution.stopHeartbeat.bind(execution),
     isHeartbeatActive: execution.isHeartbeatActive.bind(execution),
+    // Settlement methods (Polymarket)
+    getPendingSettlements: execution.getPendingSettlements.bind(execution),
+    // Collateral approval methods (Polymarket)
+    approveUSDC: execution.approveUSDC.bind(execution),
+    getUSDCAllowance: execution.getUSDCAllowance.bind(execution),
+    // Batch orderbook fetching
+    getOrderbooksBatch: execution.getOrderbooksBatch.bind(execution),
+    // Circuit breaker integration
+    setCircuitBreaker: execution.setCircuitBreaker.bind(execution),
+    getCircuitBreakerState: execution.getCircuitBreakerState.bind(execution),
   };
 }
 

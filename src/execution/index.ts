@@ -39,14 +39,16 @@ import {
   type FillEvent,
   type OrderEvent,
 } from '../feeds/polymarket/user-ws';
+import type { CircuitBreaker, CircuitBreakerState } from './circuit-breaker';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
 export type OrderSide = 'buy' | 'sell';
-// Note: Polymarket supports GTC, GTD, FOK. POST_ONLY is achieved via postOnly boolean flag.
-export type OrderType = 'GTC' | 'FOK' | 'GTD';
+// Note: Polymarket supports GTC, GTD, FOK, FAK. POST_ONLY is achieved via postOnly boolean flag.
+// FAK (Fill-And-Kill) is like IOC - partially fill what's available immediately, cancel the rest.
+export type OrderType = 'GTC' | 'FOK' | 'GTD' | 'FAK';
 export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'expired' | 'rejected';
 
 export interface OrderRequest {
@@ -137,6 +139,20 @@ export interface TrackedOrder {
   sizeMatched: number;
   timestamp: number;
   receivedAt: number;
+}
+
+/** Pending settlement for resolved markets */
+export interface PendingSettlement {
+  marketId: string;
+  conditionId: string;
+  tokenId: string;
+  outcome: 'yes' | 'no';
+  size: number;
+  /** Claimable amount in USDC (if market resolved in your favor) */
+  claimable: number;
+  /** Resolution status */
+  resolutionStatus: 'resolved' | 'pending' | 'disputed';
+  resolvedAt?: Date;
 }
 
 export interface ExecutionConfig {
@@ -235,6 +251,26 @@ export interface ExecutionService {
   stopHeartbeat(): void;
   /** Check if heartbeat is active. */
   isHeartbeatActive(): boolean;
+
+  // Polymarket Settlement
+  /** Get pending settlements for resolved markets */
+  getPendingSettlements(): Promise<PendingSettlement[]>;
+
+  // Polymarket Collateral Approval
+  /** Approve USDC spending for the CTF exchange (required before first trade) */
+  approveUSDC(amount?: number): Promise<{ success: boolean; txHash?: string; error?: string }>;
+  /** Check current USDC allowance for trading */
+  getUSDCAllowance(): Promise<number>;
+
+  // Batch Orderbook Fetching
+  /** Fetch orderbooks for multiple tokens in one call */
+  getOrderbooksBatch(tokenIds: string[]): Promise<Map<string, OrderbookData | null>>;
+
+  // Circuit Breaker Integration
+  /** Enable circuit breaker for order validation (blocks orders when tripped) */
+  setCircuitBreaker(breaker: import('./circuit-breaker').CircuitBreaker | null): void;
+  /** Get current circuit breaker state (null if not set) */
+  getCircuitBreakerState(): import('./circuit-breaker').CircuitBreakerState | null;
 }
 
 // =============================================================================
@@ -620,7 +656,7 @@ export async function getPolymarketTrades(
 // ORDERBOOK FETCHING FOR SLIPPAGE CALCULATION
 // =============================================================================
 
-interface OrderbookData {
+export interface OrderbookData {
   bids: [number, number][]; // [price, size]
   asks: [number, number][]; // [price, size]
   midPrice: number;
@@ -1990,6 +2026,188 @@ async function fetchOpinionOrderbook(tokenId: string): Promise<OrderbookData | n
 }
 
 // =============================================================================
+// POLYMARKET SETTLEMENT & APPROVAL
+// =============================================================================
+
+// USDC contract address on Polygon
+const POLY_USDC_ADDRESS = process.env.POLY_USDC_ADDRESS || '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+// Conditional Token Framework address
+const POLY_CTF_ADDRESS = process.env.POLY_CTF_ADDRESS || '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
+
+/**
+ * Get pending settlements for resolved markets
+ */
+async function getPolymarketPendingSettlements(
+  auth: PolymarketApiKeyAuth,
+  funderAddress?: string
+): Promise<PendingSettlement[]> {
+  const address = funderAddress || auth.address;
+  const url = `${POLY_CLOB_URL}/positions?address=${address}`;
+
+  const headers = buildPolymarketHeadersForUrl(auth, 'GET', url);
+
+  try {
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const positions = await response.json() as Array<{
+      asset_id?: string;
+      condition_id?: string;
+      market_id?: string;
+      size?: string;
+      outcome?: string;
+      resolved?: boolean;
+      resolution?: number;
+      claimable?: string;
+    }>;
+
+    // Filter to resolved positions with claimable amounts
+    return positions
+      .filter(p => p.resolved && parseFloat(p.claimable || '0') > 0)
+      .map(p => ({
+        marketId: p.market_id || p.condition_id || '',
+        conditionId: p.condition_id || '',
+        tokenId: p.asset_id || '',
+        outcome: (p.outcome?.toLowerCase() || 'yes') as 'yes' | 'no',
+        size: parseFloat(p.size || '0'),
+        claimable: parseFloat(p.claimable || '0'),
+        resolutionStatus: 'resolved' as const,
+        resolvedAt: undefined, // API doesn't return resolution time
+      }));
+  } catch (error) {
+    logger.error({ error, address }, 'Failed to fetch pending settlements');
+    return [];
+  }
+}
+
+/**
+ * Approve USDC spending for CTF exchange (required before first trade)
+ * This requires a transaction signing - returns the approval status
+ */
+async function approvePolymarketUSDC(
+  privateKey: string,
+  spender: string,
+  amount: number = Number.MAX_SAFE_INTEGER
+): Promise<{ success: boolean; txHash?: string; error?: string }> {
+  // Note: Full ERC20 approval requires web3/ethers and RPC connection
+  // This is a placeholder that documents the required flow
+  try {
+    // In a full implementation, this would:
+    // 1. Create web3/ethers instance with Polygon RPC
+    // 2. Create USDC contract instance
+    // 3. Call approve(spender, amount) and sign with privateKey
+    // 4. Wait for transaction confirmation
+
+    logger.warn(
+      { spender, amount },
+      'USDC approval requires full web3 implementation. Use Polymarket UI for initial approval.'
+    );
+
+    return {
+      success: false,
+      error: 'USDC approval requires web3 integration. Please approve via Polymarket UI for now.',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Approval failed',
+    };
+  }
+}
+
+/**
+ * Get current USDC allowance for trading
+ */
+async function getPolymarketUSDCAllowance(
+  ownerAddress: string,
+  spenderAddress: string
+): Promise<number> {
+  try {
+    // ERC20 allowance check via RPC
+    // This is a read-only call that doesn't require signing
+    const allowanceSelector = '0xdd62ed3e'; // allowance(address,address)
+    const paddedOwner = ownerAddress.slice(2).toLowerCase().padStart(64, '0');
+    const paddedSpender = spenderAddress.slice(2).toLowerCase().padStart(64, '0');
+    const data = `${allowanceSelector}${paddedOwner}${paddedSpender}`;
+
+    const rpcUrl = process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com';
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_call',
+        params: [{ to: POLY_USDC_ADDRESS, data }, 'latest'],
+        id: 1,
+      }),
+    });
+
+    const result = await response.json() as { result?: string };
+    if (!result.result || result.result === '0x') {
+      return 0;
+    }
+
+    // USDC has 6 decimals
+    const allowanceWei = BigInt(result.result);
+    return Number(allowanceWei) / 1e6;
+  } catch (error) {
+    logger.warn({ error, ownerAddress }, 'Failed to fetch USDC allowance');
+    return 0;
+  }
+}
+
+/**
+ * Batch fetch orderbooks for multiple tokens
+ */
+async function getPolymarketOrderbooksBatch(
+  tokenIds: string[]
+): Promise<Map<string, OrderbookData | null>> {
+  const results = new Map<string, OrderbookData | null>();
+
+  // Fetch in parallel with concurrency limit
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < tokenIds.length; i += BATCH_SIZE) {
+    const batch = tokenIds.slice(i, i + BATCH_SIZE);
+    const promises = batch.map(async (tokenId) => {
+      try {
+        const response = await fetch(`${POLY_CLOB_URL}/book?token_id=${tokenId}`);
+        if (!response.ok) {
+          results.set(tokenId, null);
+          return;
+        }
+
+        const data = await response.json() as {
+          bids?: Array<{ price: string; size: string }>;
+          asks?: Array<{ price: string; size: string }>;
+        };
+
+        const bids: [number, number][] = (data.bids || [])
+          .map((b) => [parseFloat(b.price), parseFloat(b.size)] as [number, number])
+          .sort((a, b) => b[0] - a[0]);
+
+        const asks: [number, number][] = (data.asks || [])
+          .map((a) => [parseFloat(a.price), parseFloat(a.size)] as [number, number])
+          .sort((a, b) => a[0] - b[0]);
+
+        const bestBid = bids[0]?.[0] || 0;
+        const bestAsk = asks[0]?.[0] || 1;
+        const midPrice = (bestBid + bestAsk) / 2;
+
+        results.set(tokenId, { bids, asks, midPrice });
+      } catch {
+        results.set(tokenId, null);
+      }
+    });
+
+    await Promise.all(promises);
+  }
+
+  return results;
+}
+
+// =============================================================================
 // EXECUTION SERVICE
 // =============================================================================
 
@@ -2005,6 +2223,9 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
   const fillCallbacks = new Set<(fill: TrackedFill) => void>();
   const orderCallbacks = new Set<(order: TrackedOrder) => void>();
   const fillWaiters = new Map<string, Array<(fill: TrackedFill | null) => void>>();
+
+  // Circuit breaker integration
+  let circuitBreaker: CircuitBreaker | null = null;
 
   function handleFillEvent(event: FillEvent): void {
     const fill: TrackedFill = {
@@ -2241,6 +2462,12 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
   // ==========================================================================
 
   function validateOrder(request: OrderRequest): string | null {
+    // Circuit breaker check - block orders when tripped
+    if (circuitBreaker && !circuitBreaker.canTrade()) {
+      const state = circuitBreaker.getState();
+      return `Trading blocked by circuit breaker: ${state.tripReason || 'tripped'}. Reset at: ${state.resetAt?.toISOString() || 'manual reset required'}`;
+    }
+
     const notional = request.price * request.size;
 
     if (notional > maxOrderSize) {
@@ -2929,6 +3156,69 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
 
     isHeartbeatActive() {
       return isHeartbeatActive();
+    },
+
+    // =========================================================================
+    // POLYMARKET SETTLEMENT
+    // =========================================================================
+
+    async getPendingSettlements() {
+      if (!config.polymarket) {
+        return [];
+      }
+      return getPolymarketPendingSettlements(
+        config.polymarket,
+        config.polymarket.funderAddress
+      );
+    },
+
+    // =========================================================================
+    // POLYMARKET COLLATERAL APPROVAL
+    // =========================================================================
+
+    async approveUSDC(amount?: number) {
+      if (!config.polymarket?.privateKey) {
+        return {
+          success: false,
+          error: 'Polymarket private key not configured',
+        };
+      }
+      // Approve for both CTF exchanges
+      const spender = POLY_CTF_EXCHANGE;
+      return approvePolymarketUSDC(config.polymarket.privateKey, spender, amount);
+    },
+
+    async getUSDCAllowance() {
+      if (!config.polymarket) {
+        return 0;
+      }
+      const owner = config.polymarket.funderAddress || config.polymarket.address;
+      return getPolymarketUSDCAllowance(owner, POLY_CTF_EXCHANGE);
+    },
+
+    // =========================================================================
+    // BATCH ORDERBOOK FETCHING
+    // =========================================================================
+
+    async getOrderbooksBatch(tokenIds: string[]) {
+      return getPolymarketOrderbooksBatch(tokenIds);
+    },
+
+    // =========================================================================
+    // CIRCUIT BREAKER INTEGRATION
+    // =========================================================================
+
+    setCircuitBreaker(breaker: CircuitBreaker | null) {
+      circuitBreaker = breaker;
+      if (breaker) {
+        logger.info('Circuit breaker enabled for order validation');
+      } else {
+        logger.info('Circuit breaker disabled');
+      }
+    },
+
+    getCircuitBreakerState() {
+      return circuitBreaker?.getState() ?? null;
     },
   };
 

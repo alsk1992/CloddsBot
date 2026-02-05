@@ -137,6 +137,11 @@ function helpText(): string {
     '  /poly heartbeat status                  - Check heartbeat status',
     '  /poly heartbeat stop                    - Stop heartbeat (orders cancelled in 10s)',
     '',
+    '**Account & Settlements:**',
+    '  /poly settlements                       - View pending settlements from resolved markets',
+    '  /poly allowance                         - Check USDC approval status',
+    '  /poly orderbooks <token1> [token2] ...  - Batch fetch orderbooks',
+    '',
     '**Env vars:** POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE',
     '  Optional: POLY_PRIVATE_KEY, POLY_FUNDER_ADDRESS',
     '',
@@ -1261,6 +1266,78 @@ async function execute(args: string): Promise<string> {
         } catch (err) {
           return `Failed to start heartbeat: ${err instanceof Error ? err.message : String(err)}`;
         }
+      }
+
+      case 'settlements':
+      case 'settle': {
+        // /poly settlements - Show pending settlements for resolved markets
+        const exec = getExecution();
+        if (!exec) {
+          return 'Polymarket trading not configured. Set env vars and restart.';
+        }
+
+        const settlements = await exec.getPendingSettlements();
+        if (settlements.length === 0) {
+          return '**No Pending Settlements**\n\nYou have no claimable settlements from resolved markets.';
+        }
+
+        let output = '**Pending Settlements**\n\n';
+        let totalClaimable = 0;
+        for (const s of settlements) {
+          output += `• ${s.outcome.toUpperCase()} @ ${s.marketId.slice(0, 12)}...\n`;
+          output += `  Size: ${s.size.toFixed(2)} | Claimable: $${s.claimable.toFixed(2)}\n`;
+          totalClaimable += s.claimable;
+        }
+        output += `\n**Total Claimable: $${totalClaimable.toFixed(2)}**`;
+        output += '\n\n_Use Polymarket UI to claim settlements._';
+        return output;
+      }
+
+      case 'allowance':
+      case 'approval': {
+        // /poly allowance - Check USDC approval status for trading
+        const exec = getExecution();
+        if (!exec) {
+          return 'Polymarket trading not configured. Set env vars and restart.';
+        }
+
+        const allowance = await exec.getUSDCAllowance();
+        const isApproved = allowance > 1000000; // > $1M effectively unlimited
+
+        return '**USDC Allowance Status**\n\n' +
+          `Current Allowance: ${isApproved ? '✅ Unlimited' : `$${allowance.toFixed(2)}`}\n` +
+          (isApproved
+            ? 'Your wallet is approved for trading.'
+            : 'You may need to approve USDC spending via the Polymarket UI before trading.');
+      }
+
+      case 'orderbooks':
+      case 'obs': {
+        // /poly orderbooks <tokenId1> [tokenId2] ... - Batch fetch orderbooks
+        const tokenIds = parts.slice(1).filter(t => t.length > 10);
+        if (tokenIds.length === 0) {
+          return 'Usage: `/poly orderbooks <tokenId1> [tokenId2] ...`\n\nFetch orderbooks for multiple tokens in one call.';
+        }
+
+        const exec = getExecution();
+        if (!exec) {
+          return 'Polymarket trading not configured. Set env vars and restart.';
+        }
+
+        const orderbooks = await exec.getOrderbooksBatch(tokenIds);
+        let output = `**Orderbooks (${orderbooks.size} tokens)**\n\n`;
+
+        for (const [tokenId, ob] of orderbooks) {
+          if (!ob) {
+            output += `• ${tokenId.slice(0, 12)}...: _Failed to fetch_\n`;
+            continue;
+          }
+          const bestBid = ob.bids[0]?.[0] || 0;
+          const bestAsk = ob.asks[0]?.[0] || 1;
+          const spread = ((bestAsk - bestBid) * 100).toFixed(1);
+          output += `• ${tokenId.slice(0, 12)}...: Bid ${bestBid.toFixed(2)} / Ask ${bestAsk.toFixed(2)} (${spread}% spread)\n`;
+        }
+        return output;
       }
 
       case 'help':

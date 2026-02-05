@@ -664,6 +664,60 @@ python trading/polymarket.py cancel_all
 
 ---
 
+## Clodds CLI Commands (`/poly`)
+
+Access Polymarket trading directly from Claude Code:
+
+### Market Data
+```bash
+/poly search <query>                     # Search markets
+/poly market <condition-id>              # Market details
+/poly book <token-id>                    # View orderbook
+```
+
+### Trading
+```bash
+/poly buy <token-id> <size> <price>      # Buy shares (limit)
+/poly sell <token-id> <size> <price>     # Sell shares (limit)
+/poly orders                             # Open orders
+/poly cancel <order-id>                  # Cancel order
+/poly cancel all                         # Cancel all orders
+/poly trades [limit]                     # Recent trade history
+/poly balance                            # USDC + positions
+```
+
+### Advanced Orders
+```bash
+/poly twap <buy|sell> <token> <total> <price> [slices] [interval-sec]
+/poly bracket <token> <size> <tp> <sl>   # TP + SL bracket
+/poly trigger buy <token> <size> <price> # Buy when price drops
+/poly redeem                             # Redeem resolved positions
+```
+
+### Real-Time Fills (WebSocket)
+```bash
+/poly fills                              # Connect fills WebSocket
+/poly fills status                       # Show connection + recent fills
+/poly fills stop                         # Disconnect fills WebSocket
+/poly fills clear                        # Clear tracked fills
+```
+
+### Order Heartbeat
+```bash
+/poly heartbeat                          # Start heartbeat (keeps orders alive)
+/poly heartbeat status                   # Check heartbeat status
+/poly heartbeat stop                     # Stop heartbeat (orders cancelled in 10s)
+```
+
+### Account & Settlements
+```bash
+/poly settlements                        # View pending settlements from resolved markets
+/poly allowance                          # Check USDC approval status
+/poly orderbooks <token1> [token2] ...   # Batch fetch orderbooks
+```
+
+---
+
 ## Complete ClobClient Method Reference
 
 ### Health & Config (L0 - No Auth)
