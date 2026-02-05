@@ -1784,6 +1784,115 @@ const result = await executeMeteoraDlmmSwap(connection, keypair, {
 
 ---
 
+## Kamino Finance (Solana)
+
+Kamino Finance is Solana's largest lending protocol and liquidity vault provider. It offers lending/borrowing with health monitoring and automated liquidity vaults.
+
+### CLI Commands (15 total)
+
+**Lending:**
+```
+/kamino deposit <amount> <token>          Deposit collateral
+/kamino withdraw <amount|all> <token>     Withdraw collateral
+/kamino borrow <amount> <token>           Borrow assets
+/kamino repay <amount|all> <token>        Repay borrowed assets
+/kamino obligation                        View your positions
+/kamino health                            Check health factor & liquidation risk
+/kamino reserves                          List available reserves with rates
+/kamino rates                             View supply/borrow APYs
+```
+
+**Liquidity Vaults:**
+```
+/kamino strategies                        List all vault strategies
+/kamino strategy <address>                Get strategy details
+/kamino vault-deposit <strat> <amtA> [amtB]  Deposit to vault
+/kamino vault-withdraw <strat> [shares|all]  Withdraw from vault
+/kamino shares                            View your vault shares
+/kamino share-price <strategy>            Get strategy share price
+```
+
+**Info:**
+```
+/kamino markets                           List lending markets
+```
+
+### Examples
+
+```
+/kamino deposit 100 USDC           Deposit 100 USDC as collateral
+/kamino borrow 50 SOL              Borrow 50 SOL against collateral
+/kamino health                     Check liquidation risk
+/kamino repay all SOL              Repay all borrowed SOL
+/kamino rates                      View current APYs
+```
+
+### SDK Usage
+
+```typescript
+import {
+  depositToKamino,
+  borrowFromKamino,
+  getKaminoObligation,
+  getKaminoReserves,
+} from 'clodds/solana/kamino';
+
+// Deposit collateral
+const deposit = await depositToKamino(connection, keypair, {
+  reserveMint: usdcMint,
+  amount: '100000000', // 100 USDC (6 decimals)
+});
+
+// Borrow against collateral
+const borrow = await borrowFromKamino(connection, keypair, {
+  reserveMint: solMint,
+  amount: '1000000000', // 1 SOL (9 decimals)
+});
+
+// Check health factor
+const obligation = await getKaminoObligation(connection, keypair);
+console.log(`Health: ${obligation.healthFactor}`);
+console.log(`LTV: ${obligation.ltv}%`);
+
+// Get reserve rates
+const reserves = await getKaminoReserves(connection);
+for (const r of reserves) {
+  console.log(`${r.symbol}: Supply ${r.depositRate}% / Borrow ${r.borrowRate}%`);
+}
+```
+
+### Liquidity Vaults SDK
+
+```typescript
+import {
+  getKaminoStrategies,
+  depositToKaminoVault,
+  withdrawFromKaminoVault,
+  getKaminoUserShares,
+} from 'clodds/solana/kamino';
+
+// List strategies
+const strategies = await getKaminoStrategies(connection);
+
+// Deposit to vault
+const result = await depositToKaminoVault(connection, keypair, {
+  strategyAddress: 'ABC123...',
+  tokenAAmount: '1000000',
+  tokenBAmount: '1000000',
+});
+
+// Withdraw all shares
+const withdraw = await withdrawFromKaminoVault(connection, keypair, {
+  strategyAddress: 'ABC123...',
+  withdrawAll: true,
+});
+
+// Check your shares
+const shares = await getKaminoUserShares(connection, keypair);
+```
+
+---
+
 ## Pump.fun (Solana)
 
 Pump.fun is a token launchpad on Solana for trading new memecoins.
@@ -1876,9 +1985,11 @@ export SOLANA_PRIVATE_KEY="your-private-key" # For signing transactions
 
 **Wallet Lookup:**
 ```
-/bags wallet <provider> <username>       Lookup by social (twitter/github/kick/tiktok)
+/bags wallet <provider> <username>       Lookup by social
 /bags wallets <provider> <user1,user2>   Bulk lookup
 ```
+
+**Providers:** twitter, github, kick, tiktok, instagram, onlyfans, solana, apple, google, email, moltbook
 
 **Partner System:**
 ```
@@ -1910,34 +2021,25 @@ export SOLANA_PRIVATE_KEY="your-private-key" # For signing transactions
 | `bags_partner_claim` | Claim partner fees |
 | `bags_partner_stats` | Get partner statistics |
 
-### SDK Usage
+### Programmatic Usage
+
+Use via the agent handlers or swarm builders:
 
 ```typescript
-import { bagsQuote, bagsSwap, listBagsPools, bagsLaunch } from 'clodds/solana/bags';
+// Via agent handlers (src/agents/handlers/solana.ts)
+import { solanaHandlers } from './agents/handlers/solana';
 
-// Get quote
-const quote = await bagsQuote({
-  inputMint: 'So11....',
-  outputMint: 'USDC...',
-  amount: '1000000',
+const quote = await solanaHandlers.bags_quote({
+  input_mint: 'So11111111111111111111111111111111111111112',
+  output_mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  amount: '1000000000', // 1 SOL in lamports
 });
 
-// Execute swap
-const result = await bagsSwap({
-  inputMint: quote.inputMint,
-  outputMint: quote.outputMint,
-  amount: '1000000',
-  slippageBps: 50,
-});
+// Via swarm builder for multi-wallet trading (src/solana/swarm-builders.ts)
+import { BagsBuilder } from './solana/swarm-builders';
 
-// Launch a token
-const launch = await bagsLaunch({
-  name: 'My Token',
-  symbol: 'MTK',
-  description: 'A great token',
-  twitter: 'mytoken',
-  initialSol: 0.1,
-});
+const builder = new BagsBuilder();
+const tx = await builder.buildBuyTransaction(connection, wallet, mint, 0.1, { slippageBps: 100 });
 ```
 
 ### Features
@@ -1947,7 +2049,7 @@ const launch = await bagsLaunch({
 - Meteora DAMM v2 pool integration
 - Virtual pool and custom vault fee claiming
 - Partner referral system
-- Social wallet lookup (Twitter, GitHub, Kick, TikTok)
+- Social wallet lookup (11 providers: Twitter, GitHub, Kick, TikTok, Instagram, OnlyFans, Solana, Apple, Google, Email, Moltbook)
 - Jito bundle support for launches
 
 ### API Details
