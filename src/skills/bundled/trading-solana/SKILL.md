@@ -245,23 +245,84 @@ const pools = await listMeteoraDlmmPools({ token: 'SOL' });
 ### Pump.fun
 
 ```typescript
-import { executePumpFunTrade } from 'clodds/solana/pumpapi';
+import {
+  executePumpFunTrade,
+  getBondingCurveState,
+  getTokenPriceInfo,
+  calculateBuyQuote,
+  calculateSellQuote,
+  isGraduated,
+  getTokenInfo,
+  getPumpPortalQuote,
+} from 'clodds/solana/pumpapi';
 
 // Buy token on Pump.fun
-const result = await executePumpFunTrade({
+const result = await executePumpFunTrade(connection, keypair, {
   mint: 'token_mint_address',
   action: 'buy',
-  amount: 0.1,  // SOL amount
-  slippage: 5,  // 5% slippage for volatile tokens
+  amount: 0.1,           // SOL amount
+  denominatedInSol: true,
+  slippageBps: 500,      // 5% slippage for volatile tokens
 });
 
 // Sell token
-const result = await executePumpFunTrade({
+const result = await executePumpFunTrade(connection, keypair, {
   mint: 'token_mint_address',
   action: 'sell',
-  amount: 1000000,  // Token amount
-  slippage: 5,
+  amount: 1000000,       // Token amount
+  denominatedInSol: false,
+  slippageBps: 500,
 });
+```
+
+#### On-Chain Bonding Curve
+
+```typescript
+import BN from 'bn.js';
+
+// Get bonding curve state directly from chain
+const state = await getBondingCurveState(connection, 'token_mint');
+if (state) {
+  console.log(`Virtual SOL: ${state.virtualSolReserves.toString()}`);
+  console.log(`Virtual Tokens: ${state.virtualTokenReserves.toString()}`);
+  console.log(`Graduated: ${state.complete}`);
+}
+
+// Get comprehensive price info
+const priceInfo = await getTokenPriceInfo(connection, 'token_mint', 200); // 200 = SOL price USD
+console.log(`Price: ${priceInfo.priceInSol} SOL ($${priceInfo.priceInUsd})`);
+console.log(`Market Cap: $${priceInfo.marketCapUsd}`);
+console.log(`Bonding Progress: ${(priceInfo.bondingProgress * 100).toFixed(1)}%`);
+
+// Calculate buy quote with price impact
+const solAmount = new BN(0.5 * 1e9); // 0.5 SOL in lamports
+const buyQuote = calculateBuyQuote(state, solAmount, 100); // 1% fee
+console.log(`Tokens out: ${buyQuote.tokensOut.toNumber() / 1e6}`);
+console.log(`Price impact: ${buyQuote.priceImpact.toFixed(2)}%`);
+
+// Calculate sell quote
+const tokenAmount = new BN(1000000 * 1e6); // 1M tokens
+const sellQuote = calculateSellQuote(state, tokenAmount, 100);
+console.log(`SOL out: ${sellQuote.solOut.toNumber() / 1e9}`);
+
+// Check if token graduated to Raydium
+const graduation = await isGraduated(connection, 'token_mint');
+if (graduation.graduated) {
+  console.log(`Raydium pool: ${graduation.raydiumPool}`);
+}
+```
+
+#### PumpPortal Quote API
+
+```typescript
+// Get quote from PumpPortal (supports pump and raydium pools)
+const quote = await getPumpPortalQuote({
+  mint: 'token_mint',
+  action: 'buy',
+  amount: '0.5',  // 0.5 SOL
+  pool: 'auto',   // pump, raydium, or auto
+});
+console.log(`Input: ${quote.inputAmount}, Output: ${quote.outputAmount}`);
 ```
 
 ### Token Resolution

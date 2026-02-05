@@ -52,7 +52,16 @@ import { createSmsTool, SmsTool } from '../tools/sms';
 import { createTranscriptionTool, TranscriptionTool } from '../tools/transcription';
 import { buildKalshiHeadersForUrl, KalshiApiKeyAuth, normalizeKalshiPrivateKey } from '../utils/kalshi-auth';
 import { buildPolymarketHeadersForUrl, PolymarketApiKeyAuth } from '../utils/polymarket-auth';
-import { executePumpFunTrade } from '../solana/pumpapi';
+import {
+  executePumpFunTrade,
+  getBondingCurveState,
+  getTokenPriceInfo,
+  calculateBuyQuote,
+  calculateSellQuote,
+  isGraduated,
+  getTokenInfo,
+  getPumpPortalQuote,
+} from '../solana/pumpapi';
 import {
   executeJupiterSwap,
   getJupiterQuote,
@@ -5118,6 +5127,81 @@ function buildTools(): ToolDefinition[] {
           website: { type: 'string', description: 'Website URL' },
         },
         required: ['name', 'symbol', 'description'],
+      },
+    },
+    // Pump.fun On-Chain Tools
+    {
+      name: 'pumpfun_bonding_curve',
+      description: 'Get on-chain bonding curve state for a Pump.fun token including virtual/real reserves.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'pumpfun_price_onchain',
+      description: 'Get token price calculated directly from on-chain bonding curve state (more accurate than API).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          sol_price_usd: { type: 'number', description: 'Optional SOL price in USD for USD conversion' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'pumpfun_buy_quote',
+      description: 'Calculate how many tokens you get for X SOL on Pump.fun, with price impact.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          sol_amount: { type: 'number', description: 'SOL amount to spend' },
+          fee_bps: { type: 'number', description: 'Fee in basis points (default 100 = 1%)' },
+        },
+        required: ['mint', 'sol_amount'],
+      },
+    },
+    {
+      name: 'pumpfun_sell_quote',
+      description: 'Calculate how much SOL you get for X tokens on Pump.fun, with price impact.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          token_amount: { type: 'number', description: 'Token amount to sell (in token units, not lamports)' },
+          fee_bps: { type: 'number', description: 'Fee in basis points (default 100 = 1%)' },
+        },
+        required: ['mint', 'token_amount'],
+      },
+    },
+    {
+      name: 'pumpfun_graduation_check',
+      description: 'Check if a Pump.fun token has graduated to Raydium.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+        },
+        required: ['mint'],
+      },
+    },
+    {
+      name: 'pumpfun_portal_quote',
+      description: 'Get swap quote from PumpPortal API (supports both pump and raydium pools).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mint: { type: 'string', description: 'Token mint address' },
+          action: { type: 'string', enum: ['buy', 'sell'], description: 'Buy or sell' },
+          amount: { type: 'string', description: 'Amount (SOL for buy, tokens for sell)' },
+          pool: { type: 'string', description: 'Pool to use: pump, raydium, or auto' },
+        },
+        required: ['mint', 'action', 'amount'],
       },
     },
     // Pump.fun Swarm Trading
@@ -13550,6 +13634,124 @@ async function executeTool(
             error: (err as Error).message,
             hint: 'Ensure PUMPFUN_LOCAL_TX_URL is reachable and SOLANA_PRIVATE_KEY is set.',
           });
+        }
+      }
+
+      case 'pumpfun_bonding_curve': {
+        try {
+          const connection = getSolanaConnection();
+          const state = await getBondingCurveState(connection, toolInput.mint as string);
+          if (!state) {
+            return JSON.stringify({ error: 'Bonding curve not found - token may not exist or has graduated' });
+          }
+          return JSON.stringify({
+            virtualTokenReserves: state.virtualTokenReserves.toString(),
+            virtualSolReserves: state.virtualSolReserves.toString(),
+            realTokenReserves: state.realTokenReserves.toString(),
+            realSolReserves: state.realSolReserves.toString(),
+            tokenTotalSupply: state.tokenTotalSupply.toString(),
+            complete: state.complete,
+            isMayhemMode: state.isMayhemMode,
+          });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'pumpfun_price_onchain': {
+        try {
+          const connection = getSolanaConnection();
+          const priceInfo = await getTokenPriceInfo(
+            connection,
+            toolInput.mint as string,
+            toolInput.sol_price_usd as number | undefined
+          );
+          if (!priceInfo) {
+            return JSON.stringify({ error: 'Token not found on Pump.fun' });
+          }
+          return JSON.stringify(priceInfo);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'pumpfun_buy_quote': {
+        try {
+          const connection = getSolanaConnection();
+          const state = await getBondingCurveState(connection, toolInput.mint as string);
+          if (!state) {
+            return JSON.stringify({ error: 'Bonding curve not found' });
+          }
+          if (state.complete) {
+            return JSON.stringify({ error: 'Token has graduated to Raydium - use Jupiter or Raydium for swaps' });
+          }
+          const BN = (await import('bn.js')).default;
+          const solAmount = new BN(Math.floor((toolInput.sol_amount as number) * 1e9));
+          const quote = calculateBuyQuote(state, solAmount, toolInput.fee_bps as number | undefined);
+          return JSON.stringify({
+            tokensOut: quote.tokensOut.toString(),
+            tokensOutFormatted: (quote.tokensOut.toNumber() / 1e6).toFixed(2),
+            solCost: quote.solCost.toString(),
+            fee: quote.fee.toString(),
+            feeFormatted: (quote.fee.toNumber() / 1e9).toFixed(6),
+            priceImpact: quote.priceImpact.toFixed(4),
+            newPrice: quote.newPrice,
+          });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'pumpfun_sell_quote': {
+        try {
+          const connection = getSolanaConnection();
+          const state = await getBondingCurveState(connection, toolInput.mint as string);
+          if (!state) {
+            return JSON.stringify({ error: 'Bonding curve not found' });
+          }
+          if (state.complete) {
+            return JSON.stringify({ error: 'Token has graduated to Raydium - use Jupiter or Raydium for swaps' });
+          }
+          const BN = (await import('bn.js')).default;
+          const tokenAmount = new BN(Math.floor((toolInput.token_amount as number) * 1e6));
+          const quote = calculateSellQuote(state, tokenAmount, toolInput.fee_bps as number | undefined);
+          return JSON.stringify({
+            solOut: quote.solOut.toString(),
+            solOutFormatted: (quote.solOut.toNumber() / 1e9).toFixed(6),
+            fee: quote.fee.toString(),
+            feeFormatted: (quote.fee.toNumber() / 1e9).toFixed(6),
+            priceImpact: quote.priceImpact.toFixed(4),
+            newPrice: quote.newPrice,
+          });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'pumpfun_graduation_check': {
+        try {
+          const connection = getSolanaConnection();
+          const result = await isGraduated(connection, toolInput.mint as string);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'pumpfun_portal_quote': {
+        try {
+          const quote = await getPumpPortalQuote({
+            mint: toolInput.mint as string,
+            action: toolInput.action as 'buy' | 'sell',
+            amount: toolInput.amount as string,
+            pool: toolInput.pool as string | undefined,
+          });
+          if (!quote) {
+            return JSON.stringify({ error: 'Quote not available' });
+          }
+          return JSON.stringify(quote);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
