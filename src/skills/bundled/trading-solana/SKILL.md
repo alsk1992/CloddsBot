@@ -59,10 +59,10 @@ SOLANA_RPC_URL=https://api.mainnet-beta.solana.com  # Optional: custom RPC
 
 | DEX | Type | Features |
 |-----|------|----------|
-| Jupiter | Aggregator | Best route across all DEXes, lowest slippage |
+| Jupiter | Aggregator | Best route across all DEXes, limit orders, DCA |
 | Raydium | AMM | Concentrated liquidity, high volume |
-| Orca | Whirlpool | Concentrated liquidity pools |
-| Meteora | DLMM | Dynamic liquidity market maker |
+| Orca | Whirlpool | Concentrated liquidity pools, LP management |
+| Meteora | DLMM | Dynamic liquidity market maker, LP management |
 | Pump.fun | Launchpad | New token launches |
 
 ---
@@ -72,18 +72,68 @@ SOLANA_RPC_URL=https://api.mainnet-beta.solana.com  # Optional: custom RPC
 ### Jupiter (Aggregator - Recommended)
 
 ```typescript
-import { executeJupiterSwap } from 'clodds/solana/jupiter';
+import {
+  executeJupiterSwap,
+  getJupiterQuote,
+  createJupiterLimitOrder,
+  cancelJupiterLimitOrder,
+  listJupiterLimitOrders,
+  createJupiterDCA,
+  closeJupiterDCA,
+  listJupiterDCAs,
+} from 'clodds/solana/jupiter';
 
 // Execute swap via Jupiter (best route)
-const result = await executeJupiterSwap({
+const result = await executeJupiterSwap(connection, keypair, {
   inputMint: 'So11111111111111111111111111111111111111112',  // SOL
   outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-  amount: 1_000_000_000,  // 1 SOL in lamports
-  slippageBps: 50,        // 0.5% slippage
+  amount: '1000000000',  // 1 SOL in lamports
+  slippageBps: 50,       // 0.5% slippage
 });
 
 console.log(`Swapped: ${result.inAmount} → ${result.outAmount}`);
 console.log(`TX: ${result.signature}`);
+```
+
+#### Jupiter Limit Orders
+
+```typescript
+// Create limit order - sell 1 SOL for minimum 250 USDC
+const order = await createJupiterLimitOrder(connection, keypair, {
+  inputMint: 'So11111111111111111111111111111111111111112',
+  outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  inAmount: '1000000000',  // 1 SOL
+  outAmount: '250000000',  // 250 USDC
+  expiredAtMs: Date.now() + 7 * 24 * 60 * 60 * 1000, // 1 week expiry
+});
+console.log(`Order created: ${order.orderPubKey}`);
+
+// List open orders
+const orders = await listJupiterLimitOrders(connection, keypair.publicKey.toBase58());
+console.log(`Open orders: ${orders.length}`);
+
+// Cancel order
+await cancelJupiterLimitOrder(connection, keypair, order.orderPubKey);
+```
+
+#### Jupiter DCA (Dollar Cost Averaging)
+
+```typescript
+// Create DCA - swap 100 USDC to JUP, 10 USDC every hour
+const dca = await createJupiterDCA(connection, keypair, {
+  inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  outputMint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', // JUP
+  inAmount: '100000000',        // Total 100 USDC
+  inAmountPerCycle: '10000000', // 10 USDC per swap
+  cycleSecondsApart: 3600,      // Every hour (min 30 seconds)
+});
+console.log(`DCA created: ${dca.dcaPubKey}`);
+
+// List active DCAs
+const dcas = await listJupiterDCAs(connection, keypair.publicKey.toBase58());
+
+// Close DCA and withdraw remaining funds
+await closeJupiterDCA(connection, keypair, dca.dcaPubKey);
 ```
 
 ### Raydium

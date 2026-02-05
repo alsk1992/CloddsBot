@@ -53,11 +53,71 @@ import { createTranscriptionTool, TranscriptionTool } from '../tools/transcripti
 import { buildKalshiHeadersForUrl, KalshiApiKeyAuth, normalizeKalshiPrivateKey } from '../utils/kalshi-auth';
 import { buildPolymarketHeadersForUrl, PolymarketApiKeyAuth } from '../utils/polymarket-auth';
 import { executePumpFunTrade } from '../solana/pumpapi';
-import { executeJupiterSwap } from '../solana/jupiter';
+import {
+  executeJupiterSwap,
+  getJupiterQuote,
+  createJupiterLimitOrder,
+  cancelJupiterLimitOrder,
+  batchCancelJupiterLimitOrders,
+  listJupiterLimitOrders,
+  getJupiterLimitOrder,
+  getJupiterLimitOrderHistory,
+  getJupiterTradeHistory,
+  getJupiterLimitOrderFee,
+  listJupiterLimitOrdersByMint,
+  cancelExpiredJupiterLimitOrder,
+  createJupiterDCA,
+  closeJupiterDCA,
+  depositJupiterDCA,
+  withdrawJupiterDCA,
+  listJupiterDCAs,
+  listClosedJupiterDCAs,
+  getJupiterDCA,
+  getJupiterDCABalance,
+  getJupiterDCAFillHistory,
+  getJupiterDCAAvailableTokens,
+} from '../solana/jupiter';
 import { getSolanaConnection, loadSolanaKeypair } from '../solana/wallet';
-import { executeMeteoraDlmmSwap } from '../solana/meteora';
+import {
+  executeMeteoraDlmmSwap,
+  executeMeteoraDlmmSwapExactOut,
+  executeMeteoraDlmmSwapWithPriceImpact,
+  getMeteoraDlmmQuoteExactOut,
+  initializeMeteoraDlmmPosition,
+  createEmptyMeteoraDlmmPosition,
+  getMeteoraDlmmPositionsByUser,
+  getAllMeteoraDlmmPositionsByUser,
+  addMeteoraDlmmLiquidity,
+  removeMeteoraDlmmLiquidity,
+  closeMeteoraDlmmPosition,
+  claimMeteoraDlmmSwapFee,
+  claimAllMeteoraDlmmSwapFees,
+  claimMeteoraDlmmLMReward,
+  claimAllMeteoraDlmmRewards,
+  getMeteoraDlmmActiveBin,
+  getMeteoraDlmmFeeInfo,
+  getMeteoraDlmmDynamicFee,
+  getMeteoraDlmmEmissionRate,
+  createMeteoraDlmmPool,
+  createCustomizableMeteoraDlmmPool,
+} from '../solana/meteora';
 import { executeRaydiumSwap, getRaydiumQuote } from '../solana/raydium';
-import { executeOrcaWhirlpoolSwap, getOrcaWhirlpoolQuote } from '../solana/orca';
+import {
+  executeOrcaWhirlpoolSwap,
+  getOrcaWhirlpoolQuote,
+  openOrcaFullRangePosition,
+  openOrcaConcentratedPosition,
+  fetchOrcaPositionsForOwner,
+  fetchOrcaPositionsInWhirlpool,
+  increaseOrcaLiquidity,
+  decreaseOrcaLiquidity,
+  harvestOrcaPosition,
+  harvestAllOrcaPositionFees,
+  closeOrcaPosition,
+  createOrcaSplashPool,
+  createOrcaConcentratedLiquidityPool,
+  fetchOrcaWhirlpoolsByTokenPair,
+} from '../solana/orca';
 import { executeDriftDirectOrder } from '../solana/drift';
 import { listMeteoraDlmmPools } from '../solana/meteora';
 import { listRaydiumPools } from '../solana/raydium';
@@ -4596,6 +4656,193 @@ function buildTools(): ToolDefinition[] {
       },
     },
     {
+      name: 'solana_jupiter_quote',
+      description: 'Get a Jupiter swap quote without executing. Use for price discovery.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          input_mint: { type: 'string', description: 'Input mint address' },
+          output_mint: { type: 'string', description: 'Output mint address' },
+          amount: { type: 'string', description: 'Amount in smallest units' },
+          slippage_bps: { type: 'number', description: 'Slippage in basis points' },
+          swap_mode: { type: 'string', enum: ['ExactIn', 'ExactOut'] },
+        },
+        required: ['input_mint', 'output_mint', 'amount'],
+      },
+    },
+    {
+      name: 'solana_jupiter_limit_order_create',
+      description: 'Create a Jupiter limit order. Order executes when market reaches target price.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          input_mint: { type: 'string', description: 'Token to sell' },
+          output_mint: { type: 'string', description: 'Token to buy' },
+          in_amount: { type: 'string', description: 'Amount to sell (smallest units)' },
+          out_amount: { type: 'string', description: 'Amount to receive (smallest units)' },
+          expired_at_ms: { type: 'number', description: 'Expiration timestamp in milliseconds (optional)' },
+        },
+        required: ['input_mint', 'output_mint', 'in_amount', 'out_amount'],
+      },
+    },
+    {
+      name: 'solana_jupiter_limit_order_cancel',
+      description: 'Cancel a Jupiter limit order.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          order_pubkey: { type: 'string', description: 'Order public key to cancel' },
+        },
+        required: ['order_pubkey'],
+      },
+    },
+    {
+      name: 'solana_jupiter_limit_orders_list',
+      description: 'List open Jupiter limit orders for a wallet.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          owner: { type: 'string', description: 'Wallet address (defaults to your wallet)' },
+          input_mint: { type: 'string', description: 'Filter by input mint' },
+          output_mint: { type: 'string', description: 'Filter by output mint' },
+        },
+      },
+    },
+    {
+      name: 'solana_jupiter_limit_order_get',
+      description: 'Get details of a specific Jupiter limit order.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          order_pubkey: { type: 'string', description: 'Order public key' },
+        },
+        required: ['order_pubkey'],
+      },
+    },
+    {
+      name: 'solana_jupiter_limit_order_history',
+      description: 'Get limit order history (filled/cancelled) for a wallet.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          wallet: { type: 'string', description: 'Wallet address' },
+          take: { type: 'number', description: 'Number of results (default 50)' },
+        },
+        required: ['wallet'],
+      },
+    },
+    {
+      name: 'solana_jupiter_trade_history',
+      description: 'Get trade fill history for a wallet.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          wallet: { type: 'string', description: 'Wallet address' },
+          take: { type: 'number', description: 'Number of results (default 50)' },
+        },
+        required: ['wallet'],
+      },
+    },
+    {
+      name: 'solana_jupiter_dca_create',
+      description: 'Create a Jupiter DCA (Dollar Cost Averaging) order for automated periodic swaps.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          input_mint: { type: 'string', description: 'Token to sell' },
+          output_mint: { type: 'string', description: 'Token to buy' },
+          in_amount: { type: 'string', description: 'Total amount to DCA (smallest units)' },
+          in_amount_per_cycle: { type: 'string', description: 'Amount per swap cycle' },
+          cycle_seconds_apart: { type: 'number', description: 'Seconds between swaps (min 30)' },
+          min_out_amount_per_cycle: { type: 'string', description: 'Min output per cycle (optional)' },
+          max_out_amount_per_cycle: { type: 'string', description: 'Max output per cycle (optional)' },
+          start_at_ms: { type: 'number', description: 'Start time in ms (optional)' },
+        },
+        required: ['input_mint', 'output_mint', 'in_amount', 'in_amount_per_cycle', 'cycle_seconds_apart'],
+      },
+    },
+    {
+      name: 'solana_jupiter_dca_close',
+      description: 'Close a Jupiter DCA order and withdraw remaining funds.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          dca_pubkey: { type: 'string', description: 'DCA account public key' },
+        },
+        required: ['dca_pubkey'],
+      },
+    },
+    {
+      name: 'solana_jupiter_dca_deposit',
+      description: 'Deposit additional funds into an existing DCA order.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          dca_pubkey: { type: 'string', description: 'DCA account public key' },
+          amount: { type: 'string', description: 'Amount to deposit (smallest units)' },
+        },
+        required: ['dca_pubkey', 'amount'],
+      },
+    },
+    {
+      name: 'solana_jupiter_dca_withdraw',
+      description: 'Withdraw funds from a DCA order.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          dca_pubkey: { type: 'string', description: 'DCA account public key' },
+          withdraw_in_amount: { type: 'string', description: 'Amount of input token to withdraw' },
+          withdraw_out_amount: { type: 'string', description: 'Amount of output token to withdraw' },
+        },
+        required: ['dca_pubkey'],
+      },
+    },
+    {
+      name: 'solana_jupiter_dca_list',
+      description: 'List active DCA orders for a wallet.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          user: { type: 'string', description: 'Wallet address (defaults to your wallet)' },
+          input_mint: { type: 'string', description: 'Filter by input mint' },
+          output_mint: { type: 'string', description: 'Filter by output mint' },
+        },
+      },
+    },
+    {
+      name: 'solana_jupiter_dca_get',
+      description: 'Get details of a specific DCA account.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          dca_pubkey: { type: 'string', description: 'DCA account public key' },
+        },
+        required: ['dca_pubkey'],
+      },
+    },
+    {
+      name: 'solana_jupiter_dca_balance',
+      description: 'Get current balances for a DCA account.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          dca_pubkey: { type: 'string', description: 'DCA account public key' },
+        },
+        required: ['dca_pubkey'],
+      },
+    },
+    {
+      name: 'solana_jupiter_dca_fills',
+      description: 'Get fill history for a DCA account.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          dca_pubkey: { type: 'string', description: 'DCA account public key' },
+        },
+        required: ['dca_pubkey'],
+      },
+    },
+    {
       name: 'pumpfun_trade',
       description: 'Trade tokens on pump.fun using local transaction signing.',
       input_schema: {
@@ -5112,6 +5359,21 @@ function buildTools(): ToolDefinition[] {
       },
     },
     {
+      name: 'raydium_quote',
+      description: 'Get a swap quote from Raydium without executing',
+      input_schema: {
+        type: 'object',
+        properties: {
+          input_mint: { type: 'string', description: 'Input token mint' },
+          output_mint: { type: 'string', description: 'Output token mint' },
+          amount: { type: 'string', description: 'Amount in base units (lamports for SOL)' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+          swap_mode: { type: 'string', description: 'BaseIn or BaseOut', enum: ['BaseIn', 'BaseOut'] },
+        },
+        required: ['input_mint', 'output_mint', 'amount'],
+      },
+    },
+    {
       name: 'orca_whirlpool_pools',
       description: 'List Orca Whirlpool pools from offchain metadata.',
       input_schema: {
@@ -5121,6 +5383,382 @@ function buildTools(): ToolDefinition[] {
           token_mints: { type: 'array', items: { type: 'string' }, description: 'Token mint addresses to match' },
           limit: { type: 'number', description: 'Max results (default 50)' },
         },
+      },
+    },
+    {
+      name: 'orca_whirlpool_quote',
+      description: 'Get a swap quote from Orca Whirlpools without executing',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'Whirlpool pool address' },
+          input_mint: { type: 'string', description: 'Input token mint' },
+          amount: { type: 'string', description: 'Amount in base units (lamports for SOL)' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['pool_address', 'input_mint', 'amount'],
+      },
+    },
+    // Orca LP Management Tools
+    {
+      name: 'orca_open_full_range_position',
+      description: 'Open a full-range LP position in an Orca Whirlpool',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'Whirlpool pool address' },
+          token_amount_a: { type: 'string', description: 'Amount of token A in base units' },
+          token_amount_b: { type: 'string', description: 'Amount of token B in base units (optional)' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['pool_address', 'token_amount_a'],
+      },
+    },
+    {
+      name: 'orca_open_concentrated_position',
+      description: 'Open a concentrated LP position with custom tick range in Orca Whirlpool',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'Whirlpool pool address' },
+          token_amount_a: { type: 'string', description: 'Amount of token A in base units' },
+          token_amount_b: { type: 'string', description: 'Amount of token B in base units (optional)' },
+          tick_lower_index: { type: 'number', description: 'Lower tick index' },
+          tick_upper_index: { type: 'number', description: 'Upper tick index' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['pool_address', 'token_amount_a', 'tick_lower_index', 'tick_upper_index'],
+      },
+    },
+    {
+      name: 'orca_fetch_positions',
+      description: 'Fetch all Orca LP positions owned by a wallet',
+      input_schema: {
+        type: 'object',
+        properties: {
+          owner_address: { type: 'string', description: 'Wallet address (uses configured wallet if omitted)' },
+        },
+      },
+    },
+    {
+      name: 'orca_increase_liquidity',
+      description: 'Add more liquidity to an existing Orca position',
+      input_schema: {
+        type: 'object',
+        properties: {
+          position_address: { type: 'string', description: 'Position address' },
+          token_amount_a: { type: 'string', description: 'Amount of token A to add' },
+          token_amount_b: { type: 'string', description: 'Amount of token B to add' },
+          liquidity_amount: { type: 'string', description: 'Liquidity amount (alternative to token amounts)' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['position_address'],
+      },
+    },
+    {
+      name: 'orca_decrease_liquidity',
+      description: 'Remove liquidity from an existing Orca position',
+      input_schema: {
+        type: 'object',
+        properties: {
+          position_address: { type: 'string', description: 'Position address' },
+          token_amount_a: { type: 'string', description: 'Amount of token A to remove' },
+          token_amount_b: { type: 'string', description: 'Amount of token B to remove' },
+          liquidity_amount: { type: 'string', description: 'Liquidity amount (alternative to token amounts)' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['position_address'],
+      },
+    },
+    {
+      name: 'orca_harvest_position',
+      description: 'Harvest fees and rewards from an Orca position',
+      input_schema: {
+        type: 'object',
+        properties: {
+          position_address: { type: 'string', description: 'Position address' },
+        },
+        required: ['position_address'],
+      },
+    },
+    {
+      name: 'orca_close_position',
+      description: 'Close an Orca position and reclaim rent',
+      input_schema: {
+        type: 'object',
+        properties: {
+          position_address: { type: 'string', description: 'Position address' },
+        },
+        required: ['position_address'],
+      },
+    },
+    {
+      name: 'orca_create_pool',
+      description: 'Create a new Orca Whirlpool (splash or concentrated)',
+      input_schema: {
+        type: 'object',
+        properties: {
+          token_mint_a: { type: 'string', description: 'Token A mint address' },
+          token_mint_b: { type: 'string', description: 'Token B mint address' },
+          pool_type: { type: 'string', description: 'splash or concentrated', enum: ['splash', 'concentrated'] },
+          tick_spacing: { type: 'number', description: 'Tick spacing (for concentrated pools)' },
+          initial_price: { type: 'number', description: 'Initial price (default 1.0)' },
+        },
+        required: ['token_mint_a', 'token_mint_b'],
+      },
+    },
+    {
+      name: 'orca_fetch_positions_in_pool',
+      description: 'Fetch all LP positions in a specific Orca Whirlpool',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'Whirlpool pool address' },
+        },
+        required: ['pool_address'],
+      },
+    },
+    {
+      name: 'orca_find_pools_by_pair',
+      description: 'Find Orca Whirlpools for a specific token pair',
+      input_schema: {
+        type: 'object',
+        properties: {
+          token_mint_a: { type: 'string', description: 'Token A mint address' },
+          token_mint_b: { type: 'string', description: 'Token B mint address' },
+        },
+        required: ['token_mint_a', 'token_mint_b'],
+      },
+    },
+    {
+      name: 'orca_harvest_all_positions',
+      description: 'Harvest fees and rewards from multiple Orca positions',
+      input_schema: {
+        type: 'object',
+        properties: {
+          position_addresses: { type: 'array', items: { type: 'string' }, description: 'Array of position addresses' },
+        },
+        required: ['position_addresses'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_quote',
+      description: 'Get a swap quote from Meteora DLMM without executing',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          input_mint: { type: 'string', description: 'Input token mint' },
+          in_amount: { type: 'string', description: 'Amount in base units (lamports for SOL)' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['pool_address', 'input_mint', 'in_amount'],
+      },
+    },
+    // Meteora LP Management Tools
+    {
+      name: 'meteora_dlmm_quote_exact_out',
+      description: 'Get a swap quote with exact output amount from Meteora DLMM',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          output_mint: { type: 'string', description: 'Output token mint' },
+          out_amount: { type: 'string', description: 'Exact output amount in base units' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['pool_address', 'output_mint', 'out_amount'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_swap_exact_out',
+      description: 'Execute a Meteora DLMM swap with exact output amount',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          input_mint: { type: 'string', description: 'Input token mint' },
+          output_mint: { type: 'string', description: 'Output token mint' },
+          out_amount: { type: 'string', description: 'Exact output amount in base units' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['pool_address', 'input_mint', 'output_mint', 'out_amount'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_open_position',
+      description: 'Open a new LP position on Meteora DLMM with liquidity',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          total_x_amount: { type: 'string', description: 'Amount of token X in base units' },
+          total_y_amount: { type: 'string', description: 'Amount of token Y in base units' },
+          strategy_type: { type: 'string', description: 'Strategy type', enum: ['Spot', 'BidAsk', 'Curve'] },
+          min_bin_id: { type: 'number', description: 'Minimum bin ID (optional)' },
+          max_bin_id: { type: 'number', description: 'Maximum bin ID (optional)' },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['pool_address', 'total_x_amount', 'total_y_amount'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_fetch_positions',
+      description: 'Fetch LP positions for a user on Meteora DLMM',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address (optional - fetches all pools if omitted)' },
+          user_address: { type: 'string', description: 'User wallet address (uses configured wallet if omitted)' },
+        },
+      },
+    },
+    {
+      name: 'meteora_dlmm_add_liquidity',
+      description: 'Add liquidity to an existing Meteora DLMM position',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          position_address: { type: 'string', description: 'Position address' },
+          total_x_amount: { type: 'string', description: 'Amount of token X to add' },
+          total_y_amount: { type: 'string', description: 'Amount of token Y to add' },
+          strategy_type: { type: 'string', description: 'Strategy type', enum: ['Spot', 'BidAsk', 'Curve'] },
+          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+        },
+        required: ['pool_address', 'position_address'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_remove_liquidity',
+      description: 'Remove liquidity from a Meteora DLMM position',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          position_address: { type: 'string', description: 'Position address' },
+          from_bin_id: { type: 'number', description: 'Starting bin ID' },
+          to_bin_id: { type: 'number', description: 'Ending bin ID' },
+          bps: { type: 'number', description: 'Percentage in basis points (5000 = 50%)' },
+          should_claim_and_close: { type: 'boolean', description: 'Claim rewards and close position' },
+        },
+        required: ['pool_address', 'position_address', 'from_bin_id', 'to_bin_id', 'bps'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_close_position',
+      description: 'Close a Meteora DLMM position and recover rent',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          position_address: { type: 'string', description: 'Position address' },
+        },
+        required: ['pool_address', 'position_address'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_claim_fees',
+      description: 'Claim swap fees from a Meteora DLMM position',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          position_address: { type: 'string', description: 'Position address' },
+        },
+        required: ['pool_address', 'position_address'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_claim_rewards',
+      description: 'Claim LM rewards from a Meteora DLMM position',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          position_address: { type: 'string', description: 'Position address' },
+        },
+        required: ['pool_address', 'position_address'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_claim_all',
+      description: 'Claim all rewards (fees + LM) from a Meteora DLMM position',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          position_address: { type: 'string', description: 'Position address' },
+        },
+        required: ['pool_address', 'position_address'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_pool_info',
+      description: 'Get detailed info about a Meteora DLMM pool (active bin, fees, emissions)',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          info_type: { type: 'string', description: 'Type of info', enum: ['active_bin', 'fee_info', 'dynamic_fee', 'emission_rate', 'all'] },
+        },
+        required: ['pool_address'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_create_pool',
+      description: 'Create a new Meteora DLMM pool',
+      input_schema: {
+        type: 'object',
+        properties: {
+          token_x: { type: 'string', description: 'Token X mint address' },
+          token_y: { type: 'string', description: 'Token Y mint address' },
+          bin_step: { type: 'number', description: 'Bin step size' },
+          active_id: { type: 'number', description: 'Initial active bin ID (default 0)' },
+          fee_bps: { type: 'number', description: 'Fee in basis points' },
+          customizable: { type: 'boolean', description: 'Create customizable permissionless pool' },
+        },
+        required: ['token_x', 'token_y', 'bin_step'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_create_empty_position',
+      description: 'Create an empty Meteora DLMM position without initial liquidity',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          min_bin_id: { type: 'number', description: 'Minimum bin ID' },
+          max_bin_id: { type: 'number', description: 'Maximum bin ID' },
+        },
+        required: ['pool_address', 'min_bin_id', 'max_bin_id'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_swap_with_price_impact',
+      description: 'Execute Meteora DLMM swap with price impact constraint',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          input_mint: { type: 'string', description: 'Input token mint' },
+          output_mint: { type: 'string', description: 'Output token mint' },
+          in_amount: { type: 'string', description: 'Input amount in base units' },
+          max_price_impact_bps: { type: 'number', description: 'Maximum allowed price impact in bps' },
+        },
+        required: ['pool_address', 'input_mint', 'output_mint', 'in_amount', 'max_price_impact_bps'],
+      },
+    },
+    {
+      name: 'meteora_dlmm_claim_all_fees',
+      description: 'Claim swap fees from multiple Meteora DLMM positions',
+      input_schema: {
+        type: 'object',
+        properties: {
+          pool_address: { type: 'string', description: 'DLMM pool address' },
+          position_addresses: { type: 'array', items: { type: 'string' }, description: 'Array of position addresses' },
+        },
+        required: ['pool_address', 'position_addresses'],
       },
     },
     {
@@ -5213,7 +5851,7 @@ function buildTools(): ToolDefinition[] {
         properties: {
           input_mint: { type: 'string', description: 'Input token mint address' },
           output_mint: { type: 'string', description: 'Output token mint address' },
-          amount: { type: 'string', description: 'Amount to swap' },
+          amount: { type: 'string', description: 'Amount in smallest unit (lamports for SOL where 1 SOL = 1000000000, or token base units)' },
         },
         required: ['input_mint', 'output_mint', 'amount'],
       },
@@ -5226,8 +5864,7 @@ function buildTools(): ToolDefinition[] {
         properties: {
           input_mint: { type: 'string', description: 'Input token mint address' },
           output_mint: { type: 'string', description: 'Output token mint address' },
-          amount: { type: 'string', description: 'Amount to swap' },
-          slippage_bps: { type: 'number', description: 'Slippage in bps (default 50)' },
+          amount: { type: 'string', description: 'Amount in smallest unit (lamports for SOL where 1 SOL = 1000000000, or token base units)' },
         },
         required: ['input_mint', 'output_mint', 'amount'],
       },
@@ -5238,7 +5875,6 @@ function buildTools(): ToolDefinition[] {
       input_schema: {
         type: 'object',
         properties: {
-          sort: { type: 'string', description: 'Sort by field (e.g., volume24h, liquidity)' },
           limit: { type: 'number', description: 'Max results (default 50)' },
         },
       },
@@ -5372,7 +6008,7 @@ function buildTools(): ToolDefinition[] {
       input_schema: {
         type: 'object',
         properties: {
-          provider: { type: 'string', description: 'Social provider', enum: ['twitter', 'github', 'kick', 'tiktok'] },
+          provider: { type: 'string', description: 'Social provider', enum: ['twitter', 'github', 'kick', 'tiktok', 'instagram', 'onlyfans', 'solana', 'apple', 'google', 'email', 'moltbook'] },
           username: { type: 'string', description: 'Username' },
         },
         required: ['provider', 'username'],
@@ -5384,7 +6020,7 @@ function buildTools(): ToolDefinition[] {
       input_schema: {
         type: 'object',
         properties: {
-          provider: { type: 'string', description: 'Social provider', enum: ['twitter', 'github', 'kick', 'tiktok'] },
+          provider: { type: 'string', description: 'Social provider', enum: ['twitter', 'github', 'kick', 'tiktok', 'instagram', 'onlyfans', 'solana', 'apple', 'google', 'email', 'moltbook'] },
           usernames: { type: 'array', items: { type: 'string' }, description: 'Usernames' },
         },
         required: ['provider', 'usernames'],
@@ -12503,6 +13139,226 @@ async function executeTool(
         }
       }
 
+      case 'solana_jupiter_quote': {
+        const inputMint = toolInput.input_mint as string;
+        const outputMint = toolInput.output_mint as string;
+        const amount = toolInput.amount as string;
+        const slippageBps = toolInput.slippage_bps as number | undefined;
+        const swapMode = toolInput.swap_mode as 'ExactIn' | 'ExactOut' | undefined;
+        try {
+          const result = await getJupiterQuote({ inputMint, outputMint, amount, slippageBps, swapMode });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_limit_order_create': {
+        const inputMint = toolInput.input_mint as string;
+        const outputMint = toolInput.output_mint as string;
+        const inAmount = toolInput.in_amount as string;
+        const outAmount = toolInput.out_amount as string;
+        const expiredAtMs = toolInput.expired_at_ms as number | undefined;
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await createJupiterLimitOrder(connection, keypair, {
+            inputMint,
+            outputMint,
+            inAmount,
+            outAmount,
+            expiredAtMs,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_limit_order_cancel': {
+        const orderPubkey = toolInput.order_pubkey as string;
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const signature = await cancelJupiterLimitOrder(connection, keypair, orderPubkey);
+          return JSON.stringify({ success: true, signature });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_limit_orders_list': {
+        const owner = toolInput.owner as string | undefined;
+        const inputMint = toolInput.input_mint as string | undefined;
+        const outputMint = toolInput.output_mint as string | undefined;
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const ownerAddress = owner || keypair.publicKey.toBase58();
+          const orders = await listJupiterLimitOrdersByMint(connection, {
+            owner: ownerAddress,
+            inputMint,
+            outputMint,
+          });
+          return JSON.stringify({ count: orders.length, orders });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_limit_order_get': {
+        const orderPubkey = toolInput.order_pubkey as string;
+        try {
+          const connection = getSolanaConnection();
+          const order = await getJupiterLimitOrder(connection, orderPubkey);
+          return JSON.stringify(order || { error: 'Order not found' });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_limit_order_history': {
+        const wallet = toolInput.wallet as string;
+        const take = toolInput.take as number | undefined;
+        try {
+          const connection = getSolanaConnection();
+          const history = await getJupiterLimitOrderHistory(connection, wallet, { take });
+          return JSON.stringify({ count: history.length, history });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_trade_history': {
+        const wallet = toolInput.wallet as string;
+        const take = toolInput.take as number | undefined;
+        try {
+          const connection = getSolanaConnection();
+          const history = await getJupiterTradeHistory(connection, wallet, { take });
+          return JSON.stringify({ count: history.length, history });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_dca_create': {
+        const inputMint = toolInput.input_mint as string;
+        const outputMint = toolInput.output_mint as string;
+        const inAmount = toolInput.in_amount as string;
+        const inAmountPerCycle = toolInput.in_amount_per_cycle as string;
+        const cycleSecondsApart = toolInput.cycle_seconds_apart as number;
+        const minOutAmountPerCycle = toolInput.min_out_amount_per_cycle as string | undefined;
+        const maxOutAmountPerCycle = toolInput.max_out_amount_per_cycle as string | undefined;
+        const startAtMs = toolInput.start_at_ms as number | undefined;
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await createJupiterDCA(connection, keypair, {
+            inputMint,
+            outputMint,
+            inAmount,
+            inAmountPerCycle,
+            cycleSecondsApart,
+            minOutAmountPerCycle,
+            maxOutAmountPerCycle,
+            startAtMs,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_dca_close': {
+        const dcaPubkey = toolInput.dca_pubkey as string;
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const signature = await closeJupiterDCA(connection, keypair, dcaPubkey);
+          return JSON.stringify({ success: true, signature });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_dca_deposit': {
+        const dcaPubkey = toolInput.dca_pubkey as string;
+        const amount = toolInput.amount as string;
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const signature = await depositJupiterDCA(connection, keypair, dcaPubkey, amount);
+          return JSON.stringify({ success: true, signature });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_dca_withdraw': {
+        const dcaPubkey = toolInput.dca_pubkey as string;
+        const withdrawInAmount = toolInput.withdraw_in_amount as string | undefined;
+        const withdrawOutAmount = toolInput.withdraw_out_amount as string | undefined;
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const signature = await withdrawJupiterDCA(connection, keypair, dcaPubkey, {
+            withdrawInAmount,
+            withdrawOutAmount,
+          });
+          return JSON.stringify({ success: true, signature });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_dca_list': {
+        const user = toolInput.user as string | undefined;
+        const inputMint = toolInput.input_mint as string | undefined;
+        const outputMint = toolInput.output_mint as string | undefined;
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const userAddress = user || keypair.publicKey.toBase58();
+          const dcas = await listJupiterDCAs(connection, userAddress, { inputMint, outputMint });
+          return JSON.stringify({ count: dcas.length, dcas });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_dca_get': {
+        const dcaPubkey = toolInput.dca_pubkey as string;
+        try {
+          const connection = getSolanaConnection();
+          const dca = await getJupiterDCA(connection, dcaPubkey);
+          return JSON.stringify(dca || { error: 'DCA not found' });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_dca_balance': {
+        const dcaPubkey = toolInput.dca_pubkey as string;
+        try {
+          const connection = getSolanaConnection();
+          const balance = await getJupiterDCABalance(connection, dcaPubkey);
+          return JSON.stringify(balance);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'solana_jupiter_dca_fills': {
+        const dcaPubkey = toolInput.dca_pubkey as string;
+        try {
+          const connection = getSolanaConnection();
+          const fills = await getJupiterDCAFillHistory(connection, dcaPubkey);
+          return JSON.stringify({ count: fills.length, fills });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
       case 'pumpfun_trade': {
         const action = toolInput.action as 'buy' | 'sell';
         const mint = toolInput.mint as string;
@@ -12721,6 +13577,21 @@ async function executeTool(
         }
       }
 
+      case 'meteora_dlmm_quote': {
+        try {
+          const connection = getSolanaConnection();
+          const result = await getMeteoraDlmmQuote(connection, {
+            poolAddress: toolInput.pool_address as string,
+            inputMint: toolInput.input_mint as string,
+            inAmount: toolInput.in_amount as string,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
       case 'raydium_pools': {
         try {
           const tokenMints = toolInput.token_mints as string[] | undefined;
@@ -12738,6 +13609,21 @@ async function executeTool(
         }
       }
 
+      case 'raydium_quote': {
+        try {
+          const result = await getRaydiumQuote({
+            inputMint: toolInput.input_mint as string,
+            outputMint: toolInput.output_mint as string,
+            amount: toolInput.amount as string,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+            swapMode: toolInput.swap_mode as 'BaseIn' | 'BaseOut' | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
       case 'orca_whirlpool_pools': {
         try {
           const tokenMints = toolInput.token_mints as string[] | undefined;
@@ -12749,6 +13635,451 @@ async function executeTool(
               ? await (await import('../solana/tokenlist')).resolveTokenMints(tokenSymbols)
               : undefined;
           const result = await listOrcaWhirlpoolPools({ tokenMints: resolvedMints, limit });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_whirlpool_quote': {
+        try {
+          const result = await getOrcaWhirlpoolQuote({
+            poolAddress: toolInput.pool_address as string,
+            inputMint: toolInput.input_mint as string,
+            amount: toolInput.amount as string,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      // Orca LP Management Cases
+      case 'orca_open_full_range_position': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await openOrcaFullRangePosition(connection, keypair, {
+            poolAddress: toolInput.pool_address as string,
+            tokenAmountA: toolInput.token_amount_a as string,
+            tokenAmountB: toolInput.token_amount_b as string | undefined,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_open_concentrated_position': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await openOrcaConcentratedPosition(connection, keypair, {
+            poolAddress: toolInput.pool_address as string,
+            tokenAmountA: toolInput.token_amount_a as string,
+            tokenAmountB: toolInput.token_amount_b as string | undefined,
+            tickLowerIndex: toolInput.tick_lower_index as number,
+            tickUpperIndex: toolInput.tick_upper_index as number,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_fetch_positions': {
+        try {
+          const connection = getSolanaConnection();
+          const ownerAddress = (toolInput.owner_address as string) || loadSolanaKeypair().publicKey.toBase58();
+          const result = await fetchOrcaPositionsForOwner(connection, ownerAddress);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_increase_liquidity': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await increaseOrcaLiquidity(connection, keypair, {
+            positionAddress: toolInput.position_address as string,
+            tokenAmountA: toolInput.token_amount_a as string | undefined,
+            tokenAmountB: toolInput.token_amount_b as string | undefined,
+            liquidityAmount: toolInput.liquidity_amount as string | undefined,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_decrease_liquidity': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await decreaseOrcaLiquidity(connection, keypair, {
+            positionAddress: toolInput.position_address as string,
+            tokenAmountA: toolInput.token_amount_a as string | undefined,
+            tokenAmountB: toolInput.token_amount_b as string | undefined,
+            liquidityAmount: toolInput.liquidity_amount as string | undefined,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_harvest_position': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await harvestOrcaPosition(connection, keypair, toolInput.position_address as string);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_close_position': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await closeOrcaPosition(connection, keypair, toolInput.position_address as string);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_create_pool': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const poolType = (toolInput.pool_type as string) || 'splash';
+          const result = poolType === 'concentrated'
+            ? await createOrcaConcentratedLiquidityPool(connection, keypair, {
+                tokenMintA: toolInput.token_mint_a as string,
+                tokenMintB: toolInput.token_mint_b as string,
+                tickSpacing: toolInput.tick_spacing as number | undefined,
+                initialPrice: toolInput.initial_price as number | undefined,
+              })
+            : await createOrcaSplashPool(connection, keypair, {
+                tokenMintA: toolInput.token_mint_a as string,
+                tokenMintB: toolInput.token_mint_b as string,
+                initialPrice: toolInput.initial_price as number | undefined,
+              });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_fetch_positions_in_pool': {
+        try {
+          const connection = getSolanaConnection();
+          const result = await fetchOrcaPositionsInWhirlpool(connection, toolInput.pool_address as string);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_find_pools_by_pair': {
+        try {
+          const connection = getSolanaConnection();
+          const result = await fetchOrcaWhirlpoolsByTokenPair(
+            connection,
+            toolInput.token_mint_a as string,
+            toolInput.token_mint_b as string
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'orca_harvest_all_positions': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await harvestAllOrcaPositionFees(
+            connection,
+            keypair,
+            toolInput.position_addresses as string[]
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      // Meteora LP Management Cases
+      case 'meteora_dlmm_quote_exact_out': {
+        try {
+          const connection = getSolanaConnection();
+          const result = await getMeteoraDlmmQuoteExactOut(connection, {
+            poolAddress: toolInput.pool_address as string,
+            outputMint: toolInput.output_mint as string,
+            outAmount: toolInput.out_amount as string,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_swap_exact_out': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await executeMeteoraDlmmSwapExactOut(connection, keypair, {
+            poolAddress: toolInput.pool_address as string,
+            inputMint: toolInput.input_mint as string,
+            outputMint: toolInput.output_mint as string,
+            inAmount: '0', // Will be calculated from outAmount
+            outAmount: toolInput.out_amount as string,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_open_position': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await initializeMeteoraDlmmPosition(connection, keypair, {
+            poolAddress: toolInput.pool_address as string,
+            totalXAmount: toolInput.total_x_amount as string,
+            totalYAmount: toolInput.total_y_amount as string,
+            strategyType: toolInput.strategy_type as 'Spot' | 'BidAsk' | 'Curve' | undefined,
+            minBinId: toolInput.min_bin_id as number | undefined,
+            maxBinId: toolInput.max_bin_id as number | undefined,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_fetch_positions': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const userAddress = (toolInput.user_address as string) || keypair.publicKey.toBase58();
+          const poolAddress = toolInput.pool_address as string | undefined;
+          const result = poolAddress
+            ? await getMeteoraDlmmPositionsByUser(connection, poolAddress, userAddress)
+            : await getAllMeteoraDlmmPositionsByUser(connection, userAddress);
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_add_liquidity': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await addMeteoraDlmmLiquidity(connection, keypair, {
+            poolAddress: toolInput.pool_address as string,
+            positionAddress: toolInput.position_address as string,
+            totalXAmount: toolInput.total_x_amount as string | undefined,
+            totalYAmount: toolInput.total_y_amount as string | undefined,
+            strategyType: toolInput.strategy_type as 'Spot' | 'BidAsk' | 'Curve' | undefined,
+            slippageBps: toolInput.slippage_bps as number | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_remove_liquidity': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await removeMeteoraDlmmLiquidity(connection, keypair, {
+            poolAddress: toolInput.pool_address as string,
+            positionAddress: toolInput.position_address as string,
+            fromBinId: toolInput.from_bin_id as number,
+            toBinId: toolInput.to_bin_id as number,
+            bps: toolInput.bps as number,
+            shouldClaimAndClose: toolInput.should_claim_and_close as boolean | undefined,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_close_position': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await closeMeteoraDlmmPosition(
+            connection,
+            keypair,
+            toolInput.pool_address as string,
+            toolInput.position_address as string
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_claim_fees': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await claimMeteoraDlmmSwapFee(
+            connection,
+            keypair,
+            toolInput.pool_address as string,
+            toolInput.position_address as string
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_claim_rewards': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await claimMeteoraDlmmLMReward(
+            connection,
+            keypair,
+            toolInput.pool_address as string,
+            toolInput.position_address as string
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_claim_all': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await claimAllMeteoraDlmmRewards(
+            connection,
+            keypair,
+            toolInput.pool_address as string,
+            toolInput.position_address as string
+          );
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_pool_info': {
+        try {
+          const connection = getSolanaConnection();
+          const poolAddress = toolInput.pool_address as string;
+          const infoType = (toolInput.info_type as string) || 'all';
+          const result: Record<string, unknown> = {};
+
+          if (infoType === 'active_bin' || infoType === 'all') {
+            result.activeBin = await getMeteoraDlmmActiveBin(connection, poolAddress);
+          }
+          if (infoType === 'fee_info' || infoType === 'all') {
+            result.feeInfo = await getMeteoraDlmmFeeInfo(connection, poolAddress);
+          }
+          if (infoType === 'dynamic_fee' || infoType === 'all') {
+            result.dynamicFee = await getMeteoraDlmmDynamicFee(connection, poolAddress);
+          }
+          if (infoType === 'emission_rate' || infoType === 'all') {
+            result.emissionRate = await getMeteoraDlmmEmissionRate(connection, poolAddress);
+          }
+
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_create_pool': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const customizable = toolInput.customizable as boolean | undefined;
+          const result = customizable
+            ? await createCustomizableMeteoraDlmmPool(connection, keypair, {
+                tokenX: toolInput.token_x as string,
+                tokenY: toolInput.token_y as string,
+                binStep: toolInput.bin_step as number,
+                activeId: toolInput.active_id as number | undefined,
+                feeBps: toolInput.fee_bps as number | undefined,
+              })
+            : await createMeteoraDlmmPool(connection, keypair, {
+                tokenX: toolInput.token_x as string,
+                tokenY: toolInput.token_y as string,
+                binStep: toolInput.bin_step as number,
+                activeId: toolInput.active_id as number | undefined,
+              });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_create_empty_position': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await createEmptyMeteoraDlmmPosition(connection, keypair, {
+            poolAddress: toolInput.pool_address as string,
+            minBinId: toolInput.min_bin_id as number,
+            maxBinId: toolInput.max_bin_id as number,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_swap_with_price_impact': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await executeMeteoraDlmmSwapWithPriceImpact(connection, keypair, {
+            poolAddress: toolInput.pool_address as string,
+            inputMint: toolInput.input_mint as string,
+            outputMint: toolInput.output_mint as string,
+            inAmount: toolInput.in_amount as string,
+            maxPriceImpactBps: toolInput.max_price_impact_bps as number,
+          });
+          return JSON.stringify(result);
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'meteora_dlmm_claim_all_fees': {
+        try {
+          const keypair = loadSolanaKeypair();
+          const connection = getSolanaConnection();
+          const result = await claimAllMeteoraDlmmSwapFees(
+            connection,
+            keypair,
+            toolInput.pool_address as string,
+            toolInput.position_addresses as string[]
+          );
           return JSON.stringify(result);
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
