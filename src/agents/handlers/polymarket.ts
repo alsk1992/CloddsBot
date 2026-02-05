@@ -404,6 +404,167 @@ async function marketBySlugHandler(toolInput: ToolInput): Promise<HandlerResult>
 }
 
 // =============================================================================
+// USER ACCOUNT HANDLERS (Authenticated)
+// =============================================================================
+
+/**
+ * Get single order by ID
+ */
+async function orderHandler(
+  toolInput: ToolInput,
+  context: HandlerContext
+): Promise<HandlerResult> {
+  const orderId = toolInput.order_id as string;
+  if (!orderId) {
+    return errorResult('order_id is required');
+  }
+
+  const creds = getPolyCreds(context);
+  if (!creds) {
+    return errorResult('Polymarket credentials required for this endpoint');
+  }
+
+  return safeHandler(async () => {
+    const url = `https://clob.polymarket.com/order/${orderId}`;
+    const response = await fetchClob(context, url);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to fetch order: ${response.status} ${text}`);
+    }
+    return await response.json();
+  });
+}
+
+/**
+ * Get user's open orders
+ */
+async function userOrdersHandler(
+  toolInput: ToolInput,
+  context: HandlerContext
+): Promise<HandlerResult> {
+  const creds = getPolyCreds(context);
+  if (!creds) {
+    return errorResult('Polymarket credentials required for this endpoint');
+  }
+
+  const market = toolInput.market as string | undefined;
+  const asset_id = toolInput.asset_id as string | undefined;
+  const nextCursor = toolInput.next_cursor as string | undefined;
+
+  return safeHandler(async () => {
+    let url = 'https://clob.polymarket.com/orders';
+    const params: string[] = [];
+    if (market) params.push(`market=${market}`);
+    if (asset_id) params.push(`asset_id=${asset_id}`);
+    if (nextCursor) params.push(`next_cursor=${nextCursor}`);
+    if (params.length > 0) url += '?' + params.join('&');
+
+    const response = await fetchClob(context, url);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to fetch orders: ${response.status} ${text}`);
+    }
+    return await response.json();
+  });
+}
+
+/**
+ * Get user balances (USDC + token positions)
+ */
+async function balancesHandler(
+  toolInput: ToolInput,
+  context: HandlerContext
+): Promise<HandlerResult> {
+  const creds = getPolyCreds(context);
+  if (!creds) {
+    return errorResult('Polymarket credentials required for this endpoint');
+  }
+
+  const address = (toolInput.address as string) || creds.address;
+
+  return safeHandler(async () => {
+    // Fetch USDC balance
+    const balanceUrl = `https://clob.polymarket.com/balance?address=${address}`;
+    const balanceResponse = await fetchClob(context, balanceUrl);
+    const balanceData = balanceResponse.ok ? await balanceResponse.json() as { balance?: string; allowance?: string } : {};
+
+    // Fetch positions
+    const positionsUrl = `https://clob.polymarket.com/positions?address=${address}`;
+    const positionsResponse = await fetchClob(context, positionsUrl);
+    const positionsData = positionsResponse.ok ? await positionsResponse.json() as unknown[] : [];
+
+    return {
+      address,
+      usdc: {
+        balance: parseFloat((balanceData as { balance?: string }).balance || '0'),
+        allowance: parseFloat((balanceData as { allowance?: string }).allowance || '0'),
+      },
+      positions: positionsData,
+    };
+  });
+}
+
+/**
+ * Get user trade history
+ */
+async function userHistoryHandler(
+  toolInput: ToolInput,
+  context: HandlerContext
+): Promise<HandlerResult> {
+  const creds = getPolyCreds(context);
+  if (!creds) {
+    return errorResult('Polymarket credentials required for this endpoint');
+  }
+
+  const market = toolInput.market as string | undefined;
+  const asset_id = toolInput.asset_id as string | undefined;
+  const before = toolInput.before as string | undefined;
+  const after = toolInput.after as string | undefined;
+  const limit = (toolInput.limit as number) || 100;
+  const nextCursor = toolInput.next_cursor as string | undefined;
+
+  return safeHandler(async () => {
+    let url = 'https://clob.polymarket.com/trades';
+    const params: string[] = [];
+    params.push(`maker_address=${creds.address}`);
+    if (market) params.push(`market=${market}`);
+    if (asset_id) params.push(`asset_id=${asset_id}`);
+    if (before) params.push(`before=${before}`);
+    if (after) params.push(`after=${after}`);
+    if (limit) params.push(`limit=${limit}`);
+    if (nextCursor) params.push(`next_cursor=${nextCursor}`);
+    url += '?' + params.join('&');
+
+    const response = await fetchClob(context, url);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to fetch trade history: ${response.status} ${text}`);
+    }
+    return await response.json();
+  });
+}
+
+/**
+ * Get leaderboard
+ */
+async function leaderboardHandler(
+  toolInput: ToolInput,
+  _context: HandlerContext
+): Promise<HandlerResult> {
+  const limit = (toolInput.limit as number) || 100;
+
+  return safeHandler(async () => {
+    const response = await fetch(
+      `https://gamma-api.polymarket.com/leaderboard?limit=${limit}`
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch leaderboard: ${response.status}`);
+    }
+    return await response.json();
+  });
+}
+
+// =============================================================================
 // EXPORT HANDLERS MAP
 // =============================================================================
 
@@ -447,6 +608,13 @@ export const polymarketHandlers: HandlersMap = {
   polymarket_events: eventsHandler,
   polymarket_search_events: searchEventsHandler,
   polymarket_market_by_slug: marketBySlugHandler,
+
+  // User Account (authenticated)
+  polymarket_order: orderHandler,
+  polymarket_user_orders: userOrdersHandler,
+  polymarket_balances: balancesHandler,
+  polymarket_user_history: userHistoryHandler,
+  polymarket_leaderboard: leaderboardHandler,
 };
 
 export default polymarketHandlers;

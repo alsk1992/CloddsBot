@@ -23,6 +23,7 @@ import { createX402Client, type X402Client } from '../payments/x402';
 import { createDatabase } from '../db';
 import { createMigrationRunner } from '../db/migrations';
 import { initACP } from '../acp';
+import { initOrderPersistence } from '../execution/order-persistence';
 import { createFeedManager } from '../feeds';
 import { createSessionManager } from '../sessions';
 import { createAgentManager } from '../agents';
@@ -413,6 +414,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
 
   // Initialize ACP (Agent Commerce Protocol) with database
   initACP(db);
+
+  // Initialize order persistence for TWAP and bracket orders
+  initOrderPersistence(db);
 
   let feeds = await createFeedManager(config.feeds);
   const sessions = createSessionManager(db, config.session);

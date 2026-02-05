@@ -7,11 +7,21 @@
  * - Price limit protection (auto-cancel if market moves beyond limit)
  * - Random jitter to avoid detection of systematic execution
  * - Cancellable mid-execution
+ * - Database persistence (survives restarts)
  */
 
 import { EventEmitter } from 'eventemitter3';
+import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger';
 import type { ExecutionService, OrderRequest, OrderResult } from './index';
+import {
+  saveTwapOrder,
+  updateTwapProgress,
+  getTwapOrder,
+  getActiveTwapOrders,
+  deleteTwapOrder,
+  type PersistedTwapOrder,
+} from './order-persistence';
 
 // =============================================================================
 // TYPES
@@ -54,12 +64,27 @@ export interface TwapProgress {
 }
 
 export interface TwapOrder extends EventEmitter {
+  /** Unique order ID */
+  id: string;
   /** Start executing */
   start(): void;
   /** Cancel remaining slices */
   cancel(): Promise<void>;
   /** Get execution progress */
   getProgress(): TwapProgress;
+}
+
+export interface TwapOrderOptions {
+  /** User ID for persistence */
+  userId?: string;
+  /** Existing order ID (for resuming) */
+  orderId?: string;
+  /** Restored progress (for resuming) */
+  restoredProgress?: {
+    filledSize: number;
+    totalCost: number;
+    slicesCompleted: number;
+  };
 }
 
 // =============================================================================
@@ -69,23 +94,59 @@ export interface TwapOrder extends EventEmitter {
 export function createTwapOrder(
   executionService: ExecutionService,
   orderRequest: Omit<OrderRequest, 'size' | 'orderType'>,
-  twapConfig: TwapConfig
+  twapConfig: TwapConfig,
+  options?: TwapOrderOptions
 ): TwapOrder {
   const emitter = new EventEmitter() as TwapOrder;
 
+  const orderId = options?.orderId ?? randomUUID();
+  const userId = options?.userId ?? 'anonymous';
   const slicesTotal = Math.ceil(twapConfig.totalSize / twapConfig.sliceSize);
   const jitter = twapConfig.jitter ?? 0;
   const orderType = twapConfig.orderType ?? 'GTC';
 
   let status: TwapProgress['status'] = 'pending';
-  let filledSize = 0;
-  let totalCost = 0; // For avgFillPrice calculation
-  let slicesCompleted = 0;
+  let filledSize = options?.restoredProgress?.filledSize ?? 0;
+  let totalCost = options?.restoredProgress?.totalCost ?? 0;
+  let slicesCompleted = options?.restoredProgress?.slicesCompleted ?? 0;
   let startedAt: Date | undefined;
   let sliceTimer: ReturnType<typeof setTimeout> | null = null;
   let maxDurationTimer: ReturnType<typeof setTimeout> | null = null;
   let currentSliceOrderId: string | undefined;
   let cancelled = false;
+
+  // Save to database on creation (unless resuming)
+  if (!options?.orderId) {
+    try {
+      const now = Date.now();
+      saveTwapOrder({
+        id: orderId,
+        userId,
+        platform: orderRequest.platform,
+        marketId: orderRequest.marketId,
+        tokenId: orderRequest.tokenId,
+        outcome: orderRequest.outcome,
+        side: orderRequest.side,
+        price: orderRequest.price,
+        totalSize: twapConfig.totalSize,
+        sliceSize: twapConfig.sliceSize,
+        intervalMs: twapConfig.intervalMs,
+        maxDurationMs: twapConfig.maxDurationMs,
+        jitter: twapConfig.jitter,
+        priceLimit: twapConfig.priceLimit,
+        orderType,
+        negRisk: orderRequest.negRisk,
+        filledSize: 0,
+        totalCost: 0,
+        slicesCompleted: 0,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (err) {
+      logger.warn({ error: String(err) }, 'Failed to persist TWAP order');
+    }
+  }
 
   /**
    * Calculate jittered interval
@@ -183,6 +244,18 @@ export function createTwapOrder(
           }
         }
 
+        // Persist progress
+        try {
+          updateTwapProgress(orderId, {
+            filledSize,
+            totalCost,
+            slicesCompleted,
+            status,
+          });
+        } catch (err) {
+          logger.warn({ error: String(err) }, 'Failed to persist TWAP progress');
+        }
+
         emitter.emit('slice_filled', {
           sliceNumber: slicesCompleted,
           sliceFilled,
@@ -196,6 +269,7 @@ export function createTwapOrder(
             total: slicesTotal,
             filled: filledSize,
             target: twapConfig.totalSize,
+            orderId,
           },
           'TWAP slice filled'
         );
@@ -237,9 +311,21 @@ export function createTwapOrder(
     status = 'completed';
     cleanup();
 
+    // Persist final status
+    try {
+      updateTwapProgress(orderId, {
+        filledSize,
+        totalCost,
+        slicesCompleted,
+        status: 'completed',
+      });
+    } catch (err) {
+      logger.warn({ error: String(err) }, 'Failed to persist TWAP completion');
+    }
+
     const progress = buildProgress();
     logger.info(
-      { filledSize, avgFillPrice: progress.avgFillPrice, slicesCompleted },
+      { filledSize, avgFillPrice: progress.avgFillPrice, slicesCompleted, orderId },
       'TWAP execution completed'
     );
 
@@ -254,6 +340,18 @@ export function createTwapOrder(
     status = 'cancelled';
     cleanup();
 
+    // Persist cancelled status
+    try {
+      updateTwapProgress(orderId, {
+        filledSize,
+        totalCost,
+        slicesCompleted,
+        status: 'cancelled',
+      });
+    } catch (err) {
+      logger.warn({ error: String(err) }, 'Failed to persist TWAP cancellation');
+    }
+
     // Cancel any open slice order
     if (currentSliceOrderId) {
       try {
@@ -263,6 +361,7 @@ export function createTwapOrder(
       }
     }
 
+    logger.info({ orderId, reason, filledSize }, 'TWAP execution cancelled');
     emitter.emit('cancelled', { ...buildProgress(), reason });
   }
 
@@ -291,8 +390,22 @@ export function createTwapOrder(
     startedAt = new Date();
     cancelled = false;
 
+    // Persist status change
+    try {
+      updateTwapProgress(orderId, {
+        filledSize,
+        totalCost,
+        slicesCompleted,
+        status: 'executing',
+        startedAt: startedAt.getTime(),
+      });
+    } catch (err) {
+      logger.warn({ error: String(err) }, 'Failed to persist TWAP start');
+    }
+
     logger.info(
       {
+        orderId,
         totalSize: twapConfig.totalSize,
         sliceSize: twapConfig.sliceSize,
         slices: slicesTotal,
@@ -327,7 +440,7 @@ export function createTwapOrder(
     return buildProgress();
   }
 
-  Object.assign(emitter, { start, cancel, getProgress });
+  Object.assign(emitter, { id: orderId, start, cancel, getProgress });
 
   return emitter;
 }
@@ -355,4 +468,72 @@ export function createIcebergOrder(
   };
 
   return createTwapOrder(executionService, orderRequest, twapConfig);
+}
+
+// =============================================================================
+// PERSISTENCE HELPERS
+// =============================================================================
+
+/**
+ * Resume a TWAP order from persisted state
+ */
+export function resumeTwapOrder(
+  executionService: ExecutionService,
+  persisted: PersistedTwapOrder
+): TwapOrder | null {
+  // Don't resume already completed orders
+  if (persisted.status !== 'pending' && persisted.status !== 'executing') {
+    return null;
+  }
+
+  const orderRequest = {
+    platform: persisted.platform as 'polymarket' | 'kalshi',
+    marketId: persisted.marketId,
+    tokenId: persisted.tokenId,
+    outcome: persisted.outcome,
+    side: persisted.side,
+    price: persisted.price,
+    negRisk: persisted.negRisk,
+  };
+
+  const twapConfig: TwapConfig = {
+    totalSize: persisted.totalSize,
+    sliceSize: persisted.sliceSize,
+    intervalMs: persisted.intervalMs,
+    maxDurationMs: persisted.maxDurationMs,
+    jitter: persisted.jitter,
+    priceLimit: persisted.priceLimit,
+    orderType: persisted.orderType,
+  };
+
+  return createTwapOrder(executionService, orderRequest, twapConfig, {
+    userId: persisted.userId,
+    orderId: persisted.id,
+    restoredProgress: {
+      filledSize: persisted.filledSize,
+      totalCost: persisted.totalCost,
+      slicesCompleted: persisted.slicesCompleted,
+    },
+  });
+}
+
+/**
+ * Get all active TWAP orders that need to be resumed
+ */
+export function getActivePersistedTwapOrders(userId?: string): PersistedTwapOrder[] {
+  return getActiveTwapOrders(userId);
+}
+
+/**
+ * Get a specific persisted TWAP order
+ */
+export function getPersistedTwapOrder(orderId: string): PersistedTwapOrder | null {
+  return getTwapOrder(orderId);
+}
+
+/**
+ * Delete a persisted TWAP order
+ */
+export function deletePersistedTwapOrder(orderId: string): void {
+  deleteTwapOrder(orderId);
 }

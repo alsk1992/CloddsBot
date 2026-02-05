@@ -6,11 +6,21 @@
  * - When one fills, automatically cancels the other
  * - Supports Polymarket and Kalshi
  * - Polling-based fill detection
+ * - Database persistence (survives restarts)
  */
 
 import { EventEmitter } from 'eventemitter3';
+import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger';
 import type { ExecutionService, OrderResult } from './index';
+import {
+  saveBracketOrder,
+  updateBracketStatus,
+  getBracketOrder,
+  getActiveBracketOrders,
+  deleteBracketOrder,
+  type PersistedBracketOrder,
+} from './order-persistence';
 
 // =============================================================================
 // TYPES
@@ -51,6 +61,8 @@ export interface BracketStatus {
 }
 
 export interface BracketOrder extends EventEmitter {
+  /** Unique order ID */
+  id: string;
   /** Place both orders and begin monitoring */
   start(): Promise<void>;
   /** Cancel both orders */
@@ -59,25 +71,67 @@ export interface BracketOrder extends EventEmitter {
   getStatus(): BracketStatus;
 }
 
+export interface BracketOrderOptions {
+  /** User ID for persistence */
+  userId?: string;
+  /** Existing order ID (for resuming) */
+  orderId?: string;
+  /** Restored order IDs (for resuming) */
+  restoredOrderIds?: {
+    takeProfitOrderId?: string;
+    stopLossOrderId?: string;
+  };
+}
+
 // =============================================================================
 // IMPLEMENTATION
 // =============================================================================
 
 export function createBracketOrder(
   executionService: ExecutionService,
-  config: BracketOrderConfig
+  config: BracketOrderConfig,
+  options?: BracketOrderOptions
 ): BracketOrder {
   const emitter = new EventEmitter() as BracketOrder;
 
+  const orderId = options?.orderId ?? randomUUID();
+  const userId = options?.userId ?? 'anonymous';
   const pollIntervalMs = config.pollIntervalMs ?? 2000;
   const takeProfitSizePct = config.takeProfitSizePct ?? 1;
 
-  let takeProfitOrderId: string | undefined;
-  let stopLossOrderId: string | undefined;
-  let status: BracketStatus['status'] = 'pending';
+  let takeProfitOrderId: string | undefined = options?.restoredOrderIds?.takeProfitOrderId;
+  let stopLossOrderId: string | undefined = options?.restoredOrderIds?.stopLossOrderId;
+  let status: BracketStatus['status'] = options?.restoredOrderIds ? 'active' : 'pending';
   let filledSide: BracketStatus['filledSide'];
   let fillPrice: number | undefined;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Save to database on creation (unless resuming)
+  if (!options?.orderId) {
+    try {
+      const now = Date.now();
+      saveBracketOrder({
+        id: orderId,
+        userId,
+        platform: config.platform,
+        marketId: config.marketId,
+        tokenId: config.tokenId,
+        outcome: config.outcome,
+        size: config.size,
+        side: config.side,
+        takeProfitPrice: config.takeProfitPrice,
+        stopLossPrice: config.stopLossPrice,
+        takeProfitSizePct,
+        negRisk: config.negRisk,
+        pollIntervalMs,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (err) {
+      logger.warn({ error: String(err) }, 'Failed to persist bracket order');
+    }
+  }
 
   /**
    * Build order base params
@@ -169,10 +223,22 @@ export function createBracketOrder(
         filledSide = 'take_profit';
         fillPrice = tp.price;
         cleanup();
+
+        // Persist status
+        try {
+          updateBracketStatus(orderId, {
+            status: 'take_profit_hit',
+            filledSide: 'take_profit',
+            fillPrice: tp.price,
+          });
+        } catch (err) {
+          logger.warn({ error: String(err) }, 'Failed to persist bracket TP hit');
+        }
+
         await cancelOtherSide('stop_loss');
 
         logger.info(
-          { fillPrice: tp.price, side: 'take_profit' },
+          { fillPrice: tp.price, side: 'take_profit', orderId },
           'Bracket: take-profit hit'
         );
 
@@ -193,10 +259,22 @@ export function createBracketOrder(
         filledSide = 'stop_loss';
         fillPrice = sl.price;
         cleanup();
+
+        // Persist status
+        try {
+          updateBracketStatus(orderId, {
+            status: 'stop_loss_hit',
+            filledSide: 'stop_loss',
+            fillPrice: sl.price,
+          });
+        } catch (err) {
+          logger.warn({ error: String(err) }, 'Failed to persist bracket SL hit');
+        }
+
         await cancelOtherSide('take_profit');
 
         logger.info(
-          { fillPrice: sl.price, side: 'stop_loss' },
+          { fillPrice: sl.price, side: 'stop_loss', orderId },
           'Bracket: stop-loss hit'
         );
 
@@ -238,10 +316,28 @@ export function createBracketOrder(
   // -------------------------------------------------------------------------
 
   async function start(): Promise<void> {
+    // Handle resumed orders - already active, just start polling
+    if (status === 'active' && (takeProfitOrderId || stopLossOrderId)) {
+      logger.info(
+        { orderId, takeProfitOrderId, stopLossOrderId },
+        'Bracket order: resuming polling for existing orders'
+      );
+
+      pollTimer = setInterval(() => {
+        pollForFills().catch((err) => {
+          logger.error({ error: String(err) }, 'Bracket poll error');
+        });
+      }, pollIntervalMs);
+
+      emitter.emit('active', getStatusSnapshot());
+      return;
+    }
+
     if (status !== 'pending') return;
 
     logger.info(
       {
+        orderId,
         platform: config.platform,
         marketId: config.marketId,
         tp: config.takeProfitPrice,
@@ -280,11 +376,28 @@ export function createBracketOrder(
     // Need at least one order to be active
     if (!takeProfitOrderId && !stopLossOrderId) {
       status = 'failed';
+      // Persist failed status
+      try {
+        updateBracketStatus(orderId, { status: 'failed' });
+      } catch (err) {
+        logger.warn({ error: String(err) }, 'Failed to persist bracket failure');
+      }
       emitter.emit('failed', { error: 'Both bracket orders failed to place' });
       return;
     }
 
     status = 'active';
+
+    // Persist active status with order IDs
+    try {
+      updateBracketStatus(orderId, {
+        takeProfitOrderId,
+        stopLossOrderId,
+        status: 'active',
+      });
+    } catch (err) {
+      logger.warn({ error: String(err) }, 'Failed to persist bracket active status');
+    }
 
     // Start polling
     pollTimer = setInterval(() => {
@@ -293,6 +406,7 @@ export function createBracketOrder(
       });
     }, pollIntervalMs);
 
+    logger.info({ orderId, takeProfitOrderId, stopLossOrderId }, 'Bracket order active');
     emitter.emit('active', getStatusSnapshot());
   }
 
@@ -301,6 +415,13 @@ export function createBracketOrder(
 
     status = 'cancelled';
     cleanup();
+
+    // Persist cancelled status
+    try {
+      updateBracketStatus(orderId, { status: 'cancelled' });
+    } catch (err) {
+      logger.warn({ error: String(err) }, 'Failed to persist bracket cancellation');
+    }
 
     const cancellations: Promise<boolean>[] = [];
     if (takeProfitOrderId) {
@@ -312,7 +433,7 @@ export function createBracketOrder(
 
     await Promise.allSettled(cancellations);
 
-    logger.info('Bracket order cancelled');
+    logger.info({ orderId }, 'Bracket order cancelled');
     emitter.emit('cancelled', getStatusSnapshot());
   }
 
@@ -320,7 +441,81 @@ export function createBracketOrder(
     return getStatusSnapshot();
   }
 
-  Object.assign(emitter, { start, cancel, getStatus });
+  Object.assign(emitter, { id: orderId, start, cancel, getStatus });
 
   return emitter;
+}
+
+// =============================================================================
+// PERSISTENCE HELPERS
+// =============================================================================
+
+/**
+ * Resume a bracket order from persisted state.
+ * Only resumes if order IDs are available and status is 'active'.
+ */
+export function resumeBracketOrder(
+  executionService: ExecutionService,
+  persisted: PersistedBracketOrder
+): BracketOrder | null {
+  // Only resume active orders that have order IDs
+  if (persisted.status !== 'active') {
+    return null;
+  }
+
+  if (!persisted.takeProfitOrderId && !persisted.stopLossOrderId) {
+    logger.warn(
+      { orderId: persisted.id },
+      'Cannot resume bracket order without order IDs'
+    );
+    return null;
+  }
+
+  const config: BracketOrderConfig = {
+    platform: persisted.platform as 'polymarket' | 'kalshi',
+    marketId: persisted.marketId,
+    tokenId: persisted.tokenId,
+    outcome: persisted.outcome,
+    size: persisted.size,
+    side: persisted.side,
+    takeProfitPrice: persisted.takeProfitPrice,
+    stopLossPrice: persisted.stopLossPrice,
+    takeProfitSizePct: persisted.takeProfitSizePct,
+    negRisk: persisted.negRisk,
+    pollIntervalMs: persisted.pollIntervalMs,
+  };
+
+  const bracket = createBracketOrder(executionService, config, {
+    userId: persisted.userId,
+    orderId: persisted.id,
+    restoredOrderIds: {
+      takeProfitOrderId: persisted.takeProfitOrderId,
+      stopLossOrderId: persisted.stopLossOrderId,
+    },
+  });
+
+  // For resumed orders, we need to start polling immediately
+  // since they were already active
+  return bracket;
+}
+
+/**
+ * Get all active bracket orders that need to be resumed
+ */
+export function getActivePersistedBracketOrders(userId?: string): PersistedBracketOrder[] {
+  return getActiveBracketOrders(userId);
+}
+
+/**
+ * Get a specific persisted bracket order
+ */
+export function getPersistedBracketOrder(orderId: string): PersistedBracketOrder | null {
+  return getBracketOrder(orderId);
+}
+
+/**
+ * Delete a persisted bracket order
+ */
+export function deletePersistedBracketOrder(orderId: string): void {
+  deleteBracketOrder(orderId);
 }

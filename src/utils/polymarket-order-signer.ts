@@ -11,7 +11,7 @@
  */
 
 import { keccak_256 } from '@noble/hashes/sha3';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils';
 import { secp256k1 } from '@noble/curves/secp256k1';
 
 // =============================================================================
@@ -110,6 +110,79 @@ export interface OrderParams {
   nonce?: string;
   expiration?: number;
   negRisk?: boolean;
+}
+
+// =============================================================================
+// INPUT VALIDATION
+// =============================================================================
+
+export class OrderValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OrderValidationError';
+  }
+}
+
+/**
+ * Validate order parameters before signing.
+ * Throws OrderValidationError if validation fails.
+ */
+export function validateOrderParams(params: OrderParams): void {
+  // Validate tokenId - should be a large positive integer string
+  if (!params.tokenId || params.tokenId.trim() === '') {
+    throw new OrderValidationError('tokenId is required');
+  }
+  if (!/^\d+$/.test(params.tokenId)) {
+    throw new OrderValidationError('tokenId must be a numeric string');
+  }
+  // Token IDs are typically very large (>20 digits)
+  if (params.tokenId.length < 10) {
+    throw new OrderValidationError('tokenId appears too short - verify it is correct');
+  }
+
+  // Validate price - must be between 0.01 and 0.99
+  if (typeof params.price !== 'number' || isNaN(params.price)) {
+    throw new OrderValidationError('price must be a valid number');
+  }
+  if (params.price < 0.01 || params.price > 0.99) {
+    throw new OrderValidationError(`price ${params.price} out of range [0.01, 0.99]`);
+  }
+
+  // Validate size - must be positive
+  if (typeof params.size !== 'number' || isNaN(params.size)) {
+    throw new OrderValidationError('size must be a valid number');
+  }
+  if (params.size <= 0) {
+    throw new OrderValidationError(`size must be positive, got ${params.size}`);
+  }
+  // Minimum order size is typically $1 worth
+  if (params.size * params.price < 0.5) {
+    throw new OrderValidationError('order value too small (minimum ~$1)');
+  }
+
+  // Validate side
+  if (params.side !== 'buy' && params.side !== 'sell') {
+    throw new OrderValidationError(`side must be 'buy' or 'sell', got '${params.side}'`);
+  }
+
+  // Validate feeRateBps if provided
+  if (params.feeRateBps !== undefined) {
+    if (typeof params.feeRateBps !== 'number' || params.feeRateBps < 0 || params.feeRateBps > 10000) {
+      throw new OrderValidationError('feeRateBps must be between 0 and 10000');
+    }
+  }
+
+  // Validate expiration if provided
+  if (params.expiration !== undefined && params.expiration !== 0) {
+    const now = Math.floor(Date.now() / 1000);
+    if (params.expiration < now) {
+      throw new OrderValidationError('expiration must be in the future');
+    }
+    // Minimum 60 seconds for GTD orders
+    if (params.expiration - now < 60) {
+      throw new OrderValidationError('expiration must be at least 60 seconds in the future');
+    }
+  }
 }
 
 export interface SignerConfig {
@@ -251,11 +324,37 @@ function signHash(hash: string, privateKey: string): string {
 }
 
 /**
- * Generate salt matching official Polymarket implementation:
- *   Math.round(Math.random() * Date.now())
+ * Generate cryptographically secure salt for order signing.
+ * Uses 16 bytes of randomness for sufficient entropy.
  */
 function generateSalt(): string {
-  return Math.round(Math.random() * Date.now()).toString();
+  // Use crypto-secure random bytes instead of Math.random()
+  const bytes = randomBytes(16);
+  // Convert to BigInt and take absolute value to ensure positive
+  const hex = bytesToHex(bytes);
+  // Use first 12 hex chars (48 bits) to stay within safe integer range
+  return parseInt(hex.slice(0, 12), 16).toString();
+}
+
+// Nonce counter to ensure uniqueness within same millisecond
+let nonceCounter = 0;
+let lastNonceTimestamp = 0;
+
+/**
+ * Generate unique nonce for order signing.
+ * Combines timestamp with counter to prevent replay attacks.
+ */
+function generateNonce(): string {
+  const now = Date.now();
+  if (now === lastNonceTimestamp) {
+    nonceCounter++;
+  } else {
+    nonceCounter = 0;
+    lastNonceTimestamp = now;
+  }
+  // Combine timestamp and counter: timestamp * 1000 + counter
+  // This ensures unique nonces even with multiple orders per millisecond
+  return (now * 1000 + nonceCounter).toString();
 }
 
 function deriveAddress(privateKey: string): string {
@@ -273,11 +372,15 @@ function deriveAddress(privateKey: string): string {
  * Build and sign a Polymarket CLOB order.
  *
  * Returns a PostOrder ready for POST /order or POST /orders (batch).
+ * @throws {OrderValidationError} if order parameters are invalid
  */
 export function buildSignedOrder(
   params: OrderParams,
   signer: SignerConfig,
 ): PostOrderBody {
+  // Validate inputs before signing
+  validateOrderParams(params);
+
   const signerAddress = deriveAddress(signer.privateKey);
   const maker = signer.funderAddress || signerAddress;
   // signatureType must match how the account was created on Polymarket:
@@ -290,6 +393,7 @@ export function buildSignedOrder(
 
   const { makerAmount, takerAmount } = getOrderAmounts(params.price, params.size, params.side);
   const salt = generateSalt();
+  const nonce = params.nonce || generateNonce(); // Use unique nonce if not provided
   const sideNum = params.side === 'buy' ? OrderSide.BUY : OrderSide.SELL;
 
   // Build the order struct for EIP-712 signing (uses numeric side)
@@ -302,7 +406,7 @@ export function buildSignedOrder(
     makerAmount,
     takerAmount,
     expiration: (params.expiration || 0).toString(),
-    nonce: params.nonce || '0',
+    nonce,
     feeRateBps: (params.feeRateBps || 0).toString(),
     side: sideNum.toString(),
     signatureType,
@@ -322,7 +426,7 @@ export function buildSignedOrder(
       makerAmount,
       takerAmount,
       expiration: (params.expiration || 0).toString(),
-      nonce: params.nonce || '0',
+      nonce,
       feeRateBps: (params.feeRateBps || 0).toString(),
       side: params.side === 'buy' ? 'BUY' : 'SELL',
       signatureType,
