@@ -14,8 +14,8 @@ async function execute(args: string): Promise<string> {
   const cmd = parts[0]?.toLowerCase() || 'list';
 
   try {
-    const { createPositionManager } = await import('../../../execution/position-manager');
-    const manager = createPositionManager();
+    const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+    const manager = getGlobalPositionManager();
 
     switch (cmd) {
       case 'list':

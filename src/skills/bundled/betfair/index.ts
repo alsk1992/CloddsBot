@@ -203,10 +203,45 @@ async function handleBack(marketId: string, selectionId: string, odds: string, s
       return 'Invalid odds or stake.';
     }
 
+    // Circuit breaker pre-trade check
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      if (!cb.canTrade()) {
+        const state = cb.getState();
+        return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+      }
+    } catch { /* circuit breaker non-critical */ }
+
     const result = await f.placeBackOrder(marketId, parseInt(selectionId, 10), oddsNum, stakeNum);
+
+    // Circuit breaker post-trade recording
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      cb.recordTrade({ pnlUsd: 0, success: !!result, sizeUsd: stakeNum, error: result ? undefined : 'Order failed' });
+    } catch { /* circuit breaker non-critical */ }
+
     if (!result) {
       return 'Failed to place back order.';
     }
+
+    // Position tracking - back = long position
+    try {
+      const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+      const pm = getGlobalPositionManager();
+      pm.updatePosition({
+        platform: 'betfair' as any,
+        marketId,
+        tokenId: selectionId,
+        outcomeName: `Selection ${selectionId}`,
+        side: 'long',
+        size: stakeNum,
+        entryPrice: 1 / oddsNum,
+        currentPrice: 1 / oddsNum,
+        openedAt: new Date(),
+      });
+    } catch { /* position tracking non-critical */ }
 
     return `**Back Order Placed**\n\n` +
       `Bet ID: \`${result.betId}\`\n` +
@@ -232,10 +267,45 @@ async function handleLay(marketId: string, selectionId: string, odds: string, st
       return 'Invalid odds or stake.';
     }
 
+    // Circuit breaker pre-trade check
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      if (!cb.canTrade()) {
+        const state = cb.getState();
+        return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+      }
+    } catch { /* circuit breaker non-critical */ }
+
     const result = await f.placeLayOrder(marketId, parseInt(selectionId, 10), oddsNum, stakeNum);
+
+    // Circuit breaker post-trade recording
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      cb.recordTrade({ pnlUsd: 0, success: !!result, sizeUsd: stakeNum, error: result ? undefined : 'Order failed' });
+    } catch { /* circuit breaker non-critical */ }
+
     if (!result) {
       return 'Failed to place lay order.';
     }
+
+    // Position tracking - lay = short position
+    try {
+      const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+      const pm = getGlobalPositionManager();
+      pm.updatePosition({
+        platform: 'betfair' as any,
+        marketId,
+        tokenId: selectionId,
+        outcomeName: `Selection ${selectionId}`,
+        side: 'short',
+        size: stakeNum,
+        entryPrice: 1 / oddsNum,
+        currentPrice: 1 / oddsNum,
+        openedAt: new Date(),
+      });
+    } catch { /* position tracking non-critical */ }
 
     return `**Lay Order Placed**\n\n` +
       `Bet ID: \`${result.betId}\`\n` +
@@ -389,6 +459,24 @@ export async function execute(args: string): Promise<string> {
     case 'positions':
       return handlePositions();
 
+    case 'circuit': {
+      try {
+        const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+        const cb = getGlobalCircuitBreaker();
+        const state = cb.getState();
+        return `**Circuit Breaker**\n\n` +
+          `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
+          `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
+          `Daily trades: ${state.dailyTrades}\n` +
+          `Consecutive losses: ${state.consecutiveLosses}\n` +
+          `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
+          (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
+          `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
+      } catch (e) {
+        return `Circuit breaker error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+
     case 'help':
     default:
       return `**Betfair Exchange Commands**
@@ -409,6 +497,9 @@ export async function execute(args: string): Promise<string> {
 **Account:**
   /bf balance                   - Check balance
   /bf positions                 - View positions
+
+**Risk:**
+  /bf circuit                   - Circuit breaker status
 
 **Examples:**
   /bf markets premier league

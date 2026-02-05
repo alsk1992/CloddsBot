@@ -609,3 +609,16 @@ export function createPositionManager(
 
   return emitter;
 }
+
+// =============================================================================
+// GLOBAL POSITION MANAGER
+// =============================================================================
+
+let globalPositionManager: PositionManager | null = null;
+
+export function getGlobalPositionManager(): PositionManager {
+  if (!globalPositionManager) {
+    globalPositionManager = createPositionManager();
+  }
+  return globalPositionManager;
+}

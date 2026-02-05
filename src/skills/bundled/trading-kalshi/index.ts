@@ -15,11 +15,18 @@
  * /kalshi orders                            - View open orders
  * /kalshi cancel <order-id|all>             - Cancel orders
  * /kalshi balance                           - Account balance
+ * /kalshi events [query]                    - Browse events
+ * /kalshi event <event-ticker>              - Event details + markets
  */
 
-import type { KalshiFeed } from '../../../feeds/kalshi';
-import type { ExecutionService } from '../../../execution';
+import type { KalshiFeed, KalshiEventResult } from '../../../feeds/kalshi';
+import type { ExecutionService, TwapOrder, BracketOrder } from '../../../execution';
 import { logger } from '../../../utils/logger';
+
+// Advanced order state
+const activeTwaps = new Map<string, TwapOrder>();
+const activeBrackets = new Map<string, BracketOrder>();
+let nextOrderId = 1;
 
 // =============================================================================
 // HELPERS
@@ -34,6 +41,11 @@ function formatNumber(n: number, decimals = 2): string {
 
 let feedInstance: KalshiFeed | null = null;
 let execInstance: ExecutionService | null = null;
+
+async function getCircuitBreaker() {
+  const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+  return getGlobalCircuitBreaker();
+}
 
 async function getFeed(): Promise<KalshiFeed> {
   if (!feedInstance) {
@@ -84,6 +96,8 @@ function helpText(): string {
     '  /kalshi search <query>                    - Search markets',
     '  /kalshi market <ticker>                   - Market details',
     '  /kalshi book <ticker>                     - View orderbook',
+    '  /kalshi events [query]                    - Browse events',
+    '  /kalshi event <event-ticker>              - Event details + markets',
     '',
     '**Trading:**',
     '  /kalshi buy <ticker> <contracts> <price>  - Buy YES contracts',
@@ -91,6 +105,17 @@ function helpText(): string {
     '  /kalshi orders                            - Open orders',
     '  /kalshi cancel <order-id>                 - Cancel order',
     '  /kalshi cancel all                        - Cancel all orders',
+    '',
+    '**Advanced Orders:**',
+    '  /kalshi twap <buy|sell> <ticker> <total> <price> [slices] [interval-sec]',
+    '  /kalshi twap status                    - Active TWAP progress',
+    '  /kalshi twap cancel <id>               - Cancel TWAP',
+    '  /kalshi bracket <ticker> <size> <tp> <sl>',
+    '  /kalshi bracket status                 - Active brackets',
+    '  /kalshi bracket cancel <id>            - Cancel bracket',
+    '',
+    '**Cross-Platform:**',
+    '  /kalshi route <ticker> <buy|sell> <size> - Compare prices across platforms',
     '',
     '**Env vars:** KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY (or KALSHI_PRIVATE_KEY_PATH)',
     '',
@@ -215,6 +240,88 @@ async function handleOrderbook(ticker: string): Promise<string> {
 }
 
 // =============================================================================
+// EVENT HANDLERS
+// =============================================================================
+
+async function handleEvents(query?: string): Promise<string> {
+  try {
+    const feed = await getFeed();
+    const events = await feed.getEvents({ status: 'open', limit: 20 });
+
+    if (events.length === 0) {
+      return 'No open Kalshi events found.';
+    }
+
+    // Filter by query if provided
+    const filtered = query
+      ? events.filter(e =>
+          e.title.toLowerCase().includes(query.toLowerCase()) ||
+          e.eventTicker.toLowerCase().includes(query.toLowerCase()) ||
+          e.category.toLowerCase().includes(query.toLowerCase())
+        )
+      : events;
+
+    if (filtered.length === 0) {
+      return `No Kalshi events matching "${query}"`;
+    }
+
+    const lines = ['**Kalshi Events**', ''];
+
+    for (const e of filtered.slice(0, 15)) {
+      const marketCount = e.markets.length;
+      lines.push(`  [${e.eventTicker}] ${e.title}`);
+      lines.push(`       Category: ${e.category} | ${marketCount} market${marketCount !== 1 ? 's' : ''}`);
+    }
+
+    if (filtered.length > 15) {
+      lines.push('', `...and ${filtered.length - 15} more`);
+    }
+
+    lines.push('', 'Use `/kalshi event <event-ticker>` to see markets in an event.');
+
+    return lines.join('\n');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error fetching events: ${message}`;
+  }
+}
+
+async function handleEvent(eventTicker: string): Promise<string> {
+  if (!eventTicker) return 'Usage: /kalshi event <event-ticker>';
+
+  try {
+    const feed = await getFeed();
+    const event = await feed.getEvent(eventTicker);
+
+    if (!event) {
+      return `Event ${eventTicker} not found`;
+    }
+
+    const lines = [
+      `**${event.title}**`,
+      '',
+      `Event: ${event.eventTicker}`,
+      `Category: ${event.category}`,
+      '',
+      `**Markets (${event.markets.length}):**`,
+    ];
+
+    for (const m of event.markets) {
+      const yesPrice = m.outcomes.find(o => o.name === 'Yes')?.price || 0;
+      const noPrice = m.outcomes.find(o => o.name === 'No')?.price || 0;
+      const status = m.resolved ? '(resolved)' : '';
+      lines.push(`  [${m.id}] ${m.question} ${status}`);
+      lines.push(`       YES: ${(yesPrice * 100).toFixed(0)}c | NO: ${(noPrice * 100).toFixed(0)}c | Vol: $${formatNumber(m.volume24h)}`);
+    }
+
+    return lines.join('\n');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error: ${message}`;
+  }
+}
+
+// =============================================================================
 // TRADING HANDLERS
 // =============================================================================
 
@@ -240,6 +347,12 @@ async function handleBuy(ticker: string, contractsStr: string, priceStr: string)
   }
 
   try {
+    const cb = await getCircuitBreaker();
+    if (!cb.canTrade()) {
+      const state = cb.getState();
+      return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+    }
+
     const result = await exec.buyLimit({
       platform: 'kalshi',
       marketId: ticker,
@@ -248,7 +361,30 @@ async function handleBuy(ticker: string, contractsStr: string, priceStr: string)
       size: contracts,
     });
 
+    cb.recordTrade({
+      pnlUsd: 0,
+      success: result.success,
+      sizeUsd: contracts * price,
+      error: result.error,
+    });
+
     if (result.success) {
+      try {
+        const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+        const pm = getGlobalPositionManager();
+        pm.updatePosition({
+          platform: 'kalshi',
+          marketId: ticker,
+          tokenId: ticker,
+          outcomeName: 'Yes',
+          side: 'long',
+          size: contracts,
+          entryPrice: result.avgFillPrice || price,
+          currentPrice: result.avgFillPrice || price,
+          openedAt: new Date(),
+        });
+      } catch { /* position tracking non-critical */ }
+
       return `BUY YES ${contracts} contracts @ ${(price * 100).toFixed(0)}c on ${ticker} (Order: ${result.orderId})`;
     }
     return `Order failed: ${result.error}`;
@@ -280,6 +416,12 @@ async function handleSell(ticker: string, contractsStr: string, priceStr: string
   }
 
   try {
+    const cb = await getCircuitBreaker();
+    if (!cb.canTrade()) {
+      const state = cb.getState();
+      return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+    }
+
     const result = await exec.sellLimit({
       platform: 'kalshi',
       marketId: ticker,
@@ -288,7 +430,24 @@ async function handleSell(ticker: string, contractsStr: string, priceStr: string
       size: contracts,
     });
 
+    cb.recordTrade({
+      pnlUsd: 0,
+      success: result.success,
+      sizeUsd: contracts * price,
+      error: result.error,
+    });
+
     if (result.success) {
+      try {
+        const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+        const pm = getGlobalPositionManager();
+        const existing = pm.getPositionsByPlatform('kalshi')
+          .find(p => p.tokenId === ticker && p.status === 'open');
+        if (existing) {
+          pm.closePosition(existing.id, result.avgFillPrice || price, 'manual');
+        }
+      } catch { /* position tracking non-critical */ }
+
       return `SELL YES ${contracts} contracts @ ${(price * 100).toFixed(0)}c on ${ticker} (Order: ${result.orderId})`;
     }
     return `Order failed: ${result.error}`;
@@ -391,6 +550,155 @@ async function handleBalance(): Promise<string> {
 }
 
 // =============================================================================
+// ADVANCED ORDER HANDLERS
+// =============================================================================
+
+async function handleTwap(subCmdOrSide: string, ticker?: string, totalStr?: string, priceStr?: string, slicesStr?: string, intervalStr?: string): Promise<string> {
+  // Sub-commands: status, cancel
+  if (subCmdOrSide === 'status') {
+    if (activeTwaps.size === 0) return 'No active TWAP orders.';
+    const lines = ['**Active TWAP Orders**', ''];
+    for (const [id, twap] of activeTwaps) {
+      const p = twap.getProgress();
+      const pct = p.totalSize > 0 ? ((p.filledSize / p.totalSize) * 100).toFixed(0) : '0';
+      lines.push(`  [${id}] ${pct}% filled | ${p.filledSize}/${p.totalSize} | ${p.slicesCompleted}/${p.slicesTotal} slices | avg ${(p.avgFillPrice * 100).toFixed(1)}c | ${p.status}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (subCmdOrSide === 'cancel') {
+    if (!ticker) return 'Usage: /kalshi twap cancel <id>';
+    const twap = activeTwaps.get(ticker);
+    if (!twap) return `TWAP order ${ticker} not found. Active: ${[...activeTwaps.keys()].join(', ') || 'none'}`;
+    await twap.cancel();
+    activeTwaps.delete(ticker);
+    return `TWAP ${ticker} cancelled.`;
+  }
+
+  // Create new TWAP: twap <buy|sell> <ticker> <total> <price> [slices] [interval-sec]
+  const side = subCmdOrSide?.toLowerCase();
+  if (side !== 'buy' && side !== 'sell') {
+    return 'Usage: /kalshi twap <buy|sell> <ticker> <total> <price> [slices] [interval-sec]\n  /kalshi twap status\n  /kalshi twap cancel <id>';
+  }
+
+  const exec = getExecution();
+  if (!exec) {
+    return 'Set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY to trade.';
+  }
+
+  if (!ticker || !totalStr || !priceStr) {
+    return 'Usage: /kalshi twap <buy|sell> <ticker> <total> <price> [slices] [interval-sec]';
+  }
+
+  const totalSize = parseFloat(totalStr);
+  const price = parseFloat(priceStr);
+  const slices = slicesStr ? parseInt(slicesStr, 10) : 5;
+  const intervalSec = intervalStr ? parseInt(intervalStr, 10) : 30;
+
+  if (isNaN(totalSize) || totalSize <= 0) return 'Invalid total size.';
+  if (isNaN(price) || price < 0.01 || price > 0.99) return 'Invalid price (0.01-0.99).';
+  if (isNaN(slices) || slices < 1) return 'Invalid slices count.';
+  if (isNaN(intervalSec) || intervalSec < 1) return 'Invalid interval.';
+
+  try {
+    const { createTwapOrder } = await import('../../../execution');
+    const id = `twap_${nextOrderId++}`;
+
+    const twap = createTwapOrder(
+      exec,
+      { platform: 'kalshi', marketId: ticker, tokenId: ticker, side: side as 'buy' | 'sell', price },
+      { totalSize, sliceSize: totalSize / slices, intervalMs: intervalSec * 1000 }
+    );
+
+    activeTwaps.set(id, twap);
+
+    twap.on('completed', () => { activeTwaps.delete(id); });
+    twap.on('cancelled', () => { activeTwaps.delete(id); });
+
+    twap.start();
+
+    return `TWAP started: ${side.toUpperCase()} ${totalSize} contracts @ ${(price * 100).toFixed(0)}c on ${ticker} in ${slices} slices every ${intervalSec}s (ID: ${id})`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error: ${message}`;
+  }
+}
+
+async function handleBracket(subCmdOrTicker: string, sizeStrOrId?: string, tpPriceStr?: string, slPriceStr?: string): Promise<string> {
+  // Sub-commands: status, cancel
+  if (subCmdOrTicker === 'status') {
+    if (activeBrackets.size === 0) return 'No active bracket orders.';
+    const lines = ['**Active Bracket Orders**', ''];
+    for (const [id, bracket] of activeBrackets) {
+      const s = bracket.getStatus();
+      lines.push(`  [${id}] TP: ${s.takeProfitOrderId?.slice(0, 10) || '—'}... | SL: ${s.stopLossOrderId?.slice(0, 10) || '—'}... | ${s.status}`);
+      if (s.filledSide) lines.push(`    Filled: ${s.filledSide} @ ${s.fillPrice ? (s.fillPrice * 100).toFixed(1) + 'c' : '—'}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (subCmdOrTicker === 'cancel') {
+    if (!sizeStrOrId) return 'Usage: /kalshi bracket cancel <id>';
+    const bracket = activeBrackets.get(sizeStrOrId);
+    if (!bracket) return `Bracket ${sizeStrOrId} not found. Active: ${[...activeBrackets.keys()].join(', ') || 'none'}`;
+    await bracket.cancel();
+    activeBrackets.delete(sizeStrOrId);
+    return `Bracket ${sizeStrOrId} cancelled.`;
+  }
+
+  // Create new bracket: bracket <ticker> <size> <tp> <sl>
+  const exec = getExecution();
+  if (!exec) {
+    return 'Set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY to trade.';
+  }
+
+  const ticker = subCmdOrTicker;
+  if (!ticker || !sizeStrOrId || !tpPriceStr || !slPriceStr) {
+    return 'Usage: /kalshi bracket <ticker> <size> <tp-price> <sl-price>\n  /kalshi bracket status\n  /kalshi bracket cancel <id>';
+  }
+
+  const size = parseFloat(sizeStrOrId);
+  const tpPrice = parseFloat(tpPriceStr);
+  const slPrice = parseFloat(slPriceStr);
+
+  if (isNaN(size) || size <= 0) return 'Invalid size.';
+  if (isNaN(tpPrice) || tpPrice < 0.01 || tpPrice > 0.99) return 'Invalid take-profit price (0.01-0.99).';
+  if (isNaN(slPrice) || slPrice < 0.01 || slPrice > 0.99) return 'Invalid stop-loss price (0.01-0.99).';
+
+  try {
+    const { createBracketOrder } = await import('../../../execution');
+    const id = `bracket_${nextOrderId++}`;
+
+    const bracket = createBracketOrder(exec, {
+      platform: 'kalshi',
+      marketId: ticker,
+      tokenId: ticker,
+      size,
+      side: 'long',
+      takeProfitPrice: tpPrice,
+      stopLossPrice: slPrice,
+    });
+
+    activeBrackets.set(id, bracket);
+
+    bracket.on('take_profit_hit', () => { activeBrackets.delete(id); });
+    bracket.on('stop_loss_hit', () => { activeBrackets.delete(id); });
+    bracket.on('cancelled', () => { activeBrackets.delete(id); });
+
+    await bracket.start();
+
+    return `Bracket set: TP @ ${(tpPrice * 100).toFixed(0)}c / SL @ ${(slPrice * 100).toFixed(0)}c for ${size} contracts on ${ticker} (ID: ${id})`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error: ${message}`;
+  }
+}
+
+async function handleTrigger(_subCmd: string, _args: string[]): Promise<string> {
+  return 'Trigger orders require real-time price feeds. Kalshi WebSocket only supports subscribed tickers.\n\nUse `/kalshi watch <ticker>` for polling or `/poly trigger` for Polymarket triggers with real-time WebSocket feeds.';
+}
+
+// =============================================================================
 // MAIN HANDLER
 // =============================================================================
 
@@ -434,7 +742,78 @@ async function execute(args: string): Promise<string> {
         return handleBalance();
 
       case 'events':
-        return handleSearch('');
+        return handleEvents(parts.slice(1).join(' ') || undefined);
+
+      case 'event':
+      case 'e':
+        return handleEvent(parts[1]);
+
+      case 'twap':
+        return handleTwap(parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]);
+
+      case 'bracket':
+        return handleBracket(parts[1], parts[2], parts[3], parts[4]);
+
+      case 'trigger':
+      case 'triggers':
+        return handleTrigger(parts[1], parts.slice(2));
+
+      case 'route':
+      case 'compare': {
+        if (!parts[1] || !parts[2] || !parts[3]) {
+          return 'Usage: /kalshi route <ticker> <buy|sell> <size>';
+        }
+        const routeMarketId = parts[1];
+        const routeSide = parts[2] as 'buy' | 'sell';
+        const routeSize = parseFloat(parts[3]);
+
+        if (routeSide !== 'buy' && routeSide !== 'sell') return 'Side must be buy or sell.';
+        if (isNaN(routeSize) || routeSize <= 0) return 'Invalid size.';
+
+        try {
+          const { createSmartRouter } = await import('../../../execution/smart-router');
+          const { createFeedManager } = await import('../../../feeds/index');
+          const feeds = await createFeedManager({
+            polymarket: { enabled: true },
+            kalshi: { enabled: true },
+            manifold: { enabled: false },
+            metaculus: { enabled: false },
+            drift: { enabled: false },
+            news: { enabled: false },
+          } as any);
+          const router = createSmartRouter(feeds, { mode: 'balanced' });
+          const routeResult = await router.findBestRoute({ marketId: routeMarketId, side: routeSide, size: routeSize });
+
+          let output = `**Route: ${routeSide.toUpperCase()} ${routeSize} on ${routeMarketId}**\n\n`;
+          output += `Best: ${routeResult.bestRoute.platform} @ ${(routeResult.bestRoute.netPrice * 100).toFixed(1)}c\n`;
+          output += `Fees: $${routeResult.bestRoute.estimatedFees.toFixed(4)}\n`;
+          output += `Slippage: ${routeResult.bestRoute.slippage.toFixed(2)}%\n\n`;
+          if (routeResult.allRoutes.length > 1) {
+            output += `**All Platforms:**\n`;
+            for (const r of routeResult.allRoutes) {
+              output += `  ${r.platform}: ${(r.netPrice * 100).toFixed(1)}c (fees: $${r.estimatedFees.toFixed(4)})\n`;
+            }
+          }
+          output += `\n${routeResult.recommendation}`;
+          return output;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return `Route error: ${message}`;
+        }
+      }
+
+      case 'circuit': {
+        const cb = await getCircuitBreaker();
+        const state = cb.getState();
+        return `**Circuit Breaker**\n\n` +
+          `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
+          `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
+          `Daily trades: ${state.dailyTrades}\n` +
+          `Consecutive losses: ${state.consecutiveLosses}\n` +
+          `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
+          (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
+          `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
+      }
 
       case 'help':
       default:

@@ -209,16 +209,51 @@ async function handleBuy(
   }
 
   const tokenId = outcomeData.tokenId || outcomeData.id;
+  const priceNum = parseFloat(price);
+  const sizeNum = parseFloat(size);
+
+  // Circuit breaker pre-trade check
+  try {
+    const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+    const cb = getGlobalCircuitBreaker();
+    if (!cb.canTrade()) {
+      const state = cb.getState();
+      return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+    }
+  } catch { /* circuit breaker non-critical */ }
+
   const result = await exec.buyLimit({
     platform: 'opinion',
     marketId,
     tokenId,
     outcome: outcomeData.name,
-    price: parseFloat(price),
-    size: parseFloat(size),
+    price: priceNum,
+    size: sizeNum,
   });
 
+  // Circuit breaker post-trade recording
+  try {
+    const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+    const cb = getGlobalCircuitBreaker();
+    cb.recordTrade({ pnlUsd: 0, success: result.success, sizeUsd: sizeNum * priceNum, error: result.error });
+  } catch { /* circuit breaker non-critical */ }
+
   if (result.success) {
+    try {
+      const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+      const pm = getGlobalPositionManager();
+      pm.updatePosition({
+        platform: 'opinion' as any,
+        marketId,
+        tokenId,
+        outcomeName: outcomeData.name,
+        side: 'long',
+        size: sizeNum,
+        entryPrice: result.avgFillPrice || priceNum,
+        currentPrice: result.avgFillPrice || priceNum,
+        openedAt: new Date(),
+      });
+    } catch { /* position tracking non-critical */ }
     return `BUY ${outcome} @ ${price} x ${size} (Order: ${result.orderId})`;
   }
   return `Order failed: ${result.error}`;
@@ -256,16 +291,45 @@ async function handleSell(
   }
 
   const tokenId = outcomeData.tokenId || outcomeData.id;
+  const priceNum = parseFloat(price);
+  const sizeNum = parseFloat(size);
+
+  // Circuit breaker pre-trade check
+  try {
+    const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+    const cb = getGlobalCircuitBreaker();
+    if (!cb.canTrade()) {
+      const state = cb.getState();
+      return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+    }
+  } catch { /* circuit breaker non-critical */ }
+
   const result = await exec.sellLimit({
     platform: 'opinion',
     marketId,
     tokenId,
     outcome: outcomeData.name,
-    price: parseFloat(price),
-    size: parseFloat(size),
+    price: priceNum,
+    size: sizeNum,
   });
 
+  // Circuit breaker post-trade recording
+  try {
+    const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+    const cb = getGlobalCircuitBreaker();
+    cb.recordTrade({ pnlUsd: 0, success: result.success, sizeUsd: sizeNum * priceNum, error: result.error });
+  } catch { /* circuit breaker non-critical */ }
+
   if (result.success) {
+    try {
+      const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+      const pm = getGlobalPositionManager();
+      const existing = pm.getPositionsByPlatform('opinion' as any)
+        .find(p => p.tokenId === tokenId && p.status === 'open');
+      if (existing) {
+        pm.closePosition(existing.id, result.avgFillPrice || priceNum, 'manual');
+      }
+    } catch { /* position tracking non-critical */ }
     return `SELL ${outcome} @ ${price} x ${size} (Order: ${result.orderId})`;
   }
   return `Order failed: ${result.error}`;
@@ -370,6 +434,24 @@ const skill = {
         case 'o':
           return handleOrders();
 
+        case 'circuit': {
+          try {
+            const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+            const cb = getGlobalCircuitBreaker();
+            const state = cb.getState();
+            return `**Circuit Breaker**\n\n` +
+              `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
+              `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
+              `Daily trades: ${state.dailyTrades}\n` +
+              `Consecutive losses: ${state.consecutiveLosses}\n` +
+              `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
+              (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
+              `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
+          } catch (e) {
+            return `Circuit breaker error: ${e instanceof Error ? e.message : String(e)}`;
+          }
+        }
+
         case 'help':
         default:
           return [
@@ -387,6 +469,9 @@ const skill = {
             '  /op orders            - Open orders',
             '  /op cancel <orderId>  - Cancel order',
             '  /op cancelall         - Cancel all',
+            '',
+            '**Risk:**',
+            '  /op circuit           - Circuit breaker status',
             '',
             '**Examples:**',
             '  /op markets trump',

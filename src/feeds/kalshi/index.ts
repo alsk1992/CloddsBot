@@ -41,12 +41,21 @@ interface KalshiEvent {
   markets: KalshiMarket[];
 }
 
+export interface KalshiEventResult {
+  eventTicker: string;
+  title: string;
+  category: string;
+  markets: Market[];
+}
+
 export interface KalshiFeed extends EventEmitter {
   connect: () => Promise<void>;
   disconnect: () => void;
   searchMarkets: (query: string) => Promise<Market[]>;
   getMarket: (ticker: string) => Promise<Market | null>;
   getOrderbook: (ticker: string) => Promise<Orderbook | null>;
+  getEvents: (params?: { status?: string; limit?: number; category?: string }) => Promise<KalshiEventResult[]>;
+  getEvent: (eventTicker: string) => Promise<KalshiEventResult | null>;
   subscribeToMarket: (ticker: string) => void;
   unsubscribeFromMarket: (ticker: string) => void;
 }
@@ -482,6 +491,59 @@ export async function createKalshiFeed(config?: {
     searchMarkets,
     getMarket,
     getOrderbook,
+
+    async getEvents(params?: { status?: string; limit?: number; category?: string }): Promise<KalshiEventResult[]> {
+      try {
+        const qs = new URLSearchParams({
+          status: params?.status ?? 'open',
+          limit: String(params?.limit ?? 20),
+          with_nested_markets: 'true',
+        });
+        if (params?.category) qs.set('series_ticker', params.category);
+
+        const url = `${BASE_URL}/events?${qs}`;
+        const response = await fetch(url, { headers: getHeaders('GET', url) });
+        if (!response.ok) throw new Error(`Kalshi API error: ${response.status}`);
+
+        const data = (await response.json()) as { events?: KalshiEvent[] };
+        const events = data.events || [];
+
+        return events.map(e => ({
+          eventTicker: e.event_ticker,
+          title: e.title,
+          category: e.category,
+          markets: (e.markets || []).map(convertToMarket),
+        }));
+      } catch (error) {
+        logger.error('Kalshi: Events fetch error', error);
+        return [];
+      }
+    },
+
+    async getEvent(eventTicker: string): Promise<KalshiEventResult | null> {
+      try {
+        const url = `${BASE_URL}/events/${eventTicker}?with_nested_markets=true`;
+        const response = await fetch(url, { headers: getHeaders('GET', url) });
+        if (!response.ok) {
+          if (response.status === 404) return null;
+          throw new Error(`Kalshi API error: ${response.status}`);
+        }
+
+        const data = (await response.json()) as { event?: KalshiEvent };
+        const e = data.event;
+        if (!e) return null;
+
+        return {
+          eventTicker: e.event_ticker,
+          title: e.title,
+          category: e.category,
+          markets: (e.markets || []).map(convertToMarket),
+        };
+      } catch (error) {
+        logger.error(`Kalshi: Error fetching event ${eventTicker}`, error);
+        return null;
+      }
+    },
 
     subscribeToMarket(ticker: string): void {
       subscribedTickers.add(ticker);

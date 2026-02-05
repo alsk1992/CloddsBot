@@ -37,6 +37,11 @@ function formatNumber(n: number, decimals = 2): string {
 let feedInstance: PolymarketFeed | null = null;
 let execInstance: ExecutionService | null = null;
 
+async function getCircuitBreaker() {
+  const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+  return getGlobalCircuitBreaker();
+}
+
 // Advanced order state
 const activeTwaps = new Map<string, TwapOrder>();
 const activeBrackets = new Map<string, BracketOrder>();
@@ -115,6 +120,9 @@ function helpText(): string {
     '  /poly trigger sell <token> <size> <price> [limit] - Sell when price rises',
     '  /poly trigger cancel <id>                 - Cancel a trigger',
     '  /poly triggers                            - List active triggers',
+    '',
+    '**Cross-Platform:**',
+    '  /poly route <token> <buy|sell> <size>   - Compare prices across platforms',
     '',
     '**Env vars:** POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE',
     '  Optional: POLY_PRIVATE_KEY, POLY_FUNDER_ADDRESS',
@@ -286,6 +294,13 @@ async function handleBuy(tokenId: string, sizeStr: string, priceStr: string): Pr
     return 'Invalid size. Must be a positive number.';
   }
 
+  // Circuit breaker pre-check
+  const cb = await getCircuitBreaker();
+  if (!cb.canTrade()) {
+    const state = cb.getState();
+    return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+  }
+
   // If no price, try to use market price with slippage protection
   if (!priceStr) {
     try {
@@ -295,6 +310,13 @@ async function handleBuy(tokenId: string, sizeStr: string, priceStr: string): Pr
         tokenId,
         price: 0.99, // Will be adjusted by protectedBuy
         size,
+      });
+
+      cb.recordTrade({
+        pnlUsd: 0,
+        success: result.success,
+        sizeUsd: size * 0.50,
+        error: result.error,
       });
 
       if (result.success) {
@@ -331,7 +353,30 @@ async function handleBuy(tokenId: string, sizeStr: string, priceStr: string): Pr
       negRisk,
     });
 
+    cb.recordTrade({
+      pnlUsd: 0,
+      success: result.success,
+      sizeUsd: size * price,
+      error: result.error,
+    });
+
     if (result.success) {
+      try {
+        const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+        const pm = getGlobalPositionManager();
+        pm.updatePosition({
+          platform: 'polymarket',
+          marketId: tokenId,
+          tokenId,
+          outcomeName: 'Yes',
+          side: 'long',
+          size,
+          entryPrice: result.avgFillPrice || price,
+          currentPrice: result.avgFillPrice || price,
+          openedAt: new Date(),
+        });
+      } catch { /* position tracking non-critical */ }
+
       return [
         `BUY ${size} shares @ ${(price * 100).toFixed(0)}c`,
         `Token: ${tokenId.slice(0, 20)}...`,
@@ -362,6 +407,13 @@ async function handleSell(tokenId: string, sizeStr: string, priceStr: string): P
     return 'Invalid size. Must be a positive number.';
   }
 
+  // Circuit breaker pre-check
+  const cb = await getCircuitBreaker();
+  if (!cb.canTrade()) {
+    const state = cb.getState();
+    return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+  }
+
   if (!priceStr) {
     try {
       const result = await exec.protectedSell({
@@ -370,6 +422,13 @@ async function handleSell(tokenId: string, sizeStr: string, priceStr: string): P
         tokenId,
         price: 0.01, // Will be adjusted by protectedSell
         size,
+      });
+
+      cb.recordTrade({
+        pnlUsd: 0,
+        success: result.success,
+        sizeUsd: size * 0.50,
+        error: result.error,
       });
 
       if (result.success) {
@@ -405,7 +464,24 @@ async function handleSell(tokenId: string, sizeStr: string, priceStr: string): P
       negRisk,
     });
 
+    cb.recordTrade({
+      pnlUsd: 0,
+      success: result.success,
+      sizeUsd: size * price,
+      error: result.error,
+    });
+
     if (result.success) {
+      try {
+        const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+        const pm = getGlobalPositionManager();
+        const existing = pm.getPositionsByPlatform('polymarket')
+          .find(p => p.tokenId === tokenId && p.status === 'open');
+        if (existing) {
+          pm.closePosition(existing.id, result.avgFillPrice || price, 'manual');
+        }
+      } catch { /* position tracking non-critical */ }
+
       return [
         `SELL ${size} shares @ ${(price * 100).toFixed(0)}c`,
         `Token: ${tokenId.slice(0, 20)}...`,
@@ -932,6 +1008,63 @@ async function execute(args: string): Promise<string> {
 
       case 'triggers':
         return handleTrigger('list', []);
+
+      case 'route':
+      case 'compare': {
+        if (!parts[1] || !parts[2] || !parts[3]) {
+          return 'Usage: /poly route <token-id> <buy|sell> <size>';
+        }
+        const routeMarketId = parts[1];
+        const routeSide = parts[2] as 'buy' | 'sell';
+        const routeSize = parseFloat(parts[3]);
+
+        if (routeSide !== 'buy' && routeSide !== 'sell') return 'Side must be buy or sell.';
+        if (isNaN(routeSize) || routeSize <= 0) return 'Invalid size.';
+
+        try {
+          const { createSmartRouter } = await import('../../../execution/smart-router');
+          const { createFeedManager } = await import('../../../feeds/index');
+          const feeds = await createFeedManager({
+            polymarket: { enabled: true },
+            kalshi: { enabled: true },
+            manifold: { enabled: false },
+            metaculus: { enabled: false },
+            drift: { enabled: false },
+            news: { enabled: false },
+          } as any);
+          const router = createSmartRouter(feeds, { mode: 'balanced' });
+          const routeResult = await router.findBestRoute({ marketId: routeMarketId, side: routeSide, size: routeSize });
+
+          let output = `**Route: ${routeSide.toUpperCase()} ${routeSize} on ${routeMarketId.slice(0, 20)}...**\n\n`;
+          output += `Best: ${routeResult.bestRoute.platform} @ ${(routeResult.bestRoute.netPrice * 100).toFixed(1)}c\n`;
+          output += `Fees: $${routeResult.bestRoute.estimatedFees.toFixed(4)}\n`;
+          output += `Slippage: ${routeResult.bestRoute.slippage.toFixed(2)}%\n\n`;
+          if (routeResult.allRoutes.length > 1) {
+            output += `**All Platforms:**\n`;
+            for (const r of routeResult.allRoutes) {
+              output += `  ${r.platform}: ${(r.netPrice * 100).toFixed(1)}c (fees: $${r.estimatedFees.toFixed(4)})\n`;
+            }
+          }
+          output += `\n${routeResult.recommendation}`;
+          return output;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return `Route error: ${message}`;
+        }
+      }
+
+      case 'circuit': {
+        const cb = await getCircuitBreaker();
+        const state = cb.getState();
+        return `**Circuit Breaker**\n\n` +
+          `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
+          `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
+          `Daily trades: ${state.dailyTrades}\n` +
+          `Consecutive losses: ${state.consecutiveLosses}\n` +
+          `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
+          (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
+          `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
+      }
 
       case 'help':
       default:

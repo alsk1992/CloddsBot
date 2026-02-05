@@ -26,6 +26,12 @@ async function execute(args: string): Promise<string> {
 
     const service = createExecutionService({} as any);
 
+    // Lazy circuit breaker getter
+    const getCircuitBreaker = async () => {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      return getGlobalCircuitBreaker();
+    };
+
     switch (cmd) {
       case 'buy': {
         if (parts.length < 3) return 'Usage: /exec buy <market-id> <amount> [--price <p>] [--platform <name>] [--slippage <pct>]';
@@ -33,10 +39,41 @@ async function execute(args: string): Promise<string> {
         const size = parseFloat(parts[2]);
         if (isNaN(size)) return 'Invalid amount.';
 
+        const cb = await getCircuitBreaker();
+        if (!cb.canTrade()) {
+          const state = cb.getState();
+          return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+        }
+
         const request = { platform, marketId, price: price || 0.50, size };
         const result = price
           ? await service.buyLimit(request)
           : await service.protectedBuy(request, maxSlippage);
+
+        cb.recordTrade({
+          pnlUsd: 0,
+          success: result.success,
+          sizeUsd: size * (price || 0.50),
+          error: result.error,
+        });
+
+        if (result.success) {
+          try {
+            const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+            const pm = getGlobalPositionManager();
+            pm.updatePosition({
+              platform: platform as any,
+              marketId,
+              tokenId: marketId,
+              outcomeName: 'Yes',
+              side: 'long',
+              size,
+              entryPrice: result.avgFillPrice || price || 0.50,
+              currentPrice: result.avgFillPrice || price || 0.50,
+              openedAt: new Date(),
+            });
+          } catch { /* position tracking non-critical */ }
+        }
 
         let output = `**Buy Order**\n\nPlatform: ${platform}\nMarket: ${marketId}\n`;
         output += `Size: ${size} shares\n`;
@@ -54,10 +91,35 @@ async function execute(args: string): Promise<string> {
         const size = parseFloat(parts[2]);
         if (isNaN(size)) return 'Invalid amount.';
 
+        const cb = await getCircuitBreaker();
+        if (!cb.canTrade()) {
+          const state = cb.getState();
+          return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+        }
+
         const request = { platform, marketId, price: price || 0.50, size };
         const result = price
           ? await service.sellLimit(request)
           : await service.protectedSell(request, maxSlippage);
+
+        cb.recordTrade({
+          pnlUsd: 0,
+          success: result.success,
+          sizeUsd: size * (price || 0.50),
+          error: result.error,
+        });
+
+        if (result.success) {
+          try {
+            const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+            const pm = getGlobalPositionManager();
+            const existing = pm.getPositionsByPlatform(platform as any)
+              .find(p => p.tokenId === marketId && p.status === 'open');
+            if (existing) {
+              pm.closePosition(existing.id, result.avgFillPrice || price || 0.50, 'manual');
+            }
+          } catch { /* position tracking non-critical */ }
+        }
 
         let output = `**Sell Order**\n\nPlatform: ${platform}\nMarket: ${marketId}\n`;
         output += `Size: ${size} shares\n`;
@@ -185,6 +247,19 @@ async function execute(args: string): Promise<string> {
         }
 
         return `Trigger orders require a price feed subscription. Use /poly trigger for Polymarket triggers with real-time WebSocket feeds.`;
+      }
+
+      case 'circuit': {
+        const cb = await getCircuitBreaker();
+        const state = cb.getState();
+        return `**Circuit Breaker**\n\n` +
+          `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
+          `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
+          `Daily trades: ${state.dailyTrades}\n` +
+          `Consecutive losses: ${state.consecutiveLosses}\n` +
+          `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
+          (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
+          `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
       }
 
       case 'redeem': {

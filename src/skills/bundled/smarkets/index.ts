@@ -178,10 +178,45 @@ async function handleBuy(marketId: string, contractId: string, price: string, qu
       return 'Invalid price or quantity.';
     }
 
+    // Circuit breaker pre-trade check
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      if (!cb.canTrade()) {
+        const state = cb.getState();
+        return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+      }
+    } catch { /* circuit breaker non-critical */ }
+
     const result = await f.placeBuyOrder(marketId, contractId, priceNum, quantityNum);
+
+    // Circuit breaker post-trade recording
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      cb.recordTrade({ pnlUsd: 0, success: !!result, sizeUsd: quantityNum / 100, error: result ? undefined : 'Order failed' });
+    } catch { /* circuit breaker non-critical */ }
+
     if (!result) {
       return 'Failed to place buy order.';
     }
+
+    // Position tracking
+    try {
+      const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+      const pm = getGlobalPositionManager();
+      pm.updatePosition({
+        platform: 'smarkets' as any,
+        marketId,
+        tokenId: contractId,
+        outcomeName: `Contract ${contractId}`,
+        side: 'long',
+        size: quantityNum / 100,
+        entryPrice: priceNum / 100,
+        currentPrice: priceNum / 100,
+        openedAt: new Date(),
+      });
+    } catch { /* position tracking non-critical */ }
 
     return `**Buy Order Placed**\n\n` +
       `Order ID: \`${result.id}\`\n` +
@@ -208,10 +243,39 @@ async function handleSell(marketId: string, contractId: string, price: string, q
       return 'Invalid price or quantity.';
     }
 
+    // Circuit breaker pre-trade check
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      if (!cb.canTrade()) {
+        const state = cb.getState();
+        return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+      }
+    } catch { /* circuit breaker non-critical */ }
+
     const result = await f.placeSellOrder(marketId, contractId, priceNum, quantityNum);
+
+    // Circuit breaker post-trade recording
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      cb.recordTrade({ pnlUsd: 0, success: !!result, sizeUsd: quantityNum / 100, error: result ? undefined : 'Order failed' });
+    } catch { /* circuit breaker non-critical */ }
+
     if (!result) {
       return 'Failed to place sell order.';
     }
+
+    // Position tracking - close existing position on sell
+    try {
+      const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+      const pm = getGlobalPositionManager();
+      const existing = pm.getPositionsByPlatform('smarkets' as any)
+        .find(p => p.tokenId === contractId && p.status === 'open');
+      if (existing) {
+        pm.closePosition(existing.id, priceNum / 100, 'manual');
+      }
+    } catch { /* position tracking non-critical */ }
 
     return `**Sell Order Placed**\n\n` +
       `Order ID: \`${result.id}\`\n` +
@@ -342,6 +406,24 @@ export async function execute(args: string): Promise<string> {
     case 'balance':
       return handleBalance();
 
+    case 'circuit': {
+      try {
+        const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+        const cb = getGlobalCircuitBreaker();
+        const state = cb.getState();
+        return `**Circuit Breaker**\n\n` +
+          `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
+          `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
+          `Daily trades: ${state.dailyTrades}\n` +
+          `Consecutive losses: ${state.consecutiveLosses}\n` +
+          `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
+          (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
+          `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
+      } catch (e) {
+        return `Circuit breaker error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+
     case 'help':
     default:
       return `**Smarkets Exchange Commands**
@@ -361,6 +443,9 @@ export async function execute(args: string): Promise<string> {
 
 **Account:**
   /sm balance                   - Check balance
+
+**Risk:**
+  /sm circuit                   - Circuit breaker status
 
 **Examples:**
   /sm markets uk election

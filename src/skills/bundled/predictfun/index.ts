@@ -302,6 +302,16 @@ async function handleBuy(args: string): Promise<string> {
       return `Outcome "${outcome}" not found in market. Available: ${market.outcomes.map(o => o.name).join(', ')}`;
     }
 
+    // Circuit breaker pre-trade check
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      if (!cb.canTrade()) {
+        const state = cb.getState();
+        return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+      }
+    } catch { /* circuit breaker non-critical */ }
+
     const result = await predictfun.createOrder(config, {
       marketId,
       tokenId: outcomeInfo.tokenId,
@@ -310,9 +320,33 @@ async function handleBuy(args: string): Promise<string> {
       quantity: size,
     });
 
+    // Circuit breaker post-trade recording
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      cb.recordTrade({ pnlUsd: 0, success: result.success, sizeUsd: size * price, error: result.error });
+    } catch { /* circuit breaker non-critical */ }
+
     if (!result.success) {
       return `Failed to place order: ${result.error}`;
     }
+
+    // Position tracking
+    try {
+      const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+      const pm = getGlobalPositionManager();
+      pm.updatePosition({
+        platform: 'predictfun' as any,
+        marketId,
+        tokenId: outcomeInfo.tokenId,
+        outcomeName: outcome.toUpperCase(),
+        side: 'long',
+        size,
+        entryPrice: price,
+        currentPrice: price,
+        openedAt: new Date(),
+      });
+    } catch { /* position tracking non-critical */ }
 
     return [
       '**Order Placed**',
@@ -369,6 +403,16 @@ async function handleSell(args: string): Promise<string> {
       return `Outcome "${outcome}" not found in market. Available: ${market.outcomes.map(o => o.name).join(', ')}`;
     }
 
+    // Circuit breaker pre-trade check
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      if (!cb.canTrade()) {
+        const state = cb.getState();
+        return `**Trade blocked** — Circuit breaker tripped: ${state.tripReason || 'unknown'}\nUse \`/risk reset\` to re-arm.`;
+      }
+    } catch { /* circuit breaker non-critical */ }
+
     const result = await predictfun.createOrder(config, {
       marketId,
       tokenId: outcomeInfo.tokenId,
@@ -377,9 +421,27 @@ async function handleSell(args: string): Promise<string> {
       quantity: size,
     });
 
+    // Circuit breaker post-trade recording
+    try {
+      const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+      const cb = getGlobalCircuitBreaker();
+      cb.recordTrade({ pnlUsd: 0, success: result.success, sizeUsd: size * price, error: result.error });
+    } catch { /* circuit breaker non-critical */ }
+
     if (!result.success) {
       return `Failed to place order: ${result.error}`;
     }
+
+    // Position tracking - close existing position on sell
+    try {
+      const { getGlobalPositionManager } = await import('../../../execution/position-manager');
+      const pm = getGlobalPositionManager();
+      const existing = pm.getPositionsByPlatform('predictfun' as any)
+        .find(p => p.tokenId === outcomeInfo.tokenId && p.status === 'open');
+      if (existing) {
+        pm.closePosition(existing.id, price, 'manual');
+      }
+    } catch { /* position tracking non-critical */ }
 
     return [
       '**Order Placed**',
@@ -562,6 +624,7 @@ export async function handle(args: string): Promise<string> {
         '`/pf cancelall` - Cancel all orders',
         '`/pf redeem <conditionId>` - Redeem settled',
         '`/pf merge <conditionId> <amount>` - Merge tokens',
+        '`/pf circuit` - Circuit breaker status',
       ].join('\n');
 
     case 'markets':
@@ -606,6 +669,24 @@ export async function handle(args: string): Promise<string> {
 
     case 'merge':
       return handleMerge(rest);
+
+    case 'circuit': {
+      try {
+        const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+        const cb = getGlobalCircuitBreaker();
+        const state = cb.getState();
+        return `**Circuit Breaker**\n\n` +
+          `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
+          `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
+          `Daily trades: ${state.dailyTrades}\n` +
+          `Consecutive losses: ${state.consecutiveLosses}\n` +
+          `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
+          (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
+          `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
+      } catch (e) {
+        return `Circuit breaker error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
 
     default:
       return `Unknown command: ${command}. Use /pf help for available commands.`;
