@@ -20,6 +20,7 @@
 
 import type { PolymarketFeed } from '../../../feeds/polymarket';
 import type { ExecutionService } from '../../../execution';
+import type { TwapOrder, BracketOrder, TriggerOrderManager, AutoRedeemer } from '../../../execution';
 import { logger } from '../../../utils/logger';
 
 // =============================================================================
@@ -35,6 +36,13 @@ function formatNumber(n: number, decimals = 2): string {
 
 let feedInstance: PolymarketFeed | null = null;
 let execInstance: ExecutionService | null = null;
+
+// Advanced order state
+const activeTwaps = new Map<string, TwapOrder>();
+const activeBrackets = new Map<string, BracketOrder>();
+let triggerManager: TriggerOrderManager | null = null;
+let autoRedeemer: AutoRedeemer | null = null;
+let nextOrderId = 1;
 
 async function getFeed(): Promise<PolymarketFeed> {
   if (!feedInstance) {
@@ -93,6 +101,20 @@ function helpText(): string {
     '  /poly orders                             - Open orders',
     '  /poly cancel <order-id>                  - Cancel order',
     '  /poly cancel all                         - Cancel all orders',
+    '',
+    '**Advanced Orders:**',
+    '  /poly redeem                              - Redeem all resolved positions',
+    '  /poly redeem <cond-id> <token-id>         - Redeem specific position',
+    '  /poly twap <buy|sell> <token> <total> <price> [slices] [interval-sec]',
+    '  /poly twap status                         - Active TWAP progress',
+    '  /poly twap cancel <id>                    - Cancel a TWAP',
+    '  /poly bracket <token> <size> <tp> <sl>    - TP + SL bracket',
+    '  /poly bracket status                      - Active brackets',
+    '  /poly bracket cancel <id>                 - Cancel a bracket',
+    '  /poly trigger buy <token> <size> <price> [limit]  - Buy when price drops',
+    '  /poly trigger sell <token> <size> <price> [limit] - Sell when price rises',
+    '  /poly trigger cancel <id>                 - Cancel a trigger',
+    '  /poly triggers                            - List active triggers',
     '',
     '**Env vars:** POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE',
     '  Optional: POLY_PRIVATE_KEY, POLY_FUNDER_ADDRESS',
@@ -534,6 +556,322 @@ async function handleWhales(): Promise<string> {
 }
 
 // =============================================================================
+// ADVANCED ORDER HANDLERS
+// =============================================================================
+
+async function handleRedeem(conditionId?: string, tokenId?: string): Promise<string> {
+  const privateKey = process.env.POLY_PRIVATE_KEY;
+  const funderAddress = process.env.POLY_FUNDER_ADDRESS;
+  const apiKey = process.env.POLY_API_KEY;
+  const apiSecret = process.env.POLY_API_SECRET;
+  const passphrase = process.env.POLY_API_PASSPHRASE;
+
+  if (!privateKey || !funderAddress || !apiKey || !apiSecret || !passphrase) {
+    return 'Set POLY_PRIVATE_KEY, POLY_FUNDER_ADDRESS, POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE to redeem.';
+  }
+
+  try {
+    if (!autoRedeemer) {
+      const { createAutoRedeemer } = await import('../../../execution');
+      autoRedeemer = createAutoRedeemer({
+        polymarketAuth: { address: funderAddress, apiKey, apiSecret, apiPassphrase: passphrase },
+        privateKey,
+        funderAddress,
+        dryRun: process.env.DRY_RUN === 'true',
+      });
+    }
+
+    if (conditionId && tokenId) {
+      const result = await autoRedeemer.redeemPosition(conditionId, tokenId);
+      if (result.success) {
+        return [
+          '**Redemption Successful**',
+          '',
+          `Condition: ${result.conditionId}`,
+          `Token: ${result.tokenId}`,
+          `Shares: ${result.shares}`,
+          `USDC: $${result.usdcRedeemed.toFixed(2)}`,
+          result.txHash ? `Tx: ${result.txHash}` : '',
+        ].filter(Boolean).join('\n');
+      }
+      return `Redemption failed: ${result.error}`;
+    }
+
+    const results = await autoRedeemer.redeemAll();
+    if (results.length === 0) {
+      return 'No resolved positions to redeem.';
+    }
+
+    const lines = ['**Redemption Results**', ''];
+    for (const r of results) {
+      const status = r.success ? 'OK' : 'FAIL';
+      lines.push(`  [${status}] ${r.conditionId.slice(0, 12)}... | ${r.shares} shares | $${r.usdcRedeemed.toFixed(2)} USDC`);
+      if (r.txHash) lines.push(`    Tx: ${r.txHash}`);
+      if (r.error) lines.push(`    Error: ${r.error}`);
+    }
+
+    const successes = results.filter(r => r.success);
+    const totalUsdc = successes.reduce((s, r) => s + r.usdcRedeemed, 0);
+    lines.push('', `Total: ${successes.length}/${results.length} redeemed, $${totalUsdc.toFixed(2)} USDC`);
+
+    return lines.join('\n');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error: ${message}`;
+  }
+}
+
+async function handleTwap(subCmdOrSide: string, tokenIdOrId?: string, totalStr?: string, priceStr?: string, slicesStr?: string, intervalStr?: string): Promise<string> {
+  // Sub-commands: status, cancel
+  if (subCmdOrSide === 'status') {
+    if (activeTwaps.size === 0) return 'No active TWAP orders.';
+    const lines = ['**Active TWAP Orders**', ''];
+    for (const [id, twap] of activeTwaps) {
+      const p = twap.getProgress();
+      const pct = p.totalSize > 0 ? ((p.filledSize / p.totalSize) * 100).toFixed(0) : '0';
+      lines.push(`  [${id}] ${pct}% filled | ${p.filledSize}/${p.totalSize} | ${p.slicesCompleted}/${p.slicesTotal} slices | avg ${(p.avgFillPrice * 100).toFixed(1)}c | ${p.status}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (subCmdOrSide === 'cancel') {
+    if (!tokenIdOrId) return 'Usage: /poly twap cancel <id>';
+    const twap = activeTwaps.get(tokenIdOrId);
+    if (!twap) return `TWAP order ${tokenIdOrId} not found. Active: ${[...activeTwaps.keys()].join(', ') || 'none'}`;
+    await twap.cancel();
+    activeTwaps.delete(tokenIdOrId);
+    return `TWAP ${tokenIdOrId} cancelled.`;
+  }
+
+  // Create new TWAP: twap <buy|sell> <token> <total> <price> [slices] [interval-sec]
+  const side = subCmdOrSide?.toLowerCase();
+  if (side !== 'buy' && side !== 'sell') {
+    return 'Usage: /poly twap <buy|sell> <token> <total> <price> [slices] [interval-sec]\n  /poly twap status\n  /poly twap cancel <id>';
+  }
+
+  const exec = getExecution();
+  if (!exec) {
+    return 'Set POLY_API_KEY, POLY_API_SECRET, and POLY_API_PASSPHRASE to trade.';
+  }
+
+  const tokenId = tokenIdOrId;
+  if (!tokenId || !totalStr || !priceStr) {
+    return 'Usage: /poly twap <buy|sell> <token> <total> <price> [slices] [interval-sec]';
+  }
+
+  const totalSize = parseFloat(totalStr);
+  const price = parseFloat(priceStr);
+  const slices = slicesStr ? parseInt(slicesStr, 10) : 5;
+  const intervalSec = intervalStr ? parseInt(intervalStr, 10) : 30;
+
+  if (isNaN(totalSize) || totalSize <= 0) return 'Invalid total size.';
+  if (isNaN(price) || price < 0.01 || price > 0.99) return 'Invalid price (0.01-0.99).';
+  if (isNaN(slices) || slices < 1) return 'Invalid slices count.';
+  if (isNaN(intervalSec) || intervalSec < 1) return 'Invalid interval.';
+
+  try {
+    let negRisk: boolean | undefined;
+    try {
+      const { checkPolymarketNegRisk } = await import('../../../execution');
+      negRisk = await checkPolymarketNegRisk(tokenId);
+    } catch { /* non-critical */ }
+
+    const { createTwapOrder } = await import('../../../execution');
+    const id = `twap_${nextOrderId++}`;
+    const sliceSize = totalSize / slices;
+
+    const twap = createTwapOrder(
+      exec,
+      { platform: 'polymarket', marketId: tokenId, tokenId, side: side as 'buy' | 'sell', price, negRisk },
+      { totalSize, sliceSize, intervalMs: intervalSec * 1000 }
+    );
+
+    activeTwaps.set(id, twap);
+
+    twap.on('completed', () => { activeTwaps.delete(id); });
+    twap.on('cancelled', () => { activeTwaps.delete(id); });
+
+    twap.start();
+
+    return `TWAP started: ${side.toUpperCase()} ${totalSize} shares @ ${(price * 100).toFixed(0)}c in ${slices} slices every ${intervalSec}s (ID: ${id})`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error: ${message}`;
+  }
+}
+
+async function handleBracket(subCmdOrToken: string, sizeStrOrId?: string, tpPriceStr?: string, slPriceStr?: string): Promise<string> {
+  // Sub-commands: status, cancel
+  if (subCmdOrToken === 'status') {
+    if (activeBrackets.size === 0) return 'No active bracket orders.';
+    const lines = ['**Active Bracket Orders**', ''];
+    for (const [id, bracket] of activeBrackets) {
+      const s = bracket.getStatus();
+      lines.push(`  [${id}] TP: ${s.takeProfitOrderId?.slice(0, 10) || '—'}... | SL: ${s.stopLossOrderId?.slice(0, 10) || '—'}... | ${s.status}`);
+      if (s.filledSide) lines.push(`    Filled: ${s.filledSide} @ ${s.fillPrice ? (s.fillPrice * 100).toFixed(1) + 'c' : '—'}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (subCmdOrToken === 'cancel') {
+    if (!sizeStrOrId) return 'Usage: /poly bracket cancel <id>';
+    const bracket = activeBrackets.get(sizeStrOrId);
+    if (!bracket) return `Bracket ${sizeStrOrId} not found. Active: ${[...activeBrackets.keys()].join(', ') || 'none'}`;
+    await bracket.cancel();
+    activeBrackets.delete(sizeStrOrId);
+    return `Bracket ${sizeStrOrId} cancelled.`;
+  }
+
+  // Create new bracket: bracket <token> <size> <tp> <sl>
+  const exec = getExecution();
+  if (!exec) {
+    return 'Set POLY_API_KEY, POLY_API_SECRET, and POLY_API_PASSPHRASE to trade.';
+  }
+
+  const tokenId = subCmdOrToken;
+  if (!tokenId || !sizeStrOrId || !tpPriceStr || !slPriceStr) {
+    return 'Usage: /poly bracket <token> <size> <tp-price> <sl-price>\n  /poly bracket status\n  /poly bracket cancel <id>';
+  }
+
+  const size = parseFloat(sizeStrOrId);
+  const tpPrice = parseFloat(tpPriceStr);
+  const slPrice = parseFloat(slPriceStr);
+
+  if (isNaN(size) || size <= 0) return 'Invalid size.';
+  if (isNaN(tpPrice) || tpPrice < 0.01 || tpPrice > 0.99) return 'Invalid take-profit price (0.01-0.99).';
+  if (isNaN(slPrice) || slPrice < 0.01 || slPrice > 0.99) return 'Invalid stop-loss price (0.01-0.99).';
+
+  try {
+    let negRisk: boolean | undefined;
+    try {
+      const { checkPolymarketNegRisk } = await import('../../../execution');
+      negRisk = await checkPolymarketNegRisk(tokenId);
+    } catch { /* non-critical */ }
+
+    const { createBracketOrder } = await import('../../../execution');
+    const id = `bracket_${nextOrderId++}`;
+
+    const bracket = createBracketOrder(exec, {
+      platform: 'polymarket',
+      marketId: tokenId,
+      tokenId,
+      size,
+      side: 'long',
+      takeProfitPrice: tpPrice,
+      stopLossPrice: slPrice,
+      negRisk,
+    });
+
+    activeBrackets.set(id, bracket);
+
+    bracket.on('take_profit_hit', () => { activeBrackets.delete(id); });
+    bracket.on('stop_loss_hit', () => { activeBrackets.delete(id); });
+    bracket.on('cancelled', () => { activeBrackets.delete(id); });
+
+    await bracket.start();
+
+    return `Bracket set: TP @ ${(tpPrice * 100).toFixed(0)}c / SL @ ${(slPrice * 100).toFixed(0)}c for ${size} shares (ID: ${id})`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error: ${message}`;
+  }
+}
+
+async function handleTrigger(subCmd: string, args: string[]): Promise<string> {
+  // List triggers
+  if (subCmd === 'list' || !subCmd) {
+    if (!triggerManager) return 'No trigger orders. Use /poly trigger buy or /poly trigger sell to create one.';
+    const triggers = triggerManager.getTriggers();
+    if (triggers.length === 0) return 'No trigger orders.';
+
+    const lines = ['**Trigger Orders**', ''];
+    for (const t of triggers) {
+      const cond = t.config.condition;
+      const condStr = cond.type === 'price_below' ? `<= ${(cond.price * 100).toFixed(0)}c`
+        : cond.type === 'price_above' ? `>= ${(cond.price * 100).toFixed(0)}c`
+        : cond.type === 'price_cross' ? `cross ${(cond.price * 100).toFixed(0)}c ${cond.direction}`
+        : `spread < ${cond.maxSpread}`;
+      const { order } = t.config;
+      lines.push(`  [${t.id}] ${order.side.toUpperCase()} ${order.size} when ${condStr} | ${t.status}`);
+      lines.push(`    Token: ${(t.config.tokenId || t.config.marketId).slice(0, 20)}...`);
+      if (t.triggeredAt) lines.push(`    Triggered: ${t.triggeredAt.toLocaleTimeString()}`);
+    }
+    return lines.join('\n');
+  }
+
+  // Cancel trigger
+  if (subCmd === 'cancel') {
+    if (!args[0]) return 'Usage: /poly trigger cancel <trigger-id>';
+    if (!triggerManager) return 'No active trigger manager.';
+    triggerManager.cancelTrigger(args[0]);
+    return `Trigger ${args[0]} cancelled.`;
+  }
+
+  // Create trigger: buy/sell <token> <size> <trigger-price> [limit-price]
+  const side = subCmd.toLowerCase();
+  if (side !== 'buy' && side !== 'sell') {
+    return [
+      'Usage:',
+      '  /poly trigger buy <token> <size> <trigger-price> [limit-price]',
+      '  /poly trigger sell <token> <size> <trigger-price> [limit-price]',
+      '  /poly trigger cancel <trigger-id>',
+      '  /poly triggers  (or /poly trigger list)',
+    ].join('\n');
+  }
+
+  const exec = getExecution();
+  if (!exec) {
+    return 'Set POLY_API_KEY, POLY_API_SECRET, and POLY_API_PASSPHRASE to trade.';
+  }
+
+  const [tokenId, sizeStr, triggerPriceStr, limitPriceStr] = args;
+  if (!tokenId || !sizeStr || !triggerPriceStr) {
+    return `Usage: /poly trigger ${side} <token> <size> <trigger-price> [limit-price]`;
+  }
+
+  const size = parseFloat(sizeStr);
+  const triggerPrice = parseFloat(triggerPriceStr);
+  const limitPrice = limitPriceStr ? parseFloat(limitPriceStr) : undefined;
+
+  if (isNaN(size) || size <= 0) return 'Invalid size.';
+  if (isNaN(triggerPrice) || triggerPrice < 0.01 || triggerPrice > 0.99) return 'Invalid trigger price (0.01-0.99).';
+  if (limitPrice !== undefined && (isNaN(limitPrice) || limitPrice < 0.01 || limitPrice > 0.99)) return 'Invalid limit price (0.01-0.99).';
+
+  try {
+    if (!triggerManager) {
+      const feed = await getFeed();
+      const { createTriggerOrderManager } = await import('../../../execution');
+      triggerManager = createTriggerOrderManager(exec, feed);
+      triggerManager.start();
+    }
+
+    const conditionType = side === 'buy' ? 'price_below' : 'price_above';
+
+    const triggerId = triggerManager.addTrigger({
+      platform: 'polymarket',
+      marketId: tokenId,
+      tokenId,
+      condition: { type: conditionType, price: triggerPrice },
+      order: {
+        side: side as 'buy' | 'sell',
+        size,
+        price: limitPrice,
+      },
+    });
+
+    const condDesc = side === 'buy'
+      ? `price <= ${(triggerPrice * 100).toFixed(0)}c`
+      : `price >= ${(triggerPrice * 100).toFixed(0)}c`;
+    const limitDesc = limitPrice ? ` @ ${(limitPrice * 100).toFixed(0)}c limit` : ' (market)';
+
+    return `Trigger set: ${side.toUpperCase()} ${size} shares when ${condDesc}${limitDesc} (ID: ${triggerId})`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error: ${message}`;
+  }
+}
+
+// =============================================================================
 // MAIN HANDLER
 // =============================================================================
 
@@ -579,6 +917,21 @@ async function execute(args: string): Promise<string> {
       case 'whales':
       case 'whale':
         return handleWhales();
+
+      case 'redeem':
+        return handleRedeem(parts[1], parts[2]);
+
+      case 'twap':
+        return handleTwap(parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]);
+
+      case 'bracket':
+        return handleBracket(parts[1], parts[2], parts[3], parts[4]);
+
+      case 'trigger':
+        return handleTrigger(parts[1], parts.slice(2));
+
+      case 'triggers':
+        return handleTrigger('list', []);
 
       case 'help':
       default:

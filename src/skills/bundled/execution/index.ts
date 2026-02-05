@@ -114,6 +114,120 @@ async function execute(args: string): Promise<string> {
         return `**Slippage Estimate**\n\nMarket: ${marketId}\nSize: ${size}\nEstimated slippage: ${(estimate.slippage * 100).toFixed(2)}%\nExpected price: ${estimate.expectedPrice.toFixed(4)}`;
       }
 
+      case 'twap': {
+        // /exec twap <side> <market> <total> <price> <slices> <interval>
+        const side = parts[1]?.toLowerCase();
+        if (!side || (side !== 'buy' && side !== 'sell') || !parts[2] || !parts[3] || !parts[4]) {
+          return 'Usage: /exec twap <buy|sell> <market-id> <total> <price> [slices] [interval-sec] [--platform <name>]';
+        }
+        const marketId = parts[2];
+        const totalSize = parseFloat(parts[3]);
+        const twapPrice = parseFloat(parts[4]);
+        const slices = parts[5] ? parseInt(parts[5], 10) : 5;
+        const intervalSec = parts[6] ? parseInt(parts[6], 10) : 30;
+
+        if (isNaN(totalSize) || totalSize <= 0) return 'Invalid total size.';
+        if (isNaN(twapPrice) || twapPrice < 0.01 || twapPrice > 0.99) return 'Invalid price (0.01-0.99).';
+
+        const { createTwapOrder } = await import('../../../execution/twap');
+        const twap = createTwapOrder(
+          service,
+          { platform, marketId, tokenId: marketId, side: side as 'buy' | 'sell', price: twapPrice },
+          { totalSize, sliceSize: totalSize / slices, intervalMs: intervalSec * 1000 }
+        );
+        twap.start();
+
+        return `**TWAP Started**\n\n${side.toUpperCase()} ${totalSize} shares @ ${twapPrice}\nPlatform: ${platform}\nSlices: ${slices} every ${intervalSec}s`;
+      }
+
+      case 'bracket': {
+        // /exec bracket <market> <size> <tp> <sl>
+        if (!parts[1] || !parts[2] || !parts[3] || !parts[4]) {
+          return 'Usage: /exec bracket <market-id> <size> <tp-price> <sl-price> [--platform <name>]';
+        }
+        const marketId = parts[1];
+        const bracketSize = parseFloat(parts[2]);
+        const tp = parseFloat(parts[3]);
+        const sl = parseFloat(parts[4]);
+
+        if (isNaN(bracketSize) || bracketSize <= 0) return 'Invalid size.';
+        if (isNaN(tp) || tp < 0.01 || tp > 0.99) return 'Invalid take-profit price (0.01-0.99).';
+        if (isNaN(sl) || sl < 0.01 || sl > 0.99) return 'Invalid stop-loss price (0.01-0.99).';
+
+        const { createBracketOrder } = await import('../../../execution/bracket-orders');
+        const bracket = createBracketOrder(service, {
+          platform: platform as 'polymarket' | 'kalshi',
+          marketId,
+          tokenId: marketId,
+          size: bracketSize,
+          side: 'long',
+          takeProfitPrice: tp,
+          stopLossPrice: sl,
+        });
+        await bracket.start();
+
+        return `**Bracket Set**\n\nTP @ ${tp} / SL @ ${sl} for ${bracketSize} shares\nPlatform: ${platform}\nMarket: ${marketId}`;
+      }
+
+      case 'trigger':
+      case 'triggers': {
+        // /exec trigger <side> <market> <size> <price>
+        // /exec triggers (list)
+        const triggerSide = parts[1]?.toLowerCase();
+        if (cmd === 'triggers' || !triggerSide || triggerSide === 'list') {
+          return 'Trigger orders require a price feed. Use /poly trigger for Polymarket triggers.';
+        }
+        if (triggerSide !== 'buy' && triggerSide !== 'sell') {
+          return 'Usage: /exec trigger <buy|sell> <market-id> <size> <trigger-price> [--platform <name>]';
+        }
+        if (!parts[2] || !parts[3] || !parts[4]) {
+          return 'Usage: /exec trigger <buy|sell> <market-id> <size> <trigger-price> [--platform <name>]';
+        }
+
+        return `Trigger orders require a price feed subscription. Use /poly trigger for Polymarket triggers with real-time WebSocket feeds.`;
+      }
+
+      case 'redeem': {
+        if (platform !== 'polymarket') {
+          return 'Redeem is currently only supported for Polymarket.';
+        }
+
+        const privateKey = process.env.POLY_PRIVATE_KEY;
+        const funderAddress = process.env.POLY_FUNDER_ADDRESS;
+        const apiKey = process.env.POLY_API_KEY;
+        const apiSecret = process.env.POLY_API_SECRET;
+        const passphrase = process.env.POLY_API_PASSPHRASE;
+
+        if (!privateKey || !funderAddress || !apiKey || !apiSecret || !passphrase) {
+          return 'Set POLY_PRIVATE_KEY, POLY_FUNDER_ADDRESS, POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE to redeem.';
+        }
+
+        const { createAutoRedeemer } = await import('../../../execution/auto-redeem');
+        const redeemer = createAutoRedeemer({
+          polymarketAuth: { address: funderAddress, apiKey, apiSecret, apiPassphrase: passphrase },
+          privateKey,
+          funderAddress,
+          dryRun: process.env.DRY_RUN === 'true',
+        });
+
+        const condId = parts[1];
+        const tokId = parts[2];
+
+        if (condId && tokId) {
+          const result = await redeemer.redeemPosition(condId, tokId);
+          return result.success
+            ? `Redeemed ${result.shares} shares → $${result.usdcRedeemed.toFixed(2)} USDC${result.txHash ? ` (tx: ${result.txHash})` : ''}`
+            : `Redeem failed: ${result.error}`;
+        }
+
+        const results = await redeemer.redeemAll();
+        if (results.length === 0) return 'No resolved positions to redeem.';
+
+        const ok = results.filter(r => r.success);
+        const totalUsdc = ok.reduce((s, r) => s + r.usdcRedeemed, 0);
+        return `Redeemed ${ok.length}/${results.length} positions → $${totalUsdc.toFixed(2)} USDC`;
+      }
+
       default:
         return helpText();
     }
@@ -131,6 +245,13 @@ function helpText(): string {
   /exec cancel <id|all>                - Cancel order(s)
   /exec status <id>                    - Check order status
   /exec slippage <market> <size>       - Estimate slippage
+
+**Advanced Orders:**
+  /exec twap <side> <market> <total> <price> [slices] [interval]
+  /exec bracket <market> <size> <tp> <sl>
+  /exec trigger <side> <market> <size> <price>
+  /exec triggers
+  /exec redeem [cond-id] [token-id]
 
 **Options:**
   --price <price>                      - Limit price (omit for market order)
