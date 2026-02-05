@@ -1,19 +1,25 @@
 /**
- * Raydium CLI Skill - Complete CLMM + AMM Support
+ * Raydium CLI Skill - Complete CLMM + AMM Support (16 commands)
  *
- * Commands:
- * /ray swap <amount> <from> to <to>   - Execute swap
+ * Swaps:
+ * /ray swap <amount> <from> to <to>   - Execute swap via REST API
  * /ray quote <amount> <from> to <to>  - Get quote
- * /ray pools <token>                  - List pools
+ * /ray clmm-swap <pool> <amt> <mint>  - Direct CLMM swap
+ *
+ * Pool Discovery:
+ * /ray pools <token>                  - List pools (legacy API)
+ * /ray sdk-pools [type] [token]       - List pools (SDK)
+ * /ray pool-info <poolId>             - Get pool details
+ * /ray configs                        - List CLMM fee configs
  *
  * CLMM (Concentrated Liquidity):
- * /ray positions                      - List your CLMM positions
- * /ray position <nft-mint>            - Get position details
+ * /ray positions [poolId]             - List your CLMM positions
  * /ray open <pool> <lower> <upper> <amount> - Open position
  * /ray add <pool> <nft> <amount>      - Add liquidity to position
  * /ray remove <pool> <nft> [%]        - Remove liquidity
  * /ray close <pool> <nft>             - Close empty position
- * /ray harvest                        - Harvest all rewards
+ * /ray harvest [poolId]               - Harvest all rewards
+ * /ray create-pool <A> <B> <price>    - Create CLMM pool
  *
  * AMM:
  * /ray amm-add <pool> <amount>        - Add AMM liquidity
