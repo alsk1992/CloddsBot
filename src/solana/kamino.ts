@@ -138,8 +138,7 @@ export interface KaminoVaultResult {
 // MAIN MARKET ADDRESS
 // ============================================
 
-const KAMINO_MAIN_MARKET = 'H6rHXmXoCQvq8Ue81MqNh7ow5ysPa1dSozwW3PU1dDH6';
-const KLEND_PROGRAM_ID = 'KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD';
+const KAMINO_MAIN_MARKET = '7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF';
 
 // ============================================
 // LENDING FUNCTIONS
@@ -149,12 +148,12 @@ export async function getKaminoMarkets(
   connection: Connection
 ): Promise<KaminoMarketInfo[]> {
   try {
-    const { KaminoMarket } = await import('@kamino-finance/klend-sdk');
+    const { KaminoMarket, PROGRAM_ID } = await import('@kamino-finance/klend-sdk');
 
     const market = await KaminoMarket.load(
       connection,
       new PublicKey(KAMINO_MAIN_MARKET),
-      new PublicKey(KLEND_PROGRAM_ID)
+      PROGRAM_ID
     );
 
     if (!market) {
@@ -207,40 +206,56 @@ export async function getKaminoObligation(
   marketAddress?: string
 ): Promise<KaminoObligationInfo | null> {
   try {
-    const { KaminoMarket } = await import('@kamino-finance/klend-sdk');
+    const { KaminoMarket, VanillaObligation, PROGRAM_ID } = await import('@kamino-finance/klend-sdk');
 
     const market = await KaminoMarket.load(
       connection,
       new PublicKey(marketAddress || KAMINO_MAIN_MARKET),
-      new PublicKey(KLEND_PROGRAM_ID)
+      PROGRAM_ID
     );
 
     if (!market) {
       return null;
     }
 
-    const obligation = await market.getObligationByWallet(keypair.publicKey);
+    // Refresh market data
+    await market.loadReserves();
+
+    const obligation = await market.getObligationByWallet(
+      keypair.publicKey,
+      new VanillaObligation(PROGRAM_ID)
+    );
     if (!obligation) {
       return null;
     }
 
-    const deposits: KaminoPositionInfo[] = obligation.deposits.map((d: any) => ({
-      reserveAddress: d.reserveAddress.toBase58(),
-      symbol: d.symbol || 'UNKNOWN',
-      mint: d.mintAddress.toBase58(),
-      amount: d.amount.toString(),
-      amountUsd: d.marketValueRefreshed?.toString() || '0',
-    }));
+    // deposits and borrows are Maps - convert to arrays
+    const deposits: KaminoPositionInfo[] = [];
+    for (const [reserveAddress, deposit] of obligation.deposits) {
+      const reserve = market.getReserveByAddress(reserveAddress);
+      deposits.push({
+        reserveAddress: reserveAddress.toBase58(),
+        symbol: reserve?.symbol || 'UNKNOWN',
+        mint: reserve?.getLiquidityMint().toBase58() || '',
+        amount: (deposit as any).amount?.toString() || '0',
+        amountUsd: (deposit as any).marketValue?.toString() || '0',
+      });
+    }
 
-    const borrows: KaminoPositionInfo[] = obligation.borrows.map((b: any) => ({
-      reserveAddress: b.reserveAddress.toBase58(),
-      symbol: b.symbol || 'UNKNOWN',
-      mint: b.mintAddress.toBase58(),
-      amount: b.amount.toString(),
-      amountUsd: b.marketValueRefreshed?.toString() || '0',
-    }));
+    const borrows: KaminoPositionInfo[] = [];
+    for (const [reserveAddress, borrow] of obligation.borrows) {
+      const reserve = market.getReserveByAddress(reserveAddress);
+      borrows.push({
+        reserveAddress: reserveAddress.toBase58(),
+        symbol: reserve?.symbol || 'UNKNOWN',
+        mint: reserve?.getLiquidityMint().toBase58() || '',
+        amount: (borrow as any).amount?.toString() || '0',
+        amountUsd: (borrow as any).marketValue?.toString() || '0',
+      });
+    }
 
-    const stats = obligation.refreshedStats;
+    const stats = obligation.stats;
+    const ltv = obligation.loanToValue();
 
     return {
       address: obligation.obligationAddress.toBase58(),
@@ -251,8 +266,8 @@ export async function getKaminoObligation(
       totalBorrowValue: stats.userTotalBorrow?.toString() || '0',
       borrowLimit: stats.borrowLimit?.toString() || '0',
       liquidationThreshold: stats.liquidationLtv?.toString() || '0',
-      healthFactor: stats.loanToValue ? (1 / stats.loanToValue) : Infinity,
-      ltv: (stats.loanToValue || 0) * 100,
+      healthFactor: ltv > 0 ? (1 / ltv) : Infinity,
+      ltv: ltv * 100,
     };
   } catch (error) {
     console.error('Failed to get Kamino obligation:', error);
@@ -289,8 +304,12 @@ export async function depositToKamino(
     market,
     amount,
     reserve.getLiquidityMint(),
-    keypair.publicKey,
-    new VanillaObligation(PROGRAM_ID)
+    keypair,
+    new VanillaObligation(PROGRAM_ID),
+    true,  // useV2Ixs
+    undefined,  // scopeRefreshConfig
+    400000,  // extraComputeBudget
+    true,  // includeAtaIxs
   );
 
   const txs = await action.getTransactions();
@@ -336,8 +355,12 @@ export async function withdrawFromKamino(
     market,
     amount,
     reserve.getLiquidityMint(),
-    keypair.publicKey,
-    new VanillaObligation(PROGRAM_ID)
+    keypair,
+    new VanillaObligation(PROGRAM_ID),
+    true,  // useV2Ixs
+    undefined,  // scopeRefreshConfig
+    400000,  // extraComputeBudget
+    true,  // includeAtaIxs
   );
 
   const txs = await action.getTransactions();
@@ -383,8 +406,12 @@ export async function borrowFromKamino(
     market,
     amount,
     reserve.getLiquidityMint(),
-    keypair.publicKey,
-    new VanillaObligation(PROGRAM_ID)
+    keypair,
+    new VanillaObligation(PROGRAM_ID),
+    true,  // useV2Ixs
+    undefined,  // scopeRefreshConfig
+    400000,  // extraComputeBudget
+    true,  // includeAtaIxs
   );
 
   const txs = await action.getTransactions();
@@ -426,12 +453,21 @@ export async function repayToKamino(
 
   const amount = params.repayAll ? 'max' : new BN(params.amount);
 
+  // Get current slot for repay
+  const currentSlot = await connection.getSlot();
+
   const action = await KaminoAction.buildRepayTxns(
     market,
     amount,
     reserve.getLiquidityMint(),
-    keypair.publicKey,
-    new VanillaObligation(PROGRAM_ID)
+    keypair,
+    new VanillaObligation(PROGRAM_ID),
+    true,  // useV2Ixs
+    undefined,  // scopeRefreshConfig
+    BigInt(currentSlot),  // currentSlot
+    undefined,  // payer
+    400000,  // extraComputeBudget
+    true,  // includeAtaIxs
   );
 
   const txs = await action.getTransactions();
@@ -637,28 +673,32 @@ export async function withdrawFromKaminoVault(
     throw new Error(`Strategy not found: ${params.strategyAddress}`);
   }
 
-  let withdrawIx;
+  const tx = new Transaction();
 
   if (params.withdrawAll) {
-    withdrawIx = await kamino.withdrawAllShares(
+    // withdrawAllShares returns an array of instructions or null
+    const withdrawIxns = await kamino.withdrawAllShares(
       { strategy, address: new PublicKey(params.strategyAddress) },
       keypair.publicKey
     );
+    if (!withdrawIxns || withdrawIxns.length === 0) {
+      throw new Error('No shares to withdraw');
+    }
+    tx.add(...withdrawIxns);
   } else if (params.shares) {
-    withdrawIx = await kamino.withdrawShares(
+    // withdrawShares returns a single instruction
+    const withdrawIx = await kamino.withdrawShares(
       { strategy, address: new PublicKey(params.strategyAddress) },
       new Decimal(params.shares),
       keypair.publicKey
     );
+    if (!withdrawIx) {
+      throw new Error('Failed to create withdraw instruction');
+    }
+    tx.add(withdrawIx);
   } else {
     throw new Error('Must specify shares or withdrawAll');
   }
-
-  if (!withdrawIx) {
-    throw new Error('No shares to withdraw');
-  }
-
-  const tx = new Transaction().add(withdrawIx);
   const signature = await signAndSendTransaction(connection, keypair, tx);
 
   return {
