@@ -1,5 +1,23 @@
 /**
- * Raydium CLI Skill
+ * Raydium CLI Skill - Complete CLMM + AMM Support
+ *
+ * Commands:
+ * /ray swap <amount> <from> to <to>   - Execute swap
+ * /ray quote <amount> <from> to <to>  - Get quote
+ * /ray pools <token>                  - List pools
+ *
+ * CLMM (Concentrated Liquidity):
+ * /ray positions                      - List your CLMM positions
+ * /ray position <nft-mint>            - Get position details
+ * /ray open <pool> <lower> <upper> <amount> - Open position
+ * /ray add <pool> <nft> <amount>      - Add liquidity to position
+ * /ray remove <pool> <nft> [%]        - Remove liquidity
+ * /ray close <pool> <nft>             - Close empty position
+ * /ray harvest                        - Harvest all rewards
+ *
+ * AMM:
+ * /ray amm-add <pool> <amount>        - Add AMM liquidity
+ * /ray amm-remove <pool> <lp-amount>  - Remove AMM liquidity
  */
 
 const getSolanaModules = async () => {
@@ -14,6 +32,17 @@ const getSolanaModules = async () => {
 function isConfigured(): boolean {
   return !!(process.env.SOLANA_PRIVATE_KEY || process.env.SOLANA_KEYPAIR_PATH);
 }
+
+function formatPrice(price: number): string {
+  if (price < 0.000001) return price.toExponential(2);
+  if (price < 0.01) return price.toFixed(8);
+  if (price < 1) return price.toFixed(6);
+  return price.toFixed(4);
+}
+
+// ============================================================================
+// Swap Handlers
+// ============================================================================
 
 async function handleSwap(args: string[]): Promise<string> {
   if (!isConfigured()) {
@@ -39,18 +68,26 @@ async function handleSwap(args: string[]): Promise<string> {
       return `Could not resolve tokens.`;
     }
 
+    const tokens = await tokenlist.getTokenList();
+    const fromDecimals = tokens.find(t => t.address === fromMint)?.decimals ?? 9;
+    const toDecimals = tokens.find(t => t.address === toMint)?.decimals ?? 9;
+    const amountBaseUnits = Math.floor(parseFloat(amount) * Math.pow(10, fromDecimals)).toString();
+
     const result = await raydium.executeRaydiumSwap(connection, keypair, {
       inputMint: fromMint,
       outputMint: toMint,
-      amount,
+      amount: amountBaseUnits,
       slippageBps: 50,
     });
 
-    return `**Raydium Swap Complete**\n\n` +
-      `${fromToken} -> ${toToken}\n` +
-      `In: ${result.inputAmount}\n` +
-      `Out: ${result.outputAmount}\n` +
-      `TX: \`${result.txId}\``;
+    const outHuman = result.outputAmount
+      ? (parseFloat(result.outputAmount) / Math.pow(10, toDecimals)).toFixed(Math.min(toDecimals, 9))
+      : 'N/A';
+
+    return `**Raydium Swap Complete**
+
+${amount} ${fromToken} -> ${outHuman} ${toToken}
+TX: \`${result.txId || result.signature}\``;
   } catch (error) {
     return `Swap failed: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -74,16 +111,30 @@ async function handleQuote(args: string[]): Promise<string> {
       return `Could not resolve tokens.`;
     }
 
+    const tokens = await tokenlist.getTokenList();
+    const fromDecimals = tokens.find(t => t.address === fromMint)?.decimals ?? 9;
+    const toDecimals = tokens.find(t => t.address === toMint)?.decimals ?? 9;
+    const amountBaseUnits = Math.floor(parseFloat(amount) * Math.pow(10, fromDecimals)).toString();
+
     const quote = await raydium.getRaydiumQuote({
       inputMint: fromMint,
       outputMint: toMint,
-      amount,
+      amount: amountBaseUnits,
     });
 
-    return `**Raydium Quote**\n\n` +
-      `${amount} ${fromToken} -> ${toToken}\n` +
-      `Output: ${quote.outAmount}\n` +
-      `Price Impact: ${quote.priceImpact || 'N/A'}%`;
+    const outHuman = quote.outAmount
+      ? (parseFloat(quote.outAmount) / Math.pow(10, toDecimals)).toFixed(Math.min(toDecimals, 9))
+      : 'N/A';
+    const minOutHuman = quote.minOutAmount
+      ? (parseFloat(quote.minOutAmount) / Math.pow(10, toDecimals)).toFixed(Math.min(toDecimals, 9))
+      : 'N/A';
+
+    return `**Raydium Quote**
+
+${amount} ${fromToken} -> ${toToken}
+Output: ${outHuman} ${toToken}
+Min Output: ${minOutHuman} ${toToken}
+Price Impact: ${quote.priceImpact ?? 'N/A'}%`;
   } catch (error) {
     return `Quote failed: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -110,7 +161,8 @@ async function handlePools(token: string): Promise<string> {
 
     let output = `**Raydium Pools for ${token}** (${pools.length})\n\n`;
     for (const pool of pools.slice(0, 10)) {
-      output += `Pool: \`${pool.id?.slice(0, 16) || pool.address?.slice(0, 16)}...\`\n`;
+      const poolType = pool.type || 'AMM';
+      output += `**${poolType}** \`${pool.id?.slice(0, 16) || pool.address?.slice(0, 16)}...\`\n`;
       if (pool.liquidity) output += `  Liquidity: $${pool.liquidity.toLocaleString()}\n`;
       if (pool.volume24h) output += `  24h Volume: $${pool.volume24h.toLocaleString()}\n`;
       output += '\n';
@@ -121,35 +173,408 @@ async function handlePools(token: string): Promise<string> {
   }
 }
 
+// ============================================================================
+// CLMM Position Handlers
+// ============================================================================
+
+async function handlePositions(args: string[]): Promise<string> {
+  if (!isConfigured()) {
+    return 'Raydium not configured. Set SOLANA_PRIVATE_KEY.';
+  }
+
+  const poolId = args[0]; // Optional filter
+
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const positions = await raydium.getClmmPositions(connection, keypair, poolId);
+
+    if (!positions || positions.length === 0) {
+      return `**CLMM Positions**
+
+No positions found.${poolId ? ` (filtered by pool ${poolId.slice(0, 12)}...)` : ''}`;
+    }
+
+    let output = `**CLMM Positions** (${positions.length})\n\n`;
+
+    for (const pos of positions.slice(0, 10)) {
+      output += `**Position** \`${pos.nftMint?.slice(0, 12) || 'N/A'}...\`\n`;
+      output += `  Pool: \`${pos.poolId?.slice(0, 12) || 'N/A'}...\`\n`;
+      output += `  Liquidity: ${pos.liquidity || 'N/A'}\n`;
+      if (pos.tickLower !== undefined && pos.tickUpper !== undefined) {
+        output += `  Tick Range: ${pos.tickLower} - ${pos.tickUpper}\n`;
+      }
+      if (pos.tokenA && pos.tokenB) {
+        output += `  Tokens: ${pos.tokenA.slice(0, 8)}... / ${pos.tokenB.slice(0, 8)}...\n`;
+      }
+      if (pos.feeOwedA || pos.feeOwedB) {
+        output += `  Fees Owed: ${pos.feeOwedA || '0'} / ${pos.feeOwedB || '0'}\n`;
+      }
+      output += '\n';
+    }
+
+    if (positions.length > 10) {
+      output += `... and ${positions.length - 10} more positions`;
+    }
+
+    return output;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleOpenPosition(args: string[]): Promise<string> {
+  if (!isConfigured()) {
+    return 'Raydium not configured. Set SOLANA_PRIVATE_KEY.';
+  }
+
+  if (args.length < 4) {
+    return `Usage: /ray open <poolId> <priceLower> <priceUpper> <amount>
+
+Example:
+  /ray open ABC123... 100 200 1000000000`;
+  }
+
+  const [poolId, lowerStr, upperStr, amountStr] = args;
+  const priceLower = parseFloat(lowerStr);
+  const priceUpper = parseFloat(upperStr);
+
+  if (isNaN(priceLower) || isNaN(priceUpper)) {
+    return 'Price bounds must be numbers.';
+  }
+
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const result = await raydium.createClmmPosition(connection, keypair, {
+      poolId,
+      priceLower,
+      priceUpper,
+      baseAmount: amountStr,
+      slippage: 0.01,
+    });
+
+    return `**CLMM Position Opened**
+
+Pool: \`${poolId.slice(0, 20)}...\`
+NFT Mint: \`${result.nftMint}\`
+Price Range: ${priceLower} - ${priceUpper}
+TX: \`${result.signature}\``;
+  } catch (error) {
+    return `Open position failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleAddLiquidity(args: string[]): Promise<string> {
+  if (!isConfigured()) {
+    return 'Raydium not configured. Set SOLANA_PRIVATE_KEY.';
+  }
+
+  if (args.length < 3) {
+    return `Usage: /ray add <poolId> <positionNftMint> <amount>
+
+Example:
+  /ray add ABC123... NFT456... 500000000`;
+  }
+
+  const [poolId, nftMint, amountStr] = args;
+
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const result = await raydium.increaseClmmLiquidity(connection, keypair, {
+      poolId,
+      positionNftMint: nftMint,
+      amountA: amountStr,
+      slippage: 0.01,
+    });
+
+    return `**Liquidity Added**
+
+Pool: \`${poolId.slice(0, 20)}...\`
+Position: \`${nftMint.slice(0, 20)}...\`
+TX: \`${result.signature}\``;
+  } catch (error) {
+    return `Add liquidity failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleRemoveLiquidity(args: string[]): Promise<string> {
+  if (!isConfigured()) {
+    return 'Raydium not configured. Set SOLANA_PRIVATE_KEY.';
+  }
+
+  if (args.length < 2) {
+    return `Usage: /ray remove <poolId> <positionNftMint> [percentage]
+
+Examples:
+  /ray remove ABC123... NFT456...       (remove all)
+  /ray remove ABC123... NFT456... 50    (remove 50%)`;
+  }
+
+  const [poolId, nftMint, pctStr] = args;
+  const percentage = pctStr ? parseInt(pctStr) : 100;
+
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const result = await raydium.decreaseClmmLiquidity(connection, keypair, {
+      poolId,
+      positionNftMint: nftMint,
+      percentBps: percentage * 100, // Convert percent to basis points
+      slippage: 0.01,
+    });
+
+    return `**Liquidity Removed** (${percentage}%)
+
+Pool: \`${poolId.slice(0, 20)}...\`
+Position: \`${nftMint.slice(0, 20)}...\`
+Amount A: ${result.amountA}
+Amount B: ${result.amountB}
+TX: \`${result.signature}\``;
+  } catch (error) {
+    return `Remove liquidity failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleClosePosition(args: string[]): Promise<string> {
+  if (!isConfigured()) {
+    return 'Raydium not configured. Set SOLANA_PRIVATE_KEY.';
+  }
+
+  if (args.length < 2) {
+    return 'Usage: /ray close <poolId> <positionNftMint>';
+  }
+
+  const [poolId, nftMint] = args;
+
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const result = await raydium.closeClmmPosition(connection, keypair, poolId, nftMint);
+
+    return `**Position Closed**
+
+Pool: \`${poolId.slice(0, 20)}...\`
+Position: \`${nftMint.slice(0, 20)}...\`
+TX: \`${result.signature}\``;
+  } catch (error) {
+    return `Close position failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleHarvest(args: string[]): Promise<string> {
+  if (!isConfigured()) {
+    return 'Raydium not configured. Set SOLANA_PRIVATE_KEY.';
+  }
+
+  const poolId = args[0]; // Optional filter
+
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const result = await raydium.harvestClmmRewards(connection, keypair, poolId);
+
+    if (!result.signatures || result.signatures.length === 0) {
+      return `**No Rewards to Harvest**
+
+No pending rewards found.${poolId ? ` (pool: ${poolId.slice(0, 12)}...)` : ''}`;
+    }
+
+    return `**Rewards Harvested**
+
+Transactions: ${result.signatures.length}
+${result.signatures.map((sig, i) => `${i + 1}. \`${sig}\``).join('\n')}`;
+  } catch (error) {
+    return `Harvest failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+// ============================================================================
+// AMM Handlers
+// ============================================================================
+
+async function handleAmmAdd(args: string[]): Promise<string> {
+  if (!isConfigured()) {
+    return 'Raydium not configured. Set SOLANA_PRIVATE_KEY.';
+  }
+
+  if (args.length < 2) {
+    return `Usage: /ray amm-add <poolId> <amountA> [amountB]
+
+Example:
+  /ray amm-add ABC123... 1000000000`;
+  }
+
+  const [poolId, amountA, amountB] = args;
+
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const result = await raydium.addAmmLiquidity(connection, keypair, {
+      poolId,
+      amountA,
+      amountB,
+      fixedSide: 'a',
+      slippage: 0.01,
+    });
+
+    return `**AMM Liquidity Added**
+
+Pool: \`${poolId.slice(0, 20)}...\`
+LP Tokens: ${result.lpAmount}
+TX: \`${result.signature}\``;
+  } catch (error) {
+    return `AMM add failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleAmmRemove(args: string[]): Promise<string> {
+  if (!isConfigured()) {
+    return 'Raydium not configured. Set SOLANA_PRIVATE_KEY.';
+  }
+
+  if (args.length < 2) {
+    return `Usage: /ray amm-remove <poolId> <lpAmount>
+
+Example:
+  /ray amm-remove ABC123... 1000000`;
+  }
+
+  const [poolId, lpAmount] = args;
+
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const keypair = wallet.loadSolanaKeypair();
+    const connection = wallet.getSolanaConnection();
+
+    const result = await raydium.removeAmmLiquidity(connection, keypair, {
+      poolId,
+      lpAmount,
+      slippage: 0.1,
+    });
+
+    return `**AMM Liquidity Removed**
+
+Pool: \`${poolId.slice(0, 20)}...\`
+Amount A: ${result.amountA}
+Amount B: ${result.amountB}
+TX: \`${result.signature}\``;
+  } catch (error) {
+    return `AMM remove failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleConfigs(): Promise<string> {
+  try {
+    const { wallet, raydium } = await getSolanaModules();
+    const connection = wallet.getSolanaConnection();
+
+    const configs = await raydium.getClmmConfigs(connection);
+
+    if (!configs || configs.length === 0) {
+      return 'No CLMM configs found.';
+    }
+
+    let output = '**Raydium CLMM Fee Configs**\n\n';
+    for (const config of configs.slice(0, 15)) {
+      output += `ID: \`${config.id.slice(0, 16)}...\`\n`;
+      output += `  Index: ${config.index}\n`;
+      output += `  Tick Spacing: ${config.tickSpacing}\n`;
+      output += `  Trade Fee: ${(config.tradeFeeRate / 10000).toFixed(2)}%\n\n`;
+    }
+    return output;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+// ============================================================================
+// Main Execute
+// ============================================================================
+
 export async function execute(args: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
   const command = parts[0]?.toLowerCase() || 'help';
   const rest = parts.slice(1);
 
   switch (command) {
+    // Swaps
     case 'swap':
       return handleSwap(rest);
     case 'quote':
       return handleQuote(rest);
     case 'pools':
       return handlePools(rest.join(' '));
+
+    // CLMM Positions
+    case 'positions':
+      return handlePositions(rest);
+    case 'open':
+      return handleOpenPosition(rest);
+    case 'add':
+      return handleAddLiquidity(rest);
+    case 'remove':
+      return handleRemoveLiquidity(rest);
+    case 'close':
+      return handleClosePosition(rest);
+    case 'harvest':
+      return handleHarvest(rest);
+    case 'configs':
+      return handleConfigs();
+
+    // AMM
+    case 'amm-add':
+      return handleAmmAdd(rest);
+    case 'amm-remove':
+      return handleAmmRemove(rest);
+
     case 'help':
     default:
-      return `**Raydium DEX**
+      return `**Raydium DEX - Complete CLI (12 Commands)**
 
-/ray swap <amount> <from> to <to>   Execute swap
-/ray quote <amount> <from> to <to>  Get quote
-/ray pools <token>                  List pools
+**Swaps:**
+  /ray swap <amount> <from> to <to>    Execute swap
+  /ray quote <amount> <from> to <to>   Get quote
+  /ray pools <token>                   List pools
+
+**CLMM (Concentrated Liquidity):**
+  /ray positions [poolId]              List your positions
+  /ray open <pool> <lower> <upper> <amount>  Open position
+  /ray add <pool> <nft> <amount>       Add liquidity
+  /ray remove <pool> <nft> [%]         Remove liquidity (default 100%)
+  /ray close <pool> <nft>              Close empty position
+  /ray harvest [poolId]                Harvest all rewards
+  /ray configs                         List fee tier configs
+
+**AMM Liquidity:**
+  /ray amm-add <pool> <amount>         Add AMM liquidity
+  /ray amm-remove <pool> <lp-amount>   Remove AMM liquidity
 
 **Examples:**
   /ray swap 1 SOL to USDC
-  /ray pools RAY`;
+  /ray positions
+  /ray harvest`;
   }
 }
 
 export default {
   name: 'raydium',
-  description: 'Raydium DEX - swap tokens, get quotes, and list pools on Solana',
+  description: 'Raydium DEX - swaps, CLMM positions, AMM liquidity on Solana',
   commands: ['/raydium', '/ray'],
   handle: execute,
 };
