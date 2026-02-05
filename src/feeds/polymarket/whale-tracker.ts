@@ -303,78 +303,109 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
   // REST API HELPERS
   // ==========================================================================
 
-  async function fetchMarketTrades(marketId: string): Promise<WhaleTrade[]> {
-    try {
-      const response = await fetchWithRetry(
-        `${CLOB_REST_URL}/trades?market=${marketId}&limit=100`,
-        {},
-        { maxRetries: 3, baseDelayMs: 1000, timeoutMs: 15000 }
-      );
+  async function fetchMarketTrades(marketId: string, maxPages = 5): Promise<WhaleTrade[]> {
+    const allTrades: WhaleTrade[] = [];
+    let nextCursor: string | undefined;
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+    try {
+      for (let page = 0; page < maxPages; page++) {
+        const url = nextCursor
+          ? `${CLOB_REST_URL}/trades?market=${marketId}&limit=100&cursor=${nextCursor}`
+          : `${CLOB_REST_URL}/trades?market=${marketId}&limit=100`;
+
+        const response = await fetchWithRetry(url, {}, { maxRetries: 3, baseDelayMs: 1000, timeoutMs: 15000 });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const json = await response.json() as { data?: any[]; next_cursor?: string } | any[];
+
+        // Handle both array response and paginated response
+        const data = Array.isArray(json) ? json : (json.data || []);
+        nextCursor = Array.isArray(json) ? undefined : json.next_cursor;
+
+        const trades = data
+          .filter((t: any) => {
+            const usdValue = parseFloat(t.price) * parseFloat(t.size);
+            return usdValue >= cfg.minTradeSize;
+          })
+          .map((t: any) => ({
+            id: t.id || `${t.market}_${t.timestamp}`,
+            timestamp: new Date(t.timestamp || t.match_time),
+            marketId: t.market || marketId,
+            tokenId: t.asset_id,
+            outcome: t.outcome || (t.side === 'BUY' ? 'Yes' : 'No'),
+            side: t.side?.toUpperCase() || 'BUY',
+            price: parseFloat(t.price),
+            size: parseFloat(t.size),
+            usdValue: parseFloat(t.price) * parseFloat(t.size),
+            maker: t.maker_address || t.maker,
+            taker: t.taker_address || t.taker,
+            transactionHash: t.transaction_hash,
+          }));
+
+        allTrades.push(...trades);
+
+        // Stop if no more pages
+        if (!nextCursor || data.length < 100) break;
       }
 
-      const data = await response.json() as any[];
-      return data
-        .filter((t) => {
-          const usdValue = parseFloat(t.price) * parseFloat(t.size);
-          return usdValue >= cfg.minTradeSize;
-        })
-        .map((t) => ({
-          id: t.id || `${t.market}_${t.timestamp}`,
-          timestamp: new Date(t.timestamp || t.match_time),
-          marketId: t.market || marketId,
-          tokenId: t.asset_id,
-          outcome: t.outcome || (t.side === 'BUY' ? 'Yes' : 'No'),
-          side: t.side?.toUpperCase() || 'BUY',
-          price: parseFloat(t.price),
-          size: parseFloat(t.size),
-          usdValue: parseFloat(t.price) * parseFloat(t.size),
-          maker: t.maker_address || t.maker,
-          taker: t.taker_address || t.taker,
-          transactionHash: t.transaction_hash,
-        }));
+      return allTrades;
     } catch (error) {
       logger.error({ marketId, error }, 'Failed to fetch market trades after retries');
-      return [];
+      return allTrades; // Return what we got so far
     }
   }
 
-  async function fetchAddressPositions(address: string): Promise<WhalePosition[]> {
-    try {
-      const response = await fetchWithRetry(
-        `${GAMMA_API_URL}/positions?address=${address}`,
-        {},
-        { maxRetries: 3, baseDelayMs: 1000, timeoutMs: 15000 }
-      );
+  async function fetchAddressPositions(address: string, maxPages = 3): Promise<WhalePosition[]> {
+    const allPositions: WhalePosition[] = [];
+    let offset = 0;
+    const limit = 100;
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+    try {
+      for (let page = 0; page < maxPages; page++) {
+        const response = await fetchWithRetry(
+          `${GAMMA_API_URL}/positions?address=${address}&limit=${limit}&offset=${offset}`,
+          {},
+          { maxRetries: 3, baseDelayMs: 1000, timeoutMs: 15000 }
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json() as any[];
+        const positions = data
+          .filter((p: any) => {
+            const usdValue = parseFloat(p.currentValue || p.size * p.price || 0);
+            return usdValue >= cfg.minPositionSize;
+          })
+          .map((p: any) => ({
+            id: `${address}_${p.market}_${p.outcome}`,
+            address,
+            marketId: p.market || p.conditionId,
+            marketQuestion: p.title || p.question,
+            tokenId: p.asset_id || p.tokenId,
+            outcome: p.outcome || 'Yes',
+            size: parseFloat(p.size || p.amount || 0),
+            avgEntryPrice: parseFloat(p.avgPrice || p.averageBuyPrice || 0),
+            usdValue: parseFloat(p.currentValue || p.size * p.price || 0),
+            unrealizedPnl: parseFloat(p.pnl || p.unrealizedPnl || 0),
+            lastUpdated: new Date(p.updatedAt || Date.now()),
+          }));
+
+        allPositions.push(...positions);
+
+        // Stop if no more data
+        if (data.length < limit) break;
+        offset += limit;
       }
 
-      const data = await response.json() as any[];
-      return data
-        .filter((p) => {
-          const usdValue = parseFloat(p.currentValue || p.size * p.price || 0);
-          return usdValue >= cfg.minPositionSize;
-        })
-        .map((p) => ({
-          id: `${address}_${p.market}_${p.outcome}`,
-          address,
-          marketId: p.market || p.conditionId,
-          marketQuestion: p.title || p.question,
-          tokenId: p.asset_id || p.tokenId,
-          outcome: p.outcome || 'Yes',
-          size: parseFloat(p.size || p.amount || 0),
-          avgEntryPrice: parseFloat(p.avgPrice || p.averageBuyPrice || 0),
-          usdValue: parseFloat(p.currentValue || p.size * p.price || 0),
-          unrealizedPnl: parseFloat(p.pnl || p.unrealizedPnl || 0),
-          lastUpdated: new Date(p.updatedAt || Date.now()),
-        }));
+      return allPositions;
     } catch (error) {
       logger.error({ address, error }, 'Failed to fetch positions after retries');
-      return [];
+      return allPositions; // Return what we got so far
     }
   }
 

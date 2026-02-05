@@ -130,6 +130,11 @@ function helpText(): string {
     '  /poly fills stop                        - Disconnect fills WebSocket',
     '  /poly fills clear                       - Clear tracked fills',
     '',
+    '**Order Heartbeat:**',
+    '  /poly heartbeat                         - Start heartbeat (keeps orders alive)',
+    '  /poly heartbeat status                  - Check heartbeat status',
+    '  /poly heartbeat stop                    - Stop heartbeat (orders cancelled in 10s)',
+    '',
     '**Env vars:** POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE',
     '  Optional: POLY_PRIVATE_KEY, POLY_FUNDER_ADDRESS',
     '',
@@ -1138,6 +1143,41 @@ async function execute(args: string): Promise<string> {
             `- \`/poly fills clear\` - Clear tracked fills`;
         } catch (err) {
           return `Failed to connect fills WebSocket: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case 'heartbeat':
+      case 'hb': {
+        // /poly heartbeat [start|stop|status]
+        const subcommand = parts[1]?.toLowerCase() || 'start';
+        const exec = getExecution();
+        if (!exec) {
+          return 'Polymarket trading not configured. Set env vars and restart.';
+        }
+
+        if (subcommand === 'status') {
+          const active = exec.isHeartbeatActive();
+          return `**Heartbeat Status**\n` +
+            `Active: ${active ? 'Yes - orders will stay alive' : 'No - orders may be cancelled after 10s'}\n\n` +
+            `Commands:\n` +
+            `- \`/poly heartbeat start\` - Start heartbeat\n` +
+            `- \`/poly heartbeat stop\` - Stop heartbeat`;
+        }
+
+        if (subcommand === 'stop') {
+          exec.stopHeartbeat();
+          return 'Heartbeat stopped. Open orders will be cancelled within 10 seconds.';
+        }
+
+        // Default: start
+        try {
+          const hbId = await exec.startHeartbeat();
+          return `Heartbeat started!\n\n` +
+            `ID: ${hbId}\n` +
+            `Your orders will now stay alive. Heartbeat is sent automatically every 8 seconds.\n\n` +
+            `**Important:** Run \`/poly heartbeat stop\` when done trading, or orders will persist.`;
+        } catch (err) {
+          return `Failed to start heartbeat: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
 

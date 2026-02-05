@@ -394,6 +394,11 @@ function wrapExecutionWithLogging(
     getTrackedFill: execution.getTrackedFill.bind(execution),
     clearOldFills: execution.clearOldFills.bind(execution),
     waitForFill: execution.waitForFill.bind(execution),
+    // Heartbeat methods (Polymarket - orders cancelled if no heartbeat)
+    startHeartbeat: execution.startHeartbeat.bind(execution),
+    sendHeartbeat: execution.sendHeartbeat.bind(execution),
+    stopHeartbeat: execution.stopHeartbeat.bind(execution),
+    isHeartbeatActive: execution.isHeartbeatActive.bind(execution),
   };
 }
 

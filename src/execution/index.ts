@@ -225,17 +225,35 @@ export interface ExecutionService {
   clearOldFills(maxAgeMs?: number): number;
   /** Wait for a fill to reach CONFIRMED status (or timeout) */
   waitForFill(orderId: string, timeoutMs?: number): Promise<TrackedFill | null>;
+
+  // Polymarket Order Heartbeat (required to keep orders alive)
+  /** Start heartbeat - returns heartbeat ID. Call every <10s or orders get cancelled. */
+  startHeartbeat(): Promise<string>;
+  /** Send heartbeat with existing ID. Returns new heartbeat ID. */
+  sendHeartbeat(heartbeatId: string): Promise<string>;
+  /** Stop heartbeat (orders will be cancelled after 10s). */
+  stopHeartbeat(): void;
+  /** Check if heartbeat is active. */
+  isHeartbeatActive(): boolean;
 }
 
 // =============================================================================
 // POLYMARKET EXECUTION
 // =============================================================================
 
-const POLY_CLOB_URL = 'https://clob.polymarket.com';
+// API URLs (configurable for testnet)
+const POLY_CLOB_URL = process.env.POLY_CLOB_URL || 'https://clob.polymarket.com';
 
-// Exchange contract addresses
-const POLY_CTF_EXCHANGE = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
-const POLY_NEG_RISK_CTF_EXCHANGE = '0xC5d563A36AE78145C45a50134d48A1215220f80a';
+// Exchange contract addresses (configurable via env for testnet support)
+// Mainnet (default):
+//   CTF: 0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E
+//   NEG_RISK: 0xC5d563A36AE78145C45a50134d48A1215220f80a
+// Amoy Testnet:
+//   POLY_CLOB_URL=https://clob.polymarket.com (same)
+//   POLY_CTF_EXCHANGE=0xdFE02Eb6733538f8Ea35D585af8DE5958AD99E40
+//   POLY_NEG_RISK_CTF_EXCHANGE=0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296
+const POLY_CTF_EXCHANGE = process.env.POLY_CTF_EXCHANGE || '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
+const POLY_NEG_RISK_CTF_EXCHANGE = process.env.POLY_NEG_RISK_CTF_EXCHANGE || '0xC5d563A36AE78145C45a50134d48A1215220f80a';
 
 interface NegRiskResponse {
   neg_risk?: boolean;
@@ -1742,6 +1760,91 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
     }
   }
 
+  // ==========================================================================
+  // ORDER HEARTBEAT (Polymarket - orders cancelled if no heartbeat within 10s)
+  // ==========================================================================
+  let heartbeatId: string | null = null;
+  let heartbeatInterval: NodeJS.Timeout | null = null;
+  const HEARTBEAT_INTERVAL_MS = 8000; // 8s to be safe (10s timeout)
+
+  async function postHeartbeat(existingId?: string): Promise<string> {
+    if (!config.polymarket) {
+      throw new Error('Polymarket not configured');
+    }
+
+    const url = `${POLY_CLOB_URL}/heartbeat`;
+    const body = existingId ? { heartbeat_id: existingId } : {};
+
+    const headers = buildPolymarketHeadersForUrl(
+      {
+        address: config.polymarket.funderAddress || '',
+        apiKey: config.polymarket.apiKey,
+        apiSecret: config.polymarket.apiSecret,
+        apiPassphrase: config.polymarket.apiPassphrase,
+      },
+      'POST',
+      url
+    );
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Heartbeat failed: ${response.status} ${text}`);
+    }
+
+    const data = await response.json() as { heartbeat_id?: string };
+    return data.heartbeat_id || existingId || '';
+  }
+
+  async function startHeartbeat(): Promise<string> {
+    if (heartbeatInterval) {
+      // Already running, just return current ID
+      if (heartbeatId) return heartbeatId;
+    }
+
+    // Initial heartbeat
+    heartbeatId = await postHeartbeat();
+    logger.info({ heartbeatId }, 'Polymarket heartbeat started');
+
+    // Start recurring heartbeat
+    heartbeatInterval = setInterval(async () => {
+      try {
+        heartbeatId = await postHeartbeat(heartbeatId || undefined);
+        logger.debug({ heartbeatId }, 'Heartbeat sent');
+      } catch (err) {
+        logger.error({ err }, 'Heartbeat failed - orders may be cancelled');
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+
+    return heartbeatId;
+  }
+
+  async function sendHeartbeat(id: string): Promise<string> {
+    heartbeatId = await postHeartbeat(id);
+    return heartbeatId;
+  }
+
+  function stopHeartbeat(): void {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+    heartbeatId = null;
+    logger.info('Polymarket heartbeat stopped');
+  }
+
+  function isHeartbeatActive(): boolean {
+    return heartbeatInterval !== null;
+  }
+
   function waitForFill(orderId: string, timeoutMs = 60000): Promise<TrackedFill | null> {
     // Check if already have a confirmed/failed fill
     const existing = trackedFills.get(orderId);
@@ -2445,6 +2548,26 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
 
     waitForFill(orderId: string, timeoutMs?: number) {
       return waitForFill(orderId, timeoutMs);
+    },
+
+    // =========================================================================
+    // POLYMARKET ORDER HEARTBEAT
+    // =========================================================================
+
+    async startHeartbeat() {
+      return startHeartbeat();
+    },
+
+    async sendHeartbeat(id: string) {
+      return sendHeartbeat(id);
+    },
+
+    stopHeartbeat() {
+      stopHeartbeat();
+    },
+
+    isHeartbeatActive() {
+      return isHeartbeatActive();
     },
   };
 
