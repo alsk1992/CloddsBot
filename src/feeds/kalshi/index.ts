@@ -357,7 +357,9 @@ export async function createKalshiFeed(config?: {
   function connectWebsocket(): void {
     if (ws || !apiKeyAuth) return;
 
+    // Build headers fresh for each connection attempt (timestamp-based auth)
     const headers = buildKalshiHeadersForUrl(apiKeyAuth, 'GET', WS_URL);
+    logger.debug({ timestamp: headers['KALSHI-ACCESS-TIMESTAMP'] }, 'Kalshi: Creating WebSocket with fresh headers');
     ws = new WebSocket(WS_URL, { headers });
 
     ws.on('open', () => {
@@ -828,6 +830,13 @@ export async function createKalshiFeed(config?: {
       const price = normalizePrice(entry[0]);
       const size = typeof entry[1] === 'number' ? entry[1] : Number.parseFloat(String(entry[1]));
       if (price === null || !Number.isFinite(size) || size <= 0) continue;
+
+      // Validate price is in valid range [0, 1]
+      if (price < 0 || price > 1) {
+        logger.warn({ rawPrice: entry[0], normalizedPrice: price }, 'Kalshi: Invalid orderbook price out of range [0,1], skipping');
+        continue;
+      }
+
       levels.push([price, size]);
     }
     return levels;

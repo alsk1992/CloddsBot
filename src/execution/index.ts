@@ -1362,6 +1362,53 @@ async function getPolymarketOpenOrders(auth: PolymarketApiKeyAuth): Promise<Open
 
 const KALSHI_API_URL = 'https://api.elections.kalshi.com/trade-api/v2';
 
+/**
+ * Retry helper with exponential backoff for Kalshi API calls
+ * Retries on: network errors, 5xx server errors, 429 rate limit
+ * Does NOT retry on: 4xx client errors (bad request, unauthorized, etc.)
+ */
+async function kalshiRetryWithBackoff<T>(
+  operation: () => Promise<{ response: Response; data: T }>,
+  maxAttempts: number = 3,
+  baseDelayMs: number = 1000
+): Promise<{ response: Response; data: T }> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await operation();
+
+      // Retry on 5xx or 429
+      if (result.response.status >= 500 || result.response.status === 429) {
+        if (attempt < maxAttempts) {
+          const delay = baseDelayMs * Math.pow(2, attempt - 1);
+          logger.warn(
+            { status: result.response.status, attempt, delay },
+            'Kalshi API error, retrying...'
+          );
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (attempt < maxAttempts) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        logger.warn(
+          { error: lastError.message, attempt, delay },
+          'Kalshi API network error, retrying...'
+        );
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw lastError || new Error('Kalshi API request failed after retries');
+}
+
 interface KalshiOrderResponse {
   order?: {
     order_id: string;
@@ -1393,33 +1440,79 @@ async function placeKalshiOrder(
   action: OrderSide,
   price: number,
   count: number,
-  orderType: OrderType = 'GTC'
+  orderType: OrderType = 'GTC',
+  maxSlippage?: number
 ): Promise<OrderResult> {
   const url = `${KALSHI_API_URL}/portfolio/orders`;
+
+  // Slippage protection for market orders
+  let effectivePrice = price;
+  if (orderType === 'FOK' && maxSlippage !== undefined) {
+    try {
+      const orderbook = await fetchKalshiOrderbook(ticker);
+      if (orderbook) {
+        // For buy: look at asks; for sell: look at bids
+        const relevantSide = action === 'buy' ? orderbook.asks : orderbook.bids;
+        const { avgFillPrice, totalFilled } = calculateFillFromOrderbook(relevantSide, count, action);
+
+        if (totalFilled < count * 0.5) {
+          return {
+            success: false,
+            error: `Insufficient liquidity: only ${totalFilled}/${count} contracts available`,
+          };
+        }
+
+        // Calculate slippage from mid price
+        const slippage = action === 'buy'
+          ? (avgFillPrice - orderbook.midPrice) / orderbook.midPrice
+          : (orderbook.midPrice - avgFillPrice) / orderbook.midPrice;
+
+        if (slippage > maxSlippage) {
+          return {
+            success: false,
+            error: `Slippage ${(slippage * 100).toFixed(2)}% exceeds max ${(maxSlippage * 100).toFixed(2)}%`,
+          };
+        }
+
+        // Use limit order instead of market to cap slippage
+        // Add buffer to expected price for fill certainty
+        const buffer = action === 'buy' ? 0.01 : -0.01;
+        effectivePrice = Math.max(0.01, Math.min(0.99, avgFillPrice + buffer));
+        logger.info(
+          { ticker, action, count, avgFillPrice, effectivePrice, slippage },
+          'Kalshi market order converted to limit with slippage protection'
+        );
+      }
+    } catch (err) {
+      logger.warn({ err, ticker }, 'Failed to check slippage, proceeding with market order');
+    }
+  }
 
   const order = {
     ticker,
     side,
     action,
-    type: orderType === 'FOK' ? 'market' : 'limit',
-    yes_price: side === 'yes' ? Math.round(price * 100) : undefined,
-    no_price: side === 'no' ? Math.round(price * 100) : undefined,
+    type: orderType === 'FOK' && maxSlippage !== undefined ? 'limit' : (orderType === 'FOK' ? 'market' : 'limit'),
+    yes_price: side === 'yes' ? Math.round(effectivePrice * 100) : undefined,
+    no_price: side === 'no' ? Math.round(effectivePrice * 100) : undefined,
     count,
   };
 
-  const headers = buildKalshiHeadersForUrl(auth, 'POST', url);
-
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(order),
+    const { response, data } = await kalshiRetryWithBackoff(async () => {
+      // Build headers fresh for each attempt (timestamp-based)
+      const headers = buildKalshiHeadersForUrl(auth, 'POST', url);
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(order),
+      });
+      const json = (await resp.json()) as KalshiOrderResponse;
+      return { response: resp, data: json };
     });
-
-    const data = (await response.json()) as KalshiOrderResponse;
 
     if (!response.ok || data.error) {
       logger.error({ status: response.status, error: data.error }, 'Kalshi order failed');
@@ -1438,7 +1531,7 @@ async function placeKalshiOrder(
       filledSize: data.order?.filled_count,
     };
   } catch (error) {
-    logger.error({ error }, 'Error placing Kalshi order');
+    logger.error({ error }, 'Error placing Kalshi order after retries');
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -1448,15 +1541,18 @@ async function placeKalshiOrder(
 
 async function cancelKalshiOrder(auth: KalshiApiKeyAuth, orderId: string): Promise<boolean> {
   const url = `${KALSHI_API_URL}/portfolio/orders/${orderId}`;
-  const headers = buildKalshiHeadersForUrl(auth, 'DELETE', url);
 
   try {
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-      },
+    const { response } = await kalshiRetryWithBackoff(async () => {
+      const headers = buildKalshiHeadersForUrl(auth, 'DELETE', url);
+      const resp = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+      });
+      return { response: resp, data: null };
     });
 
     if (!response.ok) {
@@ -1467,30 +1563,32 @@ async function cancelKalshiOrder(auth: KalshiApiKeyAuth, orderId: string): Promi
     logger.info({ orderId }, 'Kalshi order cancelled');
     return true;
   } catch (error) {
-    logger.error({ error, orderId }, 'Error cancelling Kalshi order');
+    logger.error({ error, orderId }, 'Error cancelling Kalshi order after retries');
     return false;
   }
 }
 
 async function getKalshiOpenOrders(auth: KalshiApiKeyAuth): Promise<OpenOrder[]> {
   const url = `${KALSHI_API_URL}/portfolio/orders?status=resting`;
-  const headers = buildKalshiHeadersForUrl(auth, 'GET', url);
 
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-      },
+    const { response, data } = await kalshiRetryWithBackoff(async () => {
+      const headers = buildKalshiHeadersForUrl(auth, 'GET', url);
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+      });
+      const json = (await resp.json()) as { orders: KalshiOpenOrder[] };
+      return { response: resp, data: json };
     });
 
     if (!response.ok) {
       logger.error({ status: response.status }, 'Failed to fetch Kalshi orders');
       return [];
     }
-
-    const data = (await response.json()) as { orders: KalshiOpenOrder[] };
 
     return (data.orders || []).map((o) => {
       const price = (o.side === 'yes' ? o.yes_price : o.no_price) / 100;
@@ -1512,7 +1610,7 @@ async function getKalshiOpenOrders(auth: KalshiApiKeyAuth): Promise<OpenOrder[]>
       };
     });
   } catch (error) {
-    logger.error({ error }, 'Error fetching Kalshi orders');
+    logger.error({ error }, 'Error fetching Kalshi orders after retries');
     return [];
   }
 }
@@ -2577,7 +2675,8 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         request.side,
         request.price,
         request.size,
-        request.orderType
+        request.orderType,
+        request.maxSlippage
       );
     }
 

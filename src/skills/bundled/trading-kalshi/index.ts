@@ -36,13 +36,20 @@ import type {
   KalshiFillEvent,
   KalshiChannel,
 } from '../../../feeds/kalshi';
-import type { ExecutionService, TwapOrder, BracketOrder } from '../../../execution';
+import type { ExecutionService, TwapOrder, BracketOrder, TriggerOrderManager } from '../../../execution';
+import type { PriceUpdate } from '../../../types';
 import { logger } from '../../../utils/logger';
 
 // Advanced order state
 const activeTwaps = new Map<string, TwapOrder>();
 const activeBrackets = new Map<string, BracketOrder>();
+let triggerManager: TriggerOrderManager | null = null;
 let nextOrderId = 1;
+
+// Polling-based price subscriptions for trigger orders
+const priceSubscriptions = new Map<string, Set<(update: PriceUpdate) => void>>();
+let pricePollingInterval: NodeJS.Timeout | null = null;
+const PRICE_POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
 
 // Active stream subscriptions
 interface StreamSubscription {
@@ -111,6 +118,97 @@ function getExecution(): ExecutionService | null {
 }
 
 // =============================================================================
+// POLLING-BASED PRICE FEED FOR TRIGGERS
+// =============================================================================
+
+/**
+ * Start polling prices for subscribed tickers
+ */
+function startPricePolling(): void {
+  if (pricePollingInterval) return;
+
+  pricePollingInterval = setInterval(async () => {
+    if (priceSubscriptions.size === 0) return;
+
+    const feed = await getFeed();
+
+    for (const [ticker, callbacks] of priceSubscriptions) {
+      try {
+        const market = await feed.getMarket(ticker);
+        if (!market) continue;
+
+        const yesPrice = market.outcomes.find(o => o.name === 'Yes')?.price ?? 0;
+
+        const update: PriceUpdate = {
+          platform: 'kalshi',
+          marketId: ticker,
+          outcomeId: `${ticker}-yes`,
+          price: yesPrice,
+          timestamp: Date.now(),
+        };
+
+        for (const cb of callbacks) {
+          try {
+            cb(update);
+          } catch (err) {
+            logger.warn({ err, ticker }, 'Error in price callback');
+          }
+        }
+      } catch (err) {
+        logger.warn({ err, ticker }, 'Error polling Kalshi price');
+      }
+    }
+  }, PRICE_POLL_INTERVAL_MS);
+
+  logger.info('Kalshi price polling started');
+}
+
+/**
+ * Stop price polling if no subscribers
+ */
+function stopPricePollingIfEmpty(): void {
+  if (priceSubscriptions.size === 0 && pricePollingInterval) {
+    clearInterval(pricePollingInterval);
+    pricePollingInterval = null;
+    logger.info('Kalshi price polling stopped');
+  }
+}
+
+/**
+ * Create a feed manager wrapper that provides subscribePrice for triggers
+ */
+function createPollingFeedManager() {
+  return {
+    subscribePrice: (
+      _platform: string,
+      marketId: string,
+      callback: (update: PriceUpdate) => void
+    ): (() => void) => {
+      // Add subscription
+      if (!priceSubscriptions.has(marketId)) {
+        priceSubscriptions.set(marketId, new Set());
+      }
+      priceSubscriptions.get(marketId)!.add(callback);
+
+      // Start polling if needed
+      startPricePolling();
+
+      // Return unsubscribe function
+      return () => {
+        const callbacks = priceSubscriptions.get(marketId);
+        if (callbacks) {
+          callbacks.delete(callback);
+          if (callbacks.size === 0) {
+            priceSubscriptions.delete(marketId);
+          }
+        }
+        stopPricePollingIfEmpty();
+      };
+    },
+  };
+}
+
+// =============================================================================
 // HELP TEXT
 // =============================================================================
 
@@ -139,6 +237,10 @@ function helpText(): string {
     '  /kalshi bracket <ticker> <size> <tp> <sl>',
     '  /kalshi bracket status                 - Active brackets',
     '  /kalshi bracket cancel <id>            - Cancel bracket',
+    '  /kalshi trigger buy <ticker> <size> <price> [limit]  - Buy when price drops',
+    '  /kalshi trigger sell <ticker> <size> <price> [limit] - Sell when price rises',
+    '  /kalshi trigger list                   - Active triggers',
+    '  /kalshi trigger cancel <id>            - Cancel trigger',
     '',
     '**Cross-Platform:**',
     '  /kalshi route <ticker> <buy|sell> <size> - Compare prices across platforms',
@@ -992,8 +1094,104 @@ async function handleBracket(subCmdOrTicker: string, sizeStrOrId?: string, tpPri
   }
 }
 
-async function handleTrigger(_subCmd: string, _args: string[]): Promise<string> {
-  return 'Trigger orders require real-time price feeds. Kalshi WebSocket only supports subscribed tickers.\n\nUse `/kalshi watch <ticker>` for polling or `/poly trigger` for Polymarket triggers with real-time WebSocket feeds.';
+async function handleTrigger(subCmd: string, args: string[]): Promise<string> {
+  // List triggers
+  if (subCmd === 'list' || !subCmd) {
+    if (!triggerManager) return 'No trigger orders. Use `/kalshi trigger buy` or `/kalshi trigger sell` to create one.';
+    const triggers = triggerManager.getTriggers();
+    if (triggers.length === 0) return 'No trigger orders.';
+
+    const lines = ['**Trigger Orders**', ''];
+    for (const t of triggers) {
+      const cond = t.config.condition;
+      const condStr = cond.type === 'price_below' ? `≤ ${(cond.price * 100).toFixed(0)}c`
+        : cond.type === 'price_above' ? `≥ ${(cond.price * 100).toFixed(0)}c`
+        : `${cond.type}`;
+      lines.push(`  [${t.id}] ${t.config.marketId} ${t.config.order.side.toUpperCase()} ${t.config.order.size} when ${condStr} | ${t.status}`);
+    }
+    return lines.join('\n');
+  }
+
+  // Cancel trigger
+  if (subCmd === 'cancel') {
+    if (!args[0]) return 'Usage: /kalshi trigger cancel <trigger-id>';
+    if (!triggerManager) return 'No active trigger manager.';
+    triggerManager.cancelTrigger(args[0]);
+    return `Trigger ${args[0]} cancelled.`;
+  }
+
+  // Create trigger: /kalshi trigger buy <ticker> <size> <trigger-price> [limit-price]
+  const side = subCmd?.toLowerCase();
+  if (side !== 'buy' && side !== 'sell') {
+    return [
+      '**Trigger Order Usage:**',
+      '  /kalshi trigger buy <ticker> <size> <trigger-price> [limit-price]',
+      '  /kalshi trigger sell <ticker> <size> <trigger-price> [limit-price]',
+      '  /kalshi trigger list',
+      '  /kalshi trigger cancel <id>',
+      '',
+      'Polls price every 5s. Executes when price crosses trigger.',
+      'Buy triggers when price ≤ trigger, sell triggers when price ≥ trigger.',
+    ].join('\n');
+  }
+
+  const [ticker, sizeStr, triggerStr, limitStr] = args;
+  if (!ticker || !sizeStr || !triggerStr) {
+    return `Usage: /kalshi trigger ${side} <ticker> <size> <trigger-price> [limit-price]`;
+  }
+
+  const size = parseInt(sizeStr, 10);
+  const triggerPrice = parseFloat(triggerStr) / 100; // Convert cents to decimal
+  const limitPrice = limitStr ? parseFloat(limitStr) / 100 : undefined;
+
+  if (isNaN(size) || size <= 0) return 'Invalid size.';
+  if (isNaN(triggerPrice) || triggerPrice < 0.01 || triggerPrice > 0.99) return 'Invalid trigger price (1-99 cents).';
+  if (limitPrice !== undefined && (isNaN(limitPrice) || limitPrice < 0.01 || limitPrice > 0.99)) return 'Invalid limit price (1-99 cents).';
+
+  const exec = getExecution();
+  if (!exec) return 'Set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY to trade.';
+
+  try {
+    if (!triggerManager) {
+      const { createTriggerOrderManager } = await import('../../../execution');
+      const feedManager = createPollingFeedManager();
+      triggerManager = createTriggerOrderManager(exec, feedManager);
+      triggerManager.start();
+    }
+
+    const conditionType = side === 'buy' ? 'price_below' : 'price_above';
+
+    const triggerId = triggerManager.addTrigger({
+      platform: 'kalshi',
+      marketId: ticker.toUpperCase(),
+      outcome: 'yes',
+      condition: { type: conditionType, price: triggerPrice },
+      order: {
+        side,
+        size,
+        price: limitPrice,
+        orderType: limitPrice ? 'GTC' : 'FOK',
+      },
+      oneShot: true,
+    });
+
+    const actionStr = side === 'buy' ? 'drops to' : 'rises to';
+    const priceStr = limitPrice
+      ? `limit @ ${(limitPrice * 100).toFixed(0)}c`
+      : 'market order';
+
+    return [
+      `**Trigger Created** (ID: ${triggerId})`,
+      '',
+      `${side.toUpperCase()} ${size} contracts of ${ticker.toUpperCase()}`,
+      `When price ${actionStr} ${(triggerPrice * 100).toFixed(0)}c → ${priceStr}`,
+      '',
+      `Polling every ${PRICE_POLL_INTERVAL_MS / 1000}s. Use \`/kalshi trigger list\` to view.`,
+    ].join('\n');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return `Error: ${message}`;
+  }
 }
 
 // =============================================================================
