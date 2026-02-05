@@ -306,10 +306,8 @@ export async function createACLEDFeed(): Promise<ACLEDFeed> {
   };
 
   emitter.getCountries = async (): Promise<string[]> => {
-    // Fetch a small sample to discover unique countries
-    const response = await acledFetch({ limit: '0', fields: 'country' });
-    // ACLED doesn't have a dedicated countries endpoint, so we hardcode the
-    // most commonly queried ones. The API accepts both names and ISO codes.
+    // ACLED has no dedicated countries endpoint. Return the most commonly
+    // queried conflict-affected countries. API accepts both names and ISO codes.
     return [
       'Afghanistan', 'Algeria', 'Angola', 'Bangladesh', 'Brazil', 'Burkina Faso',
       'Cameroon', 'Central African Republic', 'Chad', 'Colombia', 'DR Congo',

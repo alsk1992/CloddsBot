@@ -37,6 +37,33 @@ function ensureRegistered(): void {
 // Track active subscriptions
 const activeSubscriptions = new Map<string, () => void>();
 
+// Lazy FeedManager singleton — avoids recreating on every command
+import type { FeedManager } from '../../../feeds/index';
+
+let _feedManager: FeedManager | null = null;
+let _feedManagerPromise: Promise<FeedManager | null> | null = null;
+
+async function getFeedManager(): Promise<FeedManager | null> {
+  if (_feedManager) return _feedManager;
+  if (_feedManagerPromise) return _feedManagerPromise;
+
+  _feedManagerPromise = (async () => {
+    try {
+      const feedsMod = await import('../../../feeds/index');
+      const configMod = await import('../../../config/index');
+      let config;
+      try { config = configMod.loadConfig(); } catch { config = configMod.DEFAULT_CONFIG; }
+      _feedManager = await feedsMod.createFeedManager(config.feeds ?? {} as any);
+      return _feedManager;
+    } catch {
+      _feedManagerPromise = null;
+      return null;
+    }
+  })();
+
+  return _feedManagerPromise;
+}
+
 // Capability labels for display
 const capLabels: Record<string, string> = {
   [FeedCapability.MARKET_DATA]: 'Market Data',
@@ -279,13 +306,11 @@ async function execute(args: string): Promise<string> {
       output += `Categories: ${stats.categories}\n\n`;
 
       try {
-        const feedsMod = await import('../../../feeds/index');
-        const configMod = await import('../../../config/index');
-        let config;
-        try { config = configMod.loadConfig(); } catch { config = configMod.DEFAULT_CONFIG; }
-        const fm = await feedsMod.createFeedManager(config.feeds ?? {} as any);
-        const cache = fm.getCacheStats();
-        output += `**Cache:** ${cache.size} entries | Hit rate: ${(cache.hitRate * 100).toFixed(1)}% (${cache.hits}/${cache.hits + cache.misses})`;
+        const fm = await getFeedManager();
+        if (fm) {
+          const cache = fm.getCacheStats();
+          output += `**Cache:** ${cache.size} entries | Hit rate: ${(cache.hitRate * 100).toFixed(1)}% (${cache.hits}/${cache.hits + cache.misses})`;
+        }
       } catch { /* cache stats optional */ }
 
       return output;
@@ -298,11 +323,8 @@ async function execute(args: string): Promise<string> {
       const marketId = parts[2];
 
       try {
-        const feedsMod = await import('../../../feeds/index');
-        const configMod = await import('../../../config/index');
-        let config;
-        try { config = configMod.loadConfig(); } catch { config = configMod.DEFAULT_CONFIG; }
-        const fm = await feedsMod.createFeedManager(config.feeds ?? {} as any);
+        const fm = await getFeedManager();
+        if (!fm) return 'Error: Could not initialize feed manager.';
 
         const market = await fm.getMarket(marketId, platform);
         if (!market) return `Market \`${marketId}\` not found on **${platform}**.`;
@@ -339,11 +361,8 @@ async function execute(args: string): Promise<string> {
       const platform = parts.length > 2 ? parts[parts.length - 1].toLowerCase() : undefined;
 
       try {
-        const feedsMod = await import('../../../feeds/index');
-        const configMod = await import('../../../config/index');
-        let config;
-        try { config = configMod.loadConfig(); } catch { config = configMod.DEFAULT_CONFIG; }
-        const fm = await feedsMod.createFeedManager(config.feeds ?? {} as any);
+        const fm = await getFeedManager();
+        if (!fm) return 'Error: Could not initialize feed manager.';
         const markets = await fm.searchMarkets(query, platform);
 
         if (!markets.length) return `No markets found for "${query}".`;
@@ -365,11 +384,8 @@ async function execute(args: string): Promise<string> {
     case 'price': {
       if (parts.length < 3) return 'Usage: /feeds price <platform> <market-id>';
       try {
-        const feedsMod = await import('../../../feeds/index');
-        const configMod = await import('../../../config/index');
-        let config;
-        try { config = configMod.loadConfig(); } catch { config = configMod.DEFAULT_CONFIG; }
-        const fm = await feedsMod.createFeedManager(config.feeds ?? {} as any);
+        const fm = await getFeedManager();
+        if (!fm) return 'Error: Could not initialize feed manager.';
         const price = await fm.getPrice(parts[1].toLowerCase(), parts[2]);
         if (price == null) return `Could not fetch price for \`${parts[2]}\` on **${parts[1]}**.`;
         return `**${parts[1]}** \`${parts[2]}\`: $${price.toFixed(4)}`;
@@ -380,11 +396,8 @@ async function execute(args: string): Promise<string> {
 
     case 'cache': {
       try {
-        const feedsMod = await import('../../../feeds/index');
-        const configMod = await import('../../../config/index');
-        let config;
-        try { config = configMod.loadConfig(); } catch { config = configMod.DEFAULT_CONFIG; }
-        const fm = await feedsMod.createFeedManager(config.feeds ?? {} as any);
+        const fm = await getFeedManager();
+        if (!fm) return 'Error: Could not initialize feed manager.';
         if (parts[1]?.toLowerCase() === 'clear') {
           fm.clearCache();
           return 'Market cache cleared.';
