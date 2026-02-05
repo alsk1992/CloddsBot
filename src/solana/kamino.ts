@@ -144,6 +144,11 @@ const KAMINO_MAIN_MARKET = '7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF';
 // LENDING FUNCTIONS
 // ============================================
 
+/**
+ * Get all Kamino lending markets with their reserves
+ * @param connection - Solana RPC connection
+ * @returns Array of markets with reserve details (APY, utilization, LTV)
+ */
 export async function getKaminoMarkets(
   connection: Connection
 ): Promise<KaminoMarketInfo[]> {
@@ -189,6 +194,12 @@ export async function getKaminoMarkets(
   }
 }
 
+/**
+ * Get reserves for a specific Kamino market
+ * @param connection - Solana RPC connection
+ * @param marketAddress - Market address (defaults to main market)
+ * @returns Array of reserves with rates and utilization
+ */
 export async function getKaminoReserves(
   connection: Connection,
   marketAddress?: string
@@ -200,6 +211,13 @@ export async function getKaminoReserves(
   return market?.reserves || [];
 }
 
+/**
+ * Get user's lending obligation (deposits, borrows, health factor)
+ * @param connection - Solana RPC connection
+ * @param keypair - User's wallet keypair
+ * @param marketAddress - Market address (defaults to main market)
+ * @returns Obligation with positions and health metrics, or null if none
+ */
 export async function getKaminoObligation(
   connection: Connection,
   keypair: Keypair,
@@ -275,6 +293,13 @@ export async function getKaminoObligation(
   }
 }
 
+/**
+ * Deposit collateral to Kamino lending
+ * @param connection - Solana RPC connection
+ * @param keypair - User's wallet keypair (signs transaction)
+ * @param params - Deposit params: reserveMint, amount (in base units)
+ * @returns Transaction signature and amount deposited
+ */
 export async function depositToKamino(
   connection: Connection,
   keypair: Keypair,
@@ -326,6 +351,13 @@ export async function depositToKamino(
   };
 }
 
+/**
+ * Withdraw collateral from Kamino lending
+ * @param connection - Solana RPC connection
+ * @param keypair - User's wallet keypair (signs transaction)
+ * @param params - Withdraw params: reserveMint, amount, withdrawAll flag
+ * @returns Transaction signature and amount withdrawn
+ */
 export async function withdrawFromKamino(
   connection: Connection,
   keypair: Keypair,
@@ -377,6 +409,13 @@ export async function withdrawFromKamino(
   };
 }
 
+/**
+ * Borrow assets from Kamino lending (requires collateral)
+ * @param connection - Solana RPC connection
+ * @param keypair - User's wallet keypair (signs transaction)
+ * @param params - Borrow params: reserveMint, amount (in base units)
+ * @returns Transaction signature and amount borrowed
+ */
 export async function borrowFromKamino(
   connection: Connection,
   keypair: Keypair,
@@ -428,6 +467,13 @@ export async function borrowFromKamino(
   };
 }
 
+/**
+ * Repay borrowed assets to Kamino lending
+ * @param connection - Solana RPC connection
+ * @param keypair - User's wallet keypair (signs transaction)
+ * @param params - Repay params: reserveMint, amount, repayAll flag
+ * @returns Transaction signature and amount repaid
+ */
 export async function repayToKamino(
   connection: Connection,
   keypair: Keypair,
@@ -488,6 +534,11 @@ export async function repayToKamino(
 // LIQUIDITY/VAULT FUNCTIONS
 // ============================================
 
+/**
+ * Get all Kamino liquidity vault strategies
+ * @param connection - Solana RPC connection
+ * @returns Array of strategies with share prices and token pairs
+ */
 export async function getKaminoStrategies(
   connection: Connection
 ): Promise<KaminoStrategyInfo[]> {
@@ -527,6 +578,12 @@ export async function getKaminoStrategies(
   }
 }
 
+/**
+ * Get details for a specific Kamino strategy
+ * @param connection - Solana RPC connection
+ * @param strategyAddress - Strategy public key
+ * @returns Strategy info or null if not found
+ */
 export async function getKaminoStrategy(
   connection: Connection,
   strategyAddress: string
@@ -561,6 +618,13 @@ export async function getKaminoStrategy(
   }
 }
 
+/**
+ * Get user's vault shares across strategies
+ * @param connection - Solana RPC connection
+ * @param keypair - User's wallet keypair
+ * @param strategyAddress - Optional: filter to specific strategy
+ * @returns Array of user's share holdings
+ */
 export async function getKaminoUserShares(
   connection: Connection,
   keypair: Keypair,
@@ -626,6 +690,13 @@ export async function getKaminoUserShares(
   }
 }
 
+/**
+ * Deposit tokens to a Kamino liquidity vault strategy
+ * @param connection - Solana RPC connection
+ * @param keypair - User's wallet keypair (signs transaction)
+ * @param params - Deposit params: strategyAddress, tokenAAmount, tokenBAmount
+ * @returns Transaction signature and deposited amounts
+ */
 export async function depositToKaminoVault(
   connection: Connection,
   keypair: Keypair,
@@ -660,6 +731,13 @@ export async function depositToKaminoVault(
   };
 }
 
+/**
+ * Withdraw from a Kamino liquidity vault strategy
+ * @param connection - Solana RPC connection
+ * @param keypair - User's wallet keypair (signs transaction)
+ * @param params - Withdraw params: strategyAddress, shares or withdrawAll
+ * @returns Transaction signature and withdrawn shares
+ */
 export async function withdrawFromKaminoVault(
   connection: Connection,
   keypair: Keypair,
@@ -708,6 +786,12 @@ export async function withdrawFromKaminoVault(
   };
 }
 
+/**
+ * Get current share price for a Kamino vault strategy
+ * @param connection - Solana RPC connection
+ * @param strategyAddress - Strategy public key
+ * @returns Share price as string (Decimal)
+ */
 export async function getKaminoSharePrice(
   connection: Connection,
   strategyAddress: string
