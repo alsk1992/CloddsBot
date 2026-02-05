@@ -1,5 +1,5 @@
 /**
- * Meteora DLMM CLI Skill - Complete API Coverage (22 Commands)
+ * Meteora DLMM CLI Skill - Complete API Coverage (18 Commands)
  *
  * Swaps:
  * /met swap <amount> <from> to <to>           - Execute swap
@@ -884,7 +884,7 @@ export async function execute(args: string): Promise<string> {
 
     case 'help':
     default:
-      return `**Meteora DLMM - Complete CLI (22 Commands)**
+      return `**Meteora DLMM - Complete CLI (18 Commands)**
 
 **Swaps:**
   /met swap <amount> <from> to <to>           Execute swap

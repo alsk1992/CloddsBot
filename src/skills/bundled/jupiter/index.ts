@@ -1,5 +1,5 @@
 /**
- * Jupiter CLI Skill - Complete API Coverage (24 Commands)
+ * Jupiter CLI Skill - Complete API Coverage (22 Commands)
  *
  * Swaps:
  * /jup swap <amount> <from> to <to>     - Execute swap
@@ -946,7 +946,7 @@ export async function execute(args: string): Promise<string> {
 
     case 'help':
     default:
-      return `**Jupiter Aggregator - Complete CLI (24 Commands)**
+      return `**Jupiter Aggregator** (22 Commands)
 
 **Swaps:**
   /jup swap <amount> <from> to <to>      Execute swap
