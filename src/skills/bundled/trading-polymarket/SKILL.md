@@ -675,10 +675,22 @@ Access Polymarket trading directly from Claude Code:
 /poly twap <buy|sell> <token> <total> <price> [slices] [interval-sec]
 /poly bracket <token> <size> <tp> <sl>   # TP + SL bracket
 /poly trigger buy <token> <size> <price> # Buy when price drops
-/poly redeem                             # Redeem resolved positions
 ```
 
 **Note:** TWAP and bracket orders are persisted to the database and will automatically resume after restarts.
+
+### Auto-Redeem (Resolved Positions)
+```bash
+/poly redeem                           # One-time redeem all resolved positions
+/poly redeem start                     # Start auto-polling (default: every 60s)
+/poly redeem stop                      # Stop auto-polling
+/poly redeem status                    # Check auto-redeemer status
+/poly redeem pending                   # List positions pending redemption
+/poly redeem <conditionId> <tokenId>   # Redeem specific position
+```
+
+**Env vars:**
+- `POLY_REDEEM_INTERVAL_MS` - Polling interval in ms (default: 60000 = 1 minute)
 
 ### Real-Time Fills (WebSocket)
 ```bash

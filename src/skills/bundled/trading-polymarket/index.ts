@@ -696,7 +696,9 @@ async function handleWhales(): Promise<string> {
 // ADVANCED ORDER HANDLERS
 // =============================================================================
 
-async function handleRedeem(conditionId?: string, tokenId?: string): Promise<string> {
+let autoRedeemerStarted = false;
+
+async function ensureAutoRedeemer(): Promise<string | null> {
   const privateKey = process.env.POLY_PRIVATE_KEY;
   const funderAddress = process.env.POLY_FUNDER_ADDRESS;
   const apiKey = process.env.POLY_API_KEY;
@@ -707,19 +709,106 @@ async function handleRedeem(conditionId?: string, tokenId?: string): Promise<str
     return 'Set POLY_PRIVATE_KEY, POLY_FUNDER_ADDRESS, POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE to redeem.';
   }
 
-  try {
-    if (!autoRedeemer) {
-      const { createAutoRedeemer } = await import('../../../execution');
-      autoRedeemer = createAutoRedeemer({
-        polymarketAuth: { address: funderAddress, apiKey, apiSecret, apiPassphrase: passphrase },
-        privateKey,
-        funderAddress,
-        dryRun: process.env.DRY_RUN === 'true',
-      });
+  if (!autoRedeemer) {
+    const { createAutoRedeemer } = await import('../../../execution');
+    autoRedeemer = createAutoRedeemer({
+      polymarketAuth: { address: funderAddress, apiKey, apiSecret, apiPassphrase: passphrase },
+      privateKey,
+      funderAddress,
+      pollIntervalMs: parseInt(process.env.POLY_REDEEM_INTERVAL_MS || '60000', 10),
+      dryRun: process.env.DRY_RUN === 'true',
+    });
+
+    // Set up event listeners for logging
+    autoRedeemer.on('redemption_success', (result) => {
+      logger.info({ conditionId: result.conditionId, usdc: result.usdcRedeemed }, 'Auto-redemption successful');
+    });
+    autoRedeemer.on('redemption_failed', (result) => {
+      logger.warn({ conditionId: result.conditionId, error: result.error }, 'Auto-redemption failed');
+    });
+    autoRedeemer.on('position_expired', (data) => {
+      logger.info({ conditionId: data.conditionId, outcome: data.outcome }, 'Position expired (losing side)');
+    });
+  }
+
+  return null;
+}
+
+async function handleRedeem(subCmd?: string, arg2?: string): Promise<string> {
+  // Subcommands: start, stop, status, pending, or conditionId/tokenId for manual redeem
+  if (subCmd === 'start') {
+    const error = await ensureAutoRedeemer();
+    if (error) return error;
+
+    if (autoRedeemerStarted) {
+      return 'Auto-redeemer already running. Use `/poly redeem status` to check.';
     }
 
-    if (conditionId && tokenId) {
-      const result = await autoRedeemer.redeemPosition(conditionId, tokenId);
+    autoRedeemer!.start();
+    autoRedeemerStarted = true;
+    const interval = parseInt(process.env.POLY_REDEEM_INTERVAL_MS || '60000', 10) / 1000;
+    return `**Auto-redeemer started**\n\nPolling every ${interval}s for resolved positions.\nUse \`/poly redeem stop\` to stop.`;
+  }
+
+  if (subCmd === 'stop') {
+    if (!autoRedeemer || !autoRedeemerStarted) {
+      return 'Auto-redeemer is not running.';
+    }
+    autoRedeemer.stop();
+    autoRedeemerStarted = false;
+    return 'Auto-redeemer stopped.';
+  }
+
+  if (subCmd === 'status') {
+    const error = await ensureAutoRedeemer();
+    if (error) return error;
+
+    const pending = autoRedeemer!.getPendingRedemptions();
+    const lines = [
+      '**Auto-Redeemer Status**',
+      '',
+      `Running: ${autoRedeemerStarted ? 'Yes' : 'No'}`,
+      `Pending redemptions: ${pending.length}`,
+    ];
+
+    if (pending.length > 0) {
+      lines.push('', '**Pending:**');
+      for (const p of pending) {
+        lines.push(`  ${p.conditionId.slice(0, 12)}... | ${p.shares} shares | ${p.outcome || 'unknown'}`);
+        if (p.marketQuestion) lines.push(`    ${p.marketQuestion.slice(0, 60)}...`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  if (subCmd === 'pending') {
+    const error = await ensureAutoRedeemer();
+    if (error) return error;
+
+    const pending = autoRedeemer!.getPendingRedemptions();
+    if (pending.length === 0) return 'No pending redemptions.';
+
+    const lines = ['**Pending Redemptions**', ''];
+    for (const p of pending) {
+      lines.push(`  Condition: ${p.conditionId}`);
+      lines.push(`  Token: ${p.tokenId}`);
+      lines.push(`  Shares: ${p.shares}`);
+      if (p.outcome) lines.push(`  Outcome: ${p.outcome}`);
+      if (p.marketQuestion) lines.push(`  Market: ${p.marketQuestion}`);
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  // Manual redeem: /poly redeem [conditionId] [tokenId] or /poly redeem (all)
+  const error = await ensureAutoRedeemer();
+  if (error) return error;
+
+  try {
+    // If both provided, redeem specific position
+    if (subCmd && arg2) {
+      const result = await autoRedeemer!.redeemPosition(subCmd, arg2);
       if (result.success) {
         return [
           '**Redemption Successful**',
@@ -734,7 +823,8 @@ async function handleRedeem(conditionId?: string, tokenId?: string): Promise<str
       return `Redemption failed: ${result.error}`;
     }
 
-    const results = await autoRedeemer.redeemAll();
+    // Otherwise, redeem all resolved positions
+    const results = await autoRedeemer!.redeemAll();
     if (results.length === 0) {
       return 'No resolved positions to redeem.';
     }
@@ -752,8 +842,8 @@ async function handleRedeem(conditionId?: string, tokenId?: string): Promise<str
     lines.push('', `Total: ${successes.length}/${results.length} redeemed, $${totalUsdc.toFixed(2)} USDC`);
 
     return lines.join('\n');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     return `Error: ${message}`;
   }
 }

@@ -327,11 +327,15 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour for static data
 const ORDERBOOK_CACHE_TTL_MS = 5000; // 5 seconds for orderbook (needs to be fresh)
 
 // Nonce tracking to prevent duplicate orders
-let lastNonce = Date.now();
+// Uses atomic counter to avoid race conditions in concurrent async operations
+// Format: timestamp_base + counter ensures uniqueness across restarts and within process
+const nonceBase = BigInt(Date.now()) * 1000000n; // Timestamp * 1M for counter space
+let nonceCounter = 0n;
 function getNextNonce(): string {
-  const now = Date.now();
-  lastNonce = now > lastNonce ? now : lastNonce + 1;
-  return lastNonce.toString();
+  // Atomic increment - JavaScript is single-threaded so this is safe
+  // but we use BigInt to avoid Number precision issues at high counts
+  nonceCounter += 1n;
+  return (nonceBase + nonceCounter).toString();
 }
 
 /**
@@ -2485,6 +2489,27 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
     return null;
   }
 
+  /**
+   * Record order result to circuit breaker (if enabled)
+   * Note: P&L is calculated when position is closed, not on order placement
+   */
+  function recordOrderToCircuitBreaker(result: OrderResult, sizeUsd: number): void {
+    if (!circuitBreaker) return;
+
+    // Record as trade (P&L = 0 for now, actual P&L tracked on fills/closes)
+    circuitBreaker.recordTrade({
+      pnlUsd: 0, // P&L unknown at order time
+      success: result.success,
+      sizeUsd,
+      error: result.error,
+    });
+
+    // Record error if order failed
+    if (!result.success && result.error) {
+      circuitBreaker.recordError(result.error);
+    }
+  }
+
   async function executeOrder(request: OrderRequest): Promise<OrderResult> {
     // Validate
     const error = validateOrder(request);
@@ -2511,7 +2536,7 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         return { success: false, error: 'tokenId required for Polymarket' };
       }
 
-      return placePolymarketOrder(
+      const result = await placePolymarketOrder(
         config.polymarket,
         request.tokenId,
         request.side,
@@ -2521,6 +2546,21 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         request.negRisk,
         request.postOnly
       );
+
+      // Auto-start heartbeat for GTC/GTD orders (orders that stay on the book)
+      // Polymarket cancels orders if no heartbeat received within 10 seconds
+      if (result.success && (request.orderType === 'GTC' || request.orderType === 'GTD')) {
+        if (!isHeartbeatActive()) {
+          try {
+            await startHeartbeat();
+            logger.info('Heartbeat auto-started for GTC order');
+          } catch (err) {
+            logger.warn({ err }, 'Failed to auto-start heartbeat (order placed but heartbeat not started)');
+          }
+        }
+      }
+
+      return result;
     }
 
     if (request.platform === 'kalshi') {
@@ -2582,30 +2622,42 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
 
   const service: ExecutionService = {
     async buyLimit(request) {
-      return executeOrder({ ...request, side: 'buy', orderType: request.orderType || 'GTC' });
+      const result = await executeOrder({ ...request, side: 'buy', orderType: request.orderType || 'GTC' });
+      recordOrderToCircuitBreaker(result, request.price * request.size);
+      return result;
     },
 
     async sellLimit(request) {
-      return executeOrder({ ...request, side: 'sell', orderType: request.orderType || 'GTC' });
+      const result = await executeOrder({ ...request, side: 'sell', orderType: request.orderType || 'GTC' });
+      recordOrderToCircuitBreaker(result, request.price * request.size);
+      return result;
     },
 
     async marketBuy(request) {
       // Market orders use FOK (Fill or Kill)
       // Price is set to max (0.99) to ensure fill
-      return executeOrder({ ...request, side: 'buy', price: 0.99, orderType: 'FOK' });
+      const result = await executeOrder({ ...request, side: 'buy', price: 0.99, orderType: 'FOK' });
+      recordOrderToCircuitBreaker(result, 0.99 * request.size);
+      return result;
     },
 
     async marketSell(request) {
       // Price is set to min (0.01) to ensure fill
-      return executeOrder({ ...request, side: 'sell', price: 0.01, orderType: 'FOK' });
+      const result = await executeOrder({ ...request, side: 'sell', price: 0.01, orderType: 'FOK' });
+      recordOrderToCircuitBreaker(result, 0.01 * request.size);
+      return result;
     },
 
     async makerBuy(request) {
-      return executeOrder({ ...request, side: 'buy', orderType: 'GTC', postOnly: true });
+      const result = await executeOrder({ ...request, side: 'buy', orderType: 'GTC', postOnly: true });
+      recordOrderToCircuitBreaker(result, request.price * request.size);
+      return result;
     },
 
     async makerSell(request) {
-      return executeOrder({ ...request, side: 'sell', orderType: 'GTC', postOnly: true });
+      const result = await executeOrder({ ...request, side: 'sell', orderType: 'GTC', postOnly: true });
+      recordOrderToCircuitBreaker(result, request.price * request.size);
+      return result;
     },
 
     async cancelOrder(platform, orderId) {
@@ -2643,6 +2695,13 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
 
       if ((!platform || platform === 'polymarket') && config.polymarket) {
         count += await cancelAllPolymarketOrders(config.polymarket, marketId);
+
+        // Auto-stop heartbeat if all Polymarket orders cancelled (no market filter)
+        // Heartbeat is only needed when there are open GTC/GTD orders
+        if (!marketId && isHeartbeatActive()) {
+          stopHeartbeat();
+          logger.info('Heartbeat auto-stopped after cancelling all orders');
+        }
       }
 
       // Kalshi: fetch open orders, batch cancel matching ones
