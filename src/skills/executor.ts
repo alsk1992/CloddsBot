@@ -80,6 +80,7 @@ const SKILL_MANIFEST: string[] = [
   'memory',
   'metaculus',
   'meteora',
+  'meteora-dbc',
   'metrics',
   'mev',
   'mexc-futures',
