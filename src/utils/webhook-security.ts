@@ -118,6 +118,9 @@ export function verifyWebhookSignature(
 
     // Validate timestamp age
     const timestampNum = parseInt(timestamp, 10);
+    if (!Number.isFinite(timestampNum)) {
+      return { valid: false, error: 'Invalid timestamp format' };
+    }
     const now = Math.floor(Date.now() / 1000);
     const age = Math.abs(now - timestampNum);
 

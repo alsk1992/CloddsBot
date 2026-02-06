@@ -118,8 +118,8 @@ async function request(
 // =============================================================================
 
 export async function getPrice(config: MexcConfig, symbol: string): Promise<number> {
-  const data = await request(config, 'GET', '/api/v1/contract/ticker', { symbol }) as { lastPrice: number };
-  return data.lastPrice;
+  const data = await request(config, 'GET', '/api/v1/contract/ticker', { symbol }) as { lastPrice: number | string };
+  return typeof data.lastPrice === 'string' ? parseFloat(data.lastPrice) : data.lastPrice;
 }
 
 export async function getFundingRate(config: MexcConfig, symbol: string): Promise<FundingRate> {

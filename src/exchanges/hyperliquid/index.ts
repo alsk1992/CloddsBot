@@ -873,6 +873,11 @@ export async function placePerpOrder(
       return { success: false, error: status.error };
     }
 
+    if (!orderId) {
+      logger.warn({ result, order }, 'Hyperliquid perp order: no order ID in response');
+      return { success: false, error: 'No order ID returned from exchange' };
+    }
+
     return { success: true, orderId };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -912,6 +917,11 @@ export async function placeSpotOrder(
 
     if (status?.error) {
       return { success: false, error: status.error };
+    }
+
+    if (!orderId) {
+      logger.warn({ result, order }, 'Hyperliquid spot order: no order ID in response');
+      return { success: false, error: 'No order ID returned from exchange' };
     }
 
     return { success: true, orderId };

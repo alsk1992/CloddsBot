@@ -404,8 +404,9 @@ export async function rateLimitedFetch(
       // Check for rate limit response
       if (response.status === 429) {
         const retryAfter = response.headers.get('Retry-After');
-        const waitMs = retryAfter
-          ? parseInt(retryAfter, 10) * 1000
+        const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : NaN;
+        const waitMs = Number.isFinite(retrySeconds)
+          ? retrySeconds * 1000
           : limiter.getStatus(endpoint).retryAfterMs || 1000;
 
         logger.warn({ endpoint, waitMs, attempt }, 'Received 429, backing off');

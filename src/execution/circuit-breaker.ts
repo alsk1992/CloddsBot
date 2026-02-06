@@ -150,6 +150,7 @@ export function createCircuitBreaker(
   let errorCount = 0;
   let checkInterval: ReturnType<typeof setInterval> | null = null;
   let dailyResetTimeout: ReturnType<typeof setTimeout> | null = null;
+  let dailyResetInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Trip the circuit breaker
@@ -349,7 +350,7 @@ export function createCircuitBreaker(
       logger.info('Daily trading counters reset');
 
       // Set up next day's reset
-      setInterval(() => {
+      dailyResetInterval = setInterval(() => {
         dailyTrades = 0;
         sessionPnL = 0;
         logger.info('Daily trading counters reset');
@@ -372,6 +373,11 @@ export function createCircuitBreaker(
     if (dailyResetTimeout) {
       clearTimeout(dailyResetTimeout);
       dailyResetTimeout = null;
+    }
+
+    if (dailyResetInterval) {
+      clearInterval(dailyResetInterval);
+      dailyResetInterval = null;
     }
 
     logger.info('Circuit breaker stopped');
