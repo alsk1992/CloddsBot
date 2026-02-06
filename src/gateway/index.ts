@@ -505,6 +505,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       pythonPath: config.bittensor.pythonPath,
       subnets: config.bittensor.subnets as import('../bittensor/types').SubnetMinerConfig[] | undefined,
       earningsPollIntervalMs: config.bittensor.earningsPollIntervalMs,
+      taoPriceUsd: config.bittensor.taoPriceUsd,
     };
     bittensorService = createBittensorService(btConfig, db);
     setBittensorService(bittensorService);

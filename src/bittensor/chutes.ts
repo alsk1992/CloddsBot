@@ -12,6 +12,7 @@ import type {
   PythonRunner,
   PythonProcess,
 } from './types';
+import { logger } from '../utils/logger';
 
 export interface ChutesMinerManager {
   start(): Promise<void>;
@@ -84,7 +85,7 @@ export function createChutesMinerManager(
       running = false;
       minerProcess = null;
       if (code !== 0 && code !== null) {
-        console.error(`[chutes] Miner process exited with code ${code}`);
+        logger.error({ code }, '[chutes] Miner process exited unexpectedly');
       }
     });
 
