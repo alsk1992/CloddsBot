@@ -3660,6 +3660,15 @@ export function createOnboardCommand(program: Command): void {
       const ask = (prompt: string): Promise<string> =>
         new Promise((resolve) => rl.question(prompt, (a) => resolve(a.trim())));
 
+      // ANSI helpers
+      const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
+      const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
+      const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+      const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
+      const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
+      const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
+      const bgCyan = (s: string) => `\x1b[46m\x1b[30m${s}\x1b[0m`;
+
       const cloddsDir = join(homedir(), '.clodds');
       const envPath = join(cloddsDir, '.env');
       const configPath = join(cloddsDir, 'clodds.json');
@@ -3687,43 +3696,54 @@ export function createOnboardCommand(program: Command): void {
       }
 
       // ═══════════════════════════════════════════════════════════════════
+      // WELCOME
+      // ═══════════════════════════════════════════════════════════════════
       console.log('');
-      console.log('  ╔═══════════════════════════════════════════╗');
-      console.log('  ║         Welcome to Clodds Setup           ║');
-      console.log('  ║   AI assistant for prediction markets     ║');
-      console.log('  ╚═══════════════════════════════════════════╝');
+      console.log(bold('   ___  _            _     _'));
+      console.log(bold('  / __|| |  ___   __| | __| | ___'));
+      console.log(bold(' | (__ | | / _ \\ / _` |/ _` |/ __|'));
+      console.log(bold('  \\___||_| \\___/ \\__,_|\\__,_|\\__|'));
+      console.log('');
+      console.log(`  ${bold('AI Trading Terminal')} ${dim('for prediction markets, crypto & futures')}`);
+      console.log(`  ${dim('10 markets  |  22 channels  |  103 skills')}`);
+      console.log('');
+      console.log(`  ${dim('='.repeat(50))}`);
       console.log('');
 
-      // ── Step 1: API Key ──────────────────────────────────────────────
-      console.log('  [1/4] Anthropic API Key');
-      console.log('  Get one at: https://console.anthropic.com\n');
+      // ═══════════════════════════════════════════════════════════════════
+      // STEP 1: API KEY
+      // ═══════════════════════════════════════════════════════════════════
+      console.log(`  ${bgCyan(' 1 ')} ${bold('Anthropic API Key')}`);
+      console.log(`  ${dim('Powers the Claude AI brain. Get one free at:')}`);
+      console.log(`  ${cyan('https://console.anthropic.com')}`);
+      console.log('');
 
       let apiKey = options.apiKey || envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
-
-      // Check if the existing key looks valid (not a placeholder)
       const isPlaceholder = !apiKey || apiKey === 'sk-ant-...' || apiKey.length < 20;
 
       if (isPlaceholder) {
-        apiKey = await ask('  Paste your API key: ');
+        apiKey = await ask(`  ${bold('Paste API key:')} `);
         if (!apiKey || apiKey.length < 10) {
-          console.log('\n  No API key provided. You can set it later in ~/.clodds/.env');
-          console.log('  ANTHROPIC_API_KEY=sk-ant-...\n');
+          console.log('');
+          console.log(`  ${red('No key provided.')} Add it later:`);
+          console.log(`  ${dim('echo "ANTHROPIC_API_KEY=sk-ant-..." >> ~/.clodds/.env')}`);
+          console.log('');
           rl.close();
           return;
         }
       } else {
         const masked = apiKey.slice(0, 10) + '...' + apiKey.slice(-4);
-        console.log(`  Found existing key: ${masked}`);
-        const reuse = await ask('  Use this key? [Y/n]: ');
+        console.log(`  ${dim('Found:')} ${masked}`);
+        const reuse = await ask(`  ${bold('Use this key?')} ${dim('[Y/n]')} `);
         if (reuse.toLowerCase() === 'n') {
-          apiKey = await ask('  Paste new API key: ');
+          apiKey = await ask(`  ${bold('Paste new key:')} `);
         }
       }
 
       envVars.ANTHROPIC_API_KEY = apiKey;
 
-      // Quick validation
-      console.log('  Validating...');
+      // Validate
+      process.stdout.write(`  ${dim('Validating...')}`);
       try {
         const r = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
@@ -3739,108 +3759,135 @@ export function createOnboardCommand(program: Command): void {
           }),
         });
         if (r.ok || r.status === 429) {
-          console.log('  Key valid!\n');
+          console.log(`\r  ${green('Valid')}                `);
         } else if (r.status === 401) {
-          console.log('  WARNING: Key appears invalid (401). Continuing anyway...\n');
+          console.log(`\r  ${yellow('Invalid key (401)')} — continuing anyway   `);
         } else {
-          console.log(`  WARNING: Got HTTP ${r.status}. Continuing anyway...\n`);
+          console.log(`\r  ${yellow(`HTTP ${r.status}`)} — continuing anyway          `);
         }
       } catch {
-        console.log('  Could not validate (network error). Continuing...\n');
+        console.log(`\r  ${yellow('Offline')} — skipped validation        `);
       }
+      console.log('');
 
-      // ── Step 2: Channel ──────────────────────────────────────────────
-      console.log('  [2/4] Messaging Channel');
-      console.log('  WebChat is always available at http://localhost:18789/webchat');
-      console.log('  Optionally connect a messaging platform:\n');
-      console.log('  1) WebChat only (no extra setup)');
-      console.log('  2) Telegram (recommended — easiest)');
-      console.log('  3) Discord');
-      console.log('  4) Slack');
+      // ═══════════════════════════════════════════════════════════════════
+      // STEP 2: CHANNEL
+      // ═══════════════════════════════════════════════════════════════════
+      console.log(`  ${bgCyan(' 2 ')} ${bold('Messaging Channel')}`);
+      console.log(`  ${dim('WebChat is built-in at')} ${cyan('http://localhost:18789/webchat')}`);
+      console.log(`  ${dim('Optionally connect a platform:')}`);
+      console.log('');
+      console.log(`    ${bold('1')}  WebChat only       ${dim('zero config, works immediately')}`);
+      console.log(`    ${bold('2')}  Telegram            ${green('recommended')} ${dim('— easiest setup')}`);
+      console.log(`    ${bold('3')}  Discord             ${dim('bot token from discord.com/developers')}`);
+      console.log(`    ${bold('4')}  Slack               ${dim('bot + app tokens from api.slack.com')}`);
       console.log('');
 
       let channelChoice = options.channel || '';
       if (!channelChoice) {
-        const choice = await ask('  Choose [1-4, default 1]: ');
+        const choice = await ask(`  ${bold('Choose')} ${dim('[1-4, default 1]:')} `);
         const map: Record<string, string> = { '1': 'webchat', '2': 'telegram', '3': 'discord', '4': 'slack', '': 'webchat' };
         channelChoice = map[choice] || choice.toLowerCase();
       }
+      console.log('');
 
-      // ── Step 3: Channel Token ────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════
+      // STEP 3: CHANNEL TOKEN
+      // ═══════════════════════════════════════════════════════════════════
       if (channelChoice === 'telegram') {
-        console.log('\n  [3/4] Telegram Setup');
-        console.log('  Open Telegram, message @BotFather, send /newbot');
-        console.log('  Copy the token it gives you.\n');
+        console.log(`  ${bgCyan(' 3 ')} ${bold('Telegram Setup')}`);
+        console.log(`  ${dim('1.')} Open Telegram, message ${cyan('@BotFather')}`);
+        console.log(`  ${dim('2.')} Send ${bold('/newbot')} and follow the prompts`);
+        console.log(`  ${dim('3.')} Copy the token it gives you`);
+        console.log('');
 
         let token = envVars.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
         if (token) {
-          console.log(`  Found existing token: ${token.slice(0, 8)}...`);
-          const reuse = await ask('  Use this token? [Y/n]: ');
+          console.log(`  ${dim('Found:')} ${token.slice(0, 8)}...`);
+          const reuse = await ask(`  ${bold('Use this token?')} ${dim('[Y/n]')} `);
           if (reuse.toLowerCase() === 'n') token = '';
         }
         if (!token) {
-          token = await ask('  Bot token: ');
+          token = await ask(`  ${bold('Bot token:')} `);
         }
         if (token) {
           envVars.TELEGRAM_BOT_TOKEN = token;
           configObj.channels = { ...(configObj.channels as object || {}), telegram: { enabled: true } };
-          console.log('  Telegram configured!\n');
+
+          // Validate token
+          process.stdout.write(`  ${dim('Validating...')}`);
+          try {
+            const r = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+            const d = await r.json() as { ok: boolean; result?: { username: string } };
+            if (d.ok) {
+              console.log(`\r  ${green(`@${d.result?.username}`)} connected       `);
+            } else {
+              console.log(`\r  ${yellow('Token may be invalid')} — continuing       `);
+            }
+          } catch {
+            console.log(`\r  ${yellow('Offline')} — skipped validation       `);
+          }
         } else {
-          console.log('  Skipped. You can add it later in ~/.clodds/.env\n');
+          console.log(`  ${dim('Skipped. Add later: TELEGRAM_BOT_TOKEN=... in ~/.clodds/.env')}`);
         }
 
       } else if (channelChoice === 'discord') {
-        console.log('\n  [3/4] Discord Setup');
-        console.log('  Create a bot at: https://discord.com/developers/applications');
-        console.log('  Bot > Token > Copy\n');
+        console.log(`  ${bgCyan(' 3 ')} ${bold('Discord Setup')}`);
+        console.log(`  ${dim('1.')} Go to ${cyan('https://discord.com/developers/applications')}`);
+        console.log(`  ${dim('2.')} Create app > Bot > Reset Token > Copy`);
+        console.log('');
 
         let token = envVars.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN || '';
         if (token) {
-          console.log(`  Found existing token: ${token.slice(0, 8)}...`);
-          const reuse = await ask('  Use this token? [Y/n]: ');
+          console.log(`  ${dim('Found:')} ${token.slice(0, 8)}...`);
+          const reuse = await ask(`  ${bold('Use this token?')} ${dim('[Y/n]')} `);
           if (reuse.toLowerCase() === 'n') token = '';
         }
         if (!token) {
-          token = await ask('  Bot token: ');
+          token = await ask(`  ${bold('Bot token:')} `);
         }
         if (token) {
           envVars.DISCORD_BOT_TOKEN = token;
-          const appId = await ask('  Application ID (optional, press Enter to skip): ');
+          const appId = await ask(`  ${bold('Application ID')} ${dim('(optional, Enter to skip):')} `);
           if (appId) envVars.DISCORD_APP_ID = appId;
           configObj.channels = { ...(configObj.channels as object || {}), discord: { enabled: true } };
-          console.log('  Discord configured!\n');
+          console.log(`  ${green('Discord configured')}`);
         } else {
-          console.log('  Skipped. You can add it later in ~/.clodds/.env\n');
+          console.log(`  ${dim('Skipped. Add later: DISCORD_BOT_TOKEN=... in ~/.clodds/.env')}`);
         }
 
       } else if (channelChoice === 'slack') {
-        console.log('\n  [3/4] Slack Setup');
-        console.log('  Create an app at: https://api.slack.com/apps');
-        console.log('  You need both Bot Token and App Token\n');
+        console.log(`  ${bgCyan(' 3 ')} ${bold('Slack Setup')}`);
+        console.log(`  ${dim('1.')} Go to ${cyan('https://api.slack.com/apps')} > Create App`);
+        console.log(`  ${dim('2.')} OAuth > Bot Token (xoxb-...) and App Token (xapp-...)`);
+        console.log('');
 
         let botToken = envVars.SLACK_BOT_TOKEN || process.env.SLACK_BOT_TOKEN || '';
         if (!botToken) {
-          botToken = await ask('  Bot token (xoxb-...): ');
+          botToken = await ask(`  ${bold('Bot token')} ${dim('(xoxb-...):')} `);
         }
         let appToken = envVars.SLACK_APP_TOKEN || process.env.SLACK_APP_TOKEN || '';
         if (!appToken) {
-          appToken = await ask('  App token (xapp-...): ');
+          appToken = await ask(`  ${bold('App token')} ${dim('(xapp-...):')} `);
         }
         if (botToken && appToken) {
           envVars.SLACK_BOT_TOKEN = botToken;
           envVars.SLACK_APP_TOKEN = appToken;
           configObj.channels = { ...(configObj.channels as object || {}), slack: { enabled: true } };
-          console.log('  Slack configured!\n');
+          console.log(`  ${green('Slack configured')}`);
         } else {
-          console.log('  Incomplete. You can add tokens later in ~/.clodds/.env\n');
+          console.log(`  ${dim('Incomplete. Add tokens later in ~/.clodds/.env')}`);
         }
 
       } else {
-        console.log('\n  [3/4] WebChat only — no extra tokens needed!\n');
+        console.log(`  ${bgCyan(' 3 ')} ${bold('WebChat')} ${dim('— no extra setup needed')}`);
       }
+      console.log('');
 
-      // ── Step 4: Write files ──────────────────────────────────────────
-      console.log('  [4/4] Writing configuration...');
+      // ═══════════════════════════════════════════════════════════════════
+      // STEP 4: WRITE CONFIG
+      // ═══════════════════════════════════════════════════════════════════
+      console.log(`  ${bgCyan(' 4 ')} ${bold('Saving')}`);
 
       if (!existsSync(cloddsDir)) {
         mkdirSync(cloddsDir, { recursive: true });
@@ -3852,53 +3899,63 @@ export function createOnboardCommand(program: Command): void {
         .map(([k, v]) => `${k}=${v}`)
         .join('\n') + '\n';
       writeFileSync(envPath, envContent, { mode: 0o600 });
-      console.log(`  Wrote ${envPath}`);
+      console.log(`  ${green('wrote')} ${dim(envPath)}`);
 
       // Write config
       if (!configObj.gateway) {
         configObj.gateway = { port: 18789 };
       }
       writeFileSync(configPath, JSON.stringify(configObj, null, 2));
-      console.log(`  Wrote ${configPath}`);
+      console.log(`  ${green('wrote')} ${dim(configPath)}`);
 
-      // ── Done ─────────────────────────────────────────────────────────
-      console.log('\n  ────────────────────────────────────────');
-      console.log('  Setup complete!\n');
-      console.log('  Next steps:');
-      console.log('    clodds doctor    — verify everything works');
-      console.log('    clodds start     — start Clodds');
-      console.log('    Open http://localhost:18789/webchat\n');
+      // ═══════════════════════════════════════════════════════════════════
+      // DONE
+      // ═══════════════════════════════════════════════════════════════════
+      console.log('');
+      console.log(`  ${green(bold('Setup complete.'))}  Everything you need is ready.`);
+      console.log('');
+      console.log(`  ${dim('Quick reference:')}`);
+      console.log(`    ${bold('clodds start')}     ${dim('launch the gateway')}`);
+      console.log(`    ${bold('clodds doctor')}    ${dim('run diagnostics')}`);
+      console.log(`    ${bold('clodds repl')}      ${dim('local test shell')}`);
+      console.log('');
+      console.log(`  ${dim('WebChat:')} ${cyan('http://localhost:18789/webchat')}`);
 
       if (channelChoice === 'telegram' && envVars.TELEGRAM_BOT_TOKEN) {
-        console.log('  Then message your Telegram bot to start chatting.\n');
+        console.log(`  ${dim('Telegram:')} message your bot to start chatting`);
+      } else if (channelChoice === 'discord' && envVars.DISCORD_BOT_TOKEN) {
+        console.log(`  ${dim('Discord:')} invite your bot, then mention it`);
       }
 
+      console.log('');
+
       if (options.start !== false) {
-        const startNow = await ask('  Start Clodds now? [Y/n]: ');
+        const startNow = await ask(`  ${bold('Start Clodds now?')} ${dim('[Y/n]')} `);
         rl.close();
 
         if (!startNow || startNow.toLowerCase() === 'y' || startNow.toLowerCase() === 'yes') {
-          // Set env vars for this process so start command picks them up
           for (const [k, v] of Object.entries(envVars)) {
             process.env[k] = v;
           }
 
-          console.log('\n  Starting Clodds...\n');
+          console.log('');
 
-          // Load config and start gateway
           const config = await loadConfig();
           const { configureHttpClient } = await import('../../utils/http.js');
           configureHttpClient(config.http);
           const { createGateway } = await import('../../gateway/index.js');
+
+          process.stdout.write(`  ${dim('Starting...')}`);
           const gateway = await createGateway(config);
           await gateway.start();
-
-          console.log(`  Clodds is running!`);
-          console.log(`  WebChat: http://localhost:${config.gateway.port}/webchat\n`);
-          console.log('  Press Ctrl+C to stop\n');
+          console.log(`\r  ${green(bold('Clodds is running'))}                `);
+          console.log('');
+          console.log(`  ${cyan(`http://localhost:${config.gateway.port}/webchat`)}`);
+          console.log(`  ${dim('Press Ctrl+C to stop')}`);
+          console.log('');
 
           const shutdown = async () => {
-            console.log('\n  Shutting down...');
+            console.log(`\n  ${dim('Shutting down...')}`);
             await gateway.stop();
             process.exit(0);
           };
