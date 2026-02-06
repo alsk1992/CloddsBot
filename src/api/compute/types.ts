@@ -366,6 +366,9 @@ export type TradePlatform =
   | 'kalshi'
   | 'hyperliquid'
   | 'binance'
+  | 'bybit'
+  | 'mexc'
+  | 'drift'      // Solana prediction market
   | 'jupiter'    // Solana DEX
   | 'uniswap'    // ETH DEX
   | 'aerodrome'  // Base DEX

@@ -7,6 +7,7 @@
 
 import { logger } from '../../utils/logger';
 import { generateId as generateSecureId } from '../../utils/id';
+import { getTransformersPipeline } from '../../embeddings/index';
 import * as path from 'path';
 
 export interface LanceDBConfig {
@@ -84,7 +85,7 @@ interface LanceDB {
 export async function createLanceDBExtension(config: LanceDBConfig): Promise<LanceDBExtension> {
   const dbPath = config.dbPath || path.join(process.env.HOME || '.', '.clodds', 'memory.lance');
   const tableName = config.tableName || 'memories';
-  const dimensions = config.dimensions || 1536;
+  const dimensions = config.dimensions || (config.embeddingModel === 'local' ? 384 : 1536);
 
   let db: LanceDB | null = null;
   let table: LanceTable | null = null;
@@ -155,10 +156,14 @@ export async function createLanceDBExtension(config: LanceDBConfig): Promise<Lan
   }
 
   async function getLocalEmbedding(text: string): Promise<number[]> {
-    // Placeholder for local embedding model
-    // Would use something like sentence-transformers via ONNX
-    logger.warn('Local embeddings not implemented, using simple hash');
-    return getSimpleEmbedding(text);
+    try {
+      const pipe = await getTransformersPipeline();
+      const output = await pipe(text, { pooling: 'mean', normalize: true });
+      return Array.from(output.data);
+    } catch (error) {
+      logger.warn({ error }, 'Transformers.js failed, falling back to hash embeddings');
+      return getSimpleEmbedding(text);
+    }
   }
 
   function getSimpleEmbedding(text: string): number[] {

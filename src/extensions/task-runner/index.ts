@@ -70,7 +70,7 @@ export interface TaskContext {
 // Built-in executors
 const builtInExecutors: Map<string, TaskExecutor> = new Map();
 
-// Shell executor
+// Shell executor with audit logging
 builtInExecutors.set('shell', {
   name: 'shell',
   async execute(task, context) {
@@ -78,17 +78,27 @@ builtInExecutors.set('shell', {
     const command = task.input?.command as string;
     const args = (task.input?.args as string[]) || [];
     const cwd = (task.input?.cwd as string) || context.workDir;
+    const startTime = Date.now();
+
+    // Audit: Log execution attempt
+    logger.info(
+      { taskId: task.id, executor: 'shell', command, args, cwd },
+      'Task runner: shell execution started'
+    );
 
     // Security: Validate command is not empty and doesn't contain shell metacharacters
     if (!command || typeof command !== 'string') {
+      logger.warn({ taskId: task.id }, 'Task runner: rejected empty command');
       throw new Error('Command must be a non-empty string');
     }
     const dangerousChars = /[;&|`$(){}[\]<>!\\]/;
     if (dangerousChars.test(command)) {
+      logger.warn({ taskId: task.id, command }, 'Task runner: rejected dangerous command');
       throw new Error('Command contains potentially dangerous shell metacharacters');
     }
     for (const arg of args) {
       if (typeof arg !== 'string') {
+        logger.warn({ taskId: task.id, arg }, 'Task runner: rejected non-string argument');
         throw new Error('All arguments must be strings');
       }
     }
@@ -108,9 +118,20 @@ builtInExecutors.set('shell', {
         maxBuffer: 10 * 1024 * 1024, // 10MB max output
         timeout: task.timeout || 60000, // Default 60s timeout
       }, (error: Error | null, stdout: string, stderr: string) => {
+        const durationMs = Date.now() - startTime;
         if (error) {
+          // Audit: Log failure
+          logger.error(
+            { taskId: task.id, command, durationMs, error: error.message },
+            'Task runner: shell execution failed'
+          );
           reject(new Error(`Command failed: ${stderr || error.message}`));
         } else {
+          // Audit: Log success
+          logger.info(
+            { taskId: task.id, command, durationMs, stdoutLen: stdout.length },
+            'Task runner: shell execution completed'
+          );
           resolve({ stdout, stderr, exitCode: 0 });
         }
       });
@@ -118,7 +139,7 @@ builtInExecutors.set('shell', {
   },
 });
 
-// File executor
+// File executor with audit logging
 builtInExecutors.set('file', {
   name: 'file',
   async execute(task, context) {
@@ -126,38 +147,58 @@ builtInExecutors.set('file', {
     const filePath = task.input?.path as string;
     const fullPath = path.isAbsolute(filePath) ? filePath : path.join(context.workDir, filePath);
 
-    switch (operation) {
-      case 'read':
-        return fs.readFileSync(fullPath, 'utf-8');
+    // Audit: Log file operation
+    logger.info(
+      { taskId: task.id, executor: 'file', operation, path: fullPath },
+      'Task runner: file operation started'
+    );
 
-      case 'write':
-        const content = task.input?.content as string;
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        fs.writeFileSync(fullPath, content);
-        return { written: true, path: fullPath };
+    try {
+      let result: unknown;
+      switch (operation) {
+        case 'read':
+          result = fs.readFileSync(fullPath, 'utf-8');
+          logger.info({ taskId: task.id, operation, path: fullPath, size: (result as string).length }, 'Task runner: file read completed');
+          return result;
 
-      case 'append':
-        const appendContent = task.input?.content as string;
-        fs.appendFileSync(fullPath, appendContent);
-        return { appended: true, path: fullPath };
+        case 'write':
+          const content = task.input?.content as string;
+          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+          fs.writeFileSync(fullPath, content);
+          logger.info({ taskId: task.id, operation, path: fullPath, size: content.length }, 'Task runner: file write completed');
+          return { written: true, path: fullPath };
 
-      case 'delete':
-        fs.unlinkSync(fullPath);
-        return { deleted: true, path: fullPath };
+        case 'append':
+          const appendContent = task.input?.content as string;
+          fs.appendFileSync(fullPath, appendContent);
+          logger.info({ taskId: task.id, operation, path: fullPath, size: appendContent.length }, 'Task runner: file append completed');
+          return { appended: true, path: fullPath };
 
-      case 'exists':
-        return { exists: fs.existsSync(fullPath), path: fullPath };
+        case 'delete':
+          fs.unlinkSync(fullPath);
+          logger.info({ taskId: task.id, operation, path: fullPath }, 'Task runner: file delete completed');
+          return { deleted: true, path: fullPath };
 
-      case 'list':
-        const entries = fs.readdirSync(fullPath, { withFileTypes: true });
-        return entries.map(e => ({
-          name: e.name,
-          isDirectory: e.isDirectory(),
-          isFile: e.isFile(),
-        }));
+        case 'exists':
+          const exists = fs.existsSync(fullPath);
+          logger.info({ taskId: task.id, operation, path: fullPath, exists }, 'Task runner: file exists check completed');
+          return { exists, path: fullPath };
 
-      default:
-        throw new Error(`Unknown file operation: ${operation}`);
+        case 'list':
+          const entries = fs.readdirSync(fullPath, { withFileTypes: true });
+          logger.info({ taskId: task.id, operation, path: fullPath, count: entries.length }, 'Task runner: directory list completed');
+          return entries.map(e => ({
+            name: e.name,
+            isDirectory: e.isDirectory(),
+            isFile: e.isFile(),
+          }));
+
+        default:
+          throw new Error(`Unknown file operation: ${operation}`);
+      }
+    } catch (err) {
+      logger.error({ taskId: task.id, operation, path: fullPath, error: (err as Error).message }, 'Task runner: file operation failed');
+      throw err;
     }
   },
 });

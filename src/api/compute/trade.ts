@@ -8,6 +8,9 @@ import { logger } from '../../utils/logger';
 import { buildPolymarketHeadersForUrl, type PolymarketApiKeyAuth } from '../../utils/polymarket-auth';
 import { placePerpOrder, type HyperliquidConfig, type PerpOrder } from '../../exchanges/hyperliquid';
 import { openLong, openShort, type BinanceFuturesConfig } from '../../exchanges/binance-futures';
+import { openLong as bybitOpenLong, openShort as bybitOpenShort, type BybitConfig } from '../../exchanges/bybit';
+import { openLong as mexcOpenLong, openShort as mexcOpenShort, type MexcConfig } from '../../exchanges/mexc';
+import { createDriftTrading, type DriftTradingConfig } from '../../feeds/drift/trading';
 import { executeJupiterSwap, type JupiterSwapParams } from '../../solana/jupiter';
 import { executeUniswapSwap, type UniswapSwapParams, type EvmChain } from '../../evm/uniswap';
 import { Connection, Keypair } from '@solana/web3.js';
@@ -56,6 +59,20 @@ export interface TradeExecutorConfig {
   binance?: {
     apiKey: string;
     apiSecret: string;
+  };
+  /** Bybit API credentials */
+  bybit?: {
+    apiKey: string;
+    apiSecret: string;
+  };
+  /** MEXC API credentials */
+  mexc?: {
+    apiKey: string;
+    apiSecret: string;
+  };
+  /** Drift config (uses Solana privateKey) */
+  drift?: {
+    rpcUrl?: string;
   };
   /** Private key for DEX trading */
   privateKey?: string;
@@ -107,6 +124,28 @@ const PLATFORM_CONFIGS: Record<TradePlatform, PlatformConfig> = {
     type: 'cex',
     minSize: 10,
     maxSize: 10000000,
+    fees: 0.001,
+  },
+  bybit: {
+    name: 'Bybit',
+    type: 'cex',
+    minSize: 10,
+    maxSize: 10000000,
+    fees: 0.001,
+  },
+  mexc: {
+    name: 'MEXC',
+    type: 'cex',
+    minSize: 10,
+    maxSize: 5000000,
+    fees: 0.0006,
+  },
+  drift: {
+    name: 'Drift',
+    type: 'prediction',
+    chains: ['solana'],
+    minSize: 1,
+    maxSize: 100000,
     fees: 0.001,
   },
   jupiter: {
@@ -236,6 +275,12 @@ export function createTradeExecutor(config: TradeExecutorConfig = {}): TradeExec
         return executeHyperliquid(payload);
       case 'binance':
         return executeBinance(payload);
+      case 'bybit':
+        return executeBybit(payload);
+      case 'mexc':
+        return executeMexc(payload);
+      case 'drift':
+        return executeDrift(payload);
       case 'jupiter':
         return executeJupiter(payload);
       case 'uniswap':
@@ -383,6 +428,102 @@ export function createTradeExecutor(config: TradeExecutorConfig = {}): TradeExec
       status: result.status === 'FILLED' ? 'filled' : result.status === 'PARTIALLY_FILLED' ? 'partial' : 'pending',
       fillPrice: result.avgPrice || result.price,
       filledSize: result.executedQty,
+    };
+  }
+
+  async function executeBybit(payload: TradeRequest): Promise<TradeResponse> {
+    const creds = config.bybit;
+    if (!creds) throw new Error('Bybit not configured');
+
+    const bybitConfig: BybitConfig = {
+      apiKey: creds.apiKey,
+      apiSecret: creds.apiSecret,
+    };
+
+    const symbol = payload.marketId.replace('/', '');
+    const quantity = payload.size;
+
+    const result = payload.side === 'buy'
+      ? await bybitOpenLong(bybitConfig, symbol, quantity)
+      : await bybitOpenShort(bybitConfig, symbol, quantity);
+
+    return {
+      orderId: String(result.orderId),
+      status: result.orderStatus === 'Filled' ? 'filled' : result.orderStatus === 'PartiallyFilled' ? 'partial' : 'pending',
+      fillPrice: result.avgPrice,
+      filledSize: result.cumExecQty,
+    };
+  }
+
+  async function executeMexc(payload: TradeRequest): Promise<TradeResponse> {
+    const creds = config.mexc;
+    if (!creds) throw new Error('MEXC not configured');
+
+    const mexcConfig: MexcConfig = {
+      apiKey: creds.apiKey,
+      apiSecret: creds.apiSecret,
+    };
+
+    const symbol = payload.marketId.replace('/', '_'); // MEXC uses underscore
+    const quantity = payload.size;
+
+    const result = payload.side === 'buy'
+      ? await mexcOpenLong(mexcConfig, symbol, quantity)
+      : await mexcOpenShort(mexcConfig, symbol, quantity);
+
+    return {
+      orderId: String(result.orderId),
+      status: result.state === 0 ? 'pending' : result.state === 1 ? 'partial' : 'filled',
+      fillPrice: result.dealAvgPrice,
+      filledSize: result.dealVol,
+    };
+  }
+
+  // Drift trading instance (lazy init)
+  let driftTrading: ReturnType<typeof createDriftTrading> | null = null;
+
+  async function executeDrift(payload: TradeRequest): Promise<TradeResponse> {
+    if (!config.privateKey) throw new Error('Private key not configured for Drift');
+
+    // Lazy init Drift trading
+    if (!driftTrading) {
+      const driftConfig: DriftTradingConfig = {
+        privateKey: config.privateKey,
+        rpcUrl: config.drift?.rpcUrl || process.env.SOLANA_RPC_URL,
+        dryRun: cfg.dryRun,
+      };
+      driftTrading = createDriftTrading(driftConfig);
+      await driftTrading.initialize();
+    }
+
+    // marketId should be the market index (0=BTC, 1=ETH, etc.)
+    const marketIndex = parseInt(payload.marketId, 10) || 0;
+    const amount = payload.size;
+    const isLimit = payload.orderType === 'limit' && payload.price != null;
+
+    // Drift BET: outcome is 'yes' or 'no', side is 'buy' or 'sell'
+    // For simplicity: buy=long (YES), sell=short (NO)
+    let order: Awaited<ReturnType<typeof driftTrading.buyYes>> = null;
+
+    if (payload.side === 'buy') {
+      order = isLimit
+        ? await driftTrading.limitBuyYes(marketIndex, amount, payload.price!)
+        : await driftTrading.buyYes(marketIndex, amount, payload.price);
+    } else {
+      order = isLimit
+        ? await driftTrading.limitSellYes(marketIndex, amount, payload.price!)
+        : await driftTrading.sellYes(marketIndex, amount, payload.price);
+    }
+
+    if (!order) {
+      throw new Error('Drift order failed');
+    }
+
+    return {
+      orderId: order.orderId,
+      status: order.status === 'filled' ? 'filled' : 'pending',
+      fillPrice: order.price,
+      filledSize: order.baseAssetAmount,
     };
   }
 

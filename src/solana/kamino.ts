@@ -171,9 +171,9 @@ export async function getKaminoMarkets(
         address: reserve.address.toBase58(),
         symbol: reserve.symbol || 'UNKNOWN',
         mint: reserve.getLiquidityMint().toBase58(),
-        decimals: reserve.state.liquidity.mintDecimals,
-        depositRate: reserve.calculateSupplyAPY() * 100,
-        borrowRate: reserve.calculateBorrowAPY() * 100,
+        decimals: (reserve.state.liquidity.mintDecimals as BN).toNumber(),
+        depositRate: reserve.calculateSupplyAPR() * 100,
+        borrowRate: reserve.calculateBorrowAPR() * 100,
         totalDeposits: reserve.getTotalSupply().toString(),
         totalBorrows: reserve.getBorrowedAmount().toString(),
         availableLiquidity: reserve.getLiquidityAvailableAmount().toString(),
@@ -272,20 +272,21 @@ export async function getKaminoObligation(
       });
     }
 
-    const stats = obligation.stats;
+    const state = obligation.state;
     const ltv = obligation.loanToValue();
+    const ltvNum = ltv instanceof Decimal ? ltv.toNumber() : Number(ltv);
 
     return {
       address: obligation.obligationAddress.toBase58(),
       owner: keypair.publicKey.toBase58(),
       deposits,
       borrows,
-      totalDepositValue: stats.userTotalDeposit?.toString() || '0',
-      totalBorrowValue: stats.userTotalBorrow?.toString() || '0',
-      borrowLimit: stats.borrowLimit?.toString() || '0',
-      liquidationThreshold: stats.liquidationLtv?.toString() || '0',
-      healthFactor: ltv > 0 ? (1 / ltv) : Infinity,
-      ltv: ltv * 100,
+      totalDepositValue: (state as any).userTotalDeposit?.toString() || '0',
+      totalBorrowValue: (state as any).userTotalBorrow?.toString() || '0',
+      borrowLimit: (state as any).borrowLimit?.toString() || '0',
+      liquidationThreshold: (state as any).liquidationLtv?.toString() || '0',
+      healthFactor: ltvNum > 0 ? (1 / ltvNum) : Infinity,
+      ltv: ltvNum * 100,
     };
   } catch (error) {
     console.error('Failed to get Kamino obligation:', error);
@@ -329,18 +330,17 @@ export async function depositToKamino(
     market,
     amount,
     reserve.getLiquidityMint(),
-    keypair,
+    keypair.publicKey,
     new VanillaObligation(PROGRAM_ID),
-    true,  // useV2Ixs
-    undefined,  // scopeRefreshConfig
     400000,  // extraComputeBudget
     true,  // includeAtaIxs
   );
 
-  const txs = await action.getTransactions();
+  const txns = await action.getTransactions();
+  const allTxs = [txns.preLendingTxn, txns.lendingTxn, txns.postLendingTxn].filter(Boolean) as Transaction[];
   let signature = '';
 
-  for (const tx of txs) {
+  for (const tx of allTxs) {
     signature = await signAndSendTransaction(connection, keypair, tx);
   }
 
@@ -387,18 +387,17 @@ export async function withdrawFromKamino(
     market,
     amount,
     reserve.getLiquidityMint(),
-    keypair,
+    keypair.publicKey,
     new VanillaObligation(PROGRAM_ID),
-    true,  // useV2Ixs
-    undefined,  // scopeRefreshConfig
     400000,  // extraComputeBudget
     true,  // includeAtaIxs
   );
 
-  const txs = await action.getTransactions();
+  const txns = await action.getTransactions();
+  const allTxs = [txns.preLendingTxn, txns.lendingTxn, txns.postLendingTxn].filter(Boolean) as Transaction[];
   let signature = '';
 
-  for (const tx of txs) {
+  for (const tx of allTxs) {
     signature = await signAndSendTransaction(connection, keypair, tx);
   }
 
@@ -445,18 +444,17 @@ export async function borrowFromKamino(
     market,
     amount,
     reserve.getLiquidityMint(),
-    keypair,
+    keypair.publicKey,
     new VanillaObligation(PROGRAM_ID),
-    true,  // useV2Ixs
-    undefined,  // scopeRefreshConfig
     400000,  // extraComputeBudget
     true,  // includeAtaIxs
   );
 
-  const txs = await action.getTransactions();
+  const txns = await action.getTransactions();
+  const allTxs = [txns.preLendingTxn, txns.lendingTxn, txns.postLendingTxn].filter(Boolean) as Transaction[];
   let signature = '';
 
-  for (const tx of txs) {
+  for (const tx of allTxs) {
     signature = await signAndSendTransaction(connection, keypair, tx);
   }
 
@@ -506,20 +504,19 @@ export async function repayToKamino(
     market,
     amount,
     reserve.getLiquidityMint(),
-    keypair,
+    keypair.publicKey,
     new VanillaObligation(PROGRAM_ID),
-    true,  // useV2Ixs
-    undefined,  // scopeRefreshConfig
-    BigInt(currentSlot),  // currentSlot
+    currentSlot,  // currentSlot
     undefined,  // payer
     400000,  // extraComputeBudget
     true,  // includeAtaIxs
   );
 
-  const txs = await action.getTransactions();
+  const txns = await action.getTransactions();
+  const allTxs = [txns.preLendingTxn, txns.lendingTxn, txns.postLendingTxn].filter(Boolean) as Transaction[];
   let signature = '';
 
-  for (const tx of txs) {
+  for (const tx of allTxs) {
     signature = await signAndSendTransaction(connection, keypair, tx);
   }
 
@@ -550,17 +547,19 @@ export async function getKaminoStrategies(
     const results: KaminoStrategyInfo[] = [];
 
     for (const strategy of strategies) {
+      if (!strategy) continue;
       try {
-        const sharePrice = await kamino.getStrategySharePrice(strategy.address);
+        const strategyPk = (strategy as any).address ?? (strategy as any).strategyPubkey;
+        const sharePrice = await kamino.getStrategySharePrice(strategyPk ?? new PublicKey(0));
 
         results.push({
-          address: strategy.address.toBase58(),
-          name: strategy.strategyLookupTable?.toBase58() || 'Unknown',
+          address: strategyPk?.toBase58?.() || 'unknown',
+          name: (strategy as any).strategyLookupTable?.toBase58() || 'Unknown',
           tokenAMint: strategy.tokenAMint.toBase58(),
           tokenBMint: strategy.tokenBMint.toBase58(),
           tokenASymbol: 'TokenA',
           tokenBSymbol: 'TokenB',
-          protocol: strategy.strategyDex?.toString() || 'Unknown',
+          protocol: (strategy as any).strategyDex?.toString() || 'Unknown',
           sharePrice: sharePrice?.toString() || '0',
           tvl: '0',
           apy: 0,
@@ -601,12 +600,12 @@ export async function getKaminoStrategy(
 
     return {
       address: strategyAddress,
-      name: strategy.strategyLookupTable?.toBase58() || 'Unknown',
+      name: (strategy as any).strategyLookupTable?.toBase58() || 'Unknown',
       tokenAMint: strategy.tokenAMint.toBase58(),
       tokenBMint: strategy.tokenBMint.toBase58(),
       tokenASymbol: 'TokenA',
       tokenBSymbol: 'TokenB',
-      protocol: strategy.strategyDex?.toString() || 'Unknown',
+      protocol: (strategy as any).strategyDex?.toString() || 'Unknown',
       sharePrice: sharePrice?.toString() || '0',
       tvl: '0',
       apy: 0,
@@ -640,7 +639,7 @@ export async function getKaminoUserShares(
         return [];
       }
 
-      const holders = await kamino.getStrategyHolders(strategy);
+      const holders = await kamino.getStrategyHolders(new PublicKey(strategyAddress));
       const userHolding = holders.find((h: any) =>
         h.holderPubkey.equals(keypair.publicKey)
       );
@@ -651,7 +650,7 @@ export async function getKaminoUserShares(
 
       return [{
         strategyAddress,
-        shares: userHolding.shares.toString(),
+        shares: ((userHolding as any).shares ?? (userHolding as any).amount)?.toString() || '0',
         tokenAAmount: '0',
         tokenBAmount: '0',
         valueUsd: '0',
@@ -663,16 +662,19 @@ export async function getKaminoUserShares(
     const results: KaminoUserShares[] = [];
 
     for (const strategy of strategies) {
+      if (!strategy) continue;
       try {
-        const holders = await kamino.getStrategyHolders(strategy);
+        const strategyPk = (strategy as any).address ?? (strategy as any).strategyPubkey;
+        const holders = await kamino.getStrategyHolders(strategyPk ?? new PublicKey(0));
         const userHolding = holders.find((h: any) =>
           h.holderPubkey.equals(keypair.publicKey)
         );
 
-        if (userHolding && userHolding.shares.gt(new Decimal(0))) {
+        const shares = (userHolding as any)?.shares ?? (userHolding as any)?.amount;
+        if (userHolding && shares && (shares instanceof Decimal ? shares.gt(new Decimal(0)) : Number(shares) > 0)) {
           results.push({
-            strategyAddress: strategy.address.toBase58(),
-            shares: userHolding.shares.toString(),
+            strategyAddress: strategyPk?.toBase58?.() || 'unknown',
+            shares: shares.toString(),
             tokenAAmount: '0',
             tokenBAmount: '0',
             valueUsd: '0',
@@ -714,13 +716,13 @@ export async function depositToKaminoVault(
   const tokenBAmount = params.tokenBAmount ? new Decimal(params.tokenBAmount) : new Decimal(0);
 
   const depositIx = await kamino.deposit(
-    { strategy, address: new PublicKey(params.strategyAddress) },
+    new PublicKey(params.strategyAddress) as any,
     tokenAAmount,
     tokenBAmount,
     keypair.publicKey
   );
 
-  const tx = new Transaction().add(depositIx);
+  const tx = new Transaction().add(depositIx as any);
   const signature = await signAndSendTransaction(connection, keypair, tx);
 
   return {
@@ -754,26 +756,29 @@ export async function withdrawFromKaminoVault(
   const tx = new Transaction();
 
   if (params.withdrawAll) {
-    // withdrawAllShares returns an array of instructions or null
     const withdrawIxns = await kamino.withdrawAllShares(
-      { strategy, address: new PublicKey(params.strategyAddress) },
+      new PublicKey(params.strategyAddress) as any,
       keypair.publicKey
     );
-    if (!withdrawIxns || withdrawIxns.length === 0) {
+    const ixnsList = withdrawIxns as any;
+    if (!ixnsList || (Array.isArray(ixnsList) && ixnsList.length === 0)) {
       throw new Error('No shares to withdraw');
     }
-    tx.add(...withdrawIxns);
+    if (Array.isArray(ixnsList)) {
+      tx.add(...ixnsList);
+    } else {
+      tx.add(ixnsList);
+    }
   } else if (params.shares) {
-    // withdrawShares returns a single instruction
     const withdrawIx = await kamino.withdrawShares(
-      { strategy, address: new PublicKey(params.strategyAddress) },
+      new PublicKey(params.strategyAddress) as any,
       new Decimal(params.shares),
       keypair.publicKey
     );
     if (!withdrawIx) {
       throw new Error('Failed to create withdraw instruction');
     }
-    tx.add(withdrawIx);
+    tx.add(withdrawIx as any);
   } else {
     throw new Error('Must specify shares or withdrawAll');
   }
@@ -800,7 +805,8 @@ export async function getKaminoSharePrice(
     const { Kamino } = await import('@kamino-finance/kliquidity-sdk');
     const kamino = new Kamino('mainnet-beta', connection);
 
-    const price = await kamino.getStrategySharePrice(new PublicKey(strategyAddress));
+    const strategy = await kamino.getStrategyByAddress(new PublicKey(strategyAddress));
+    const price = strategy ? await kamino.getStrategySharePrice(new PublicKey(strategyAddress)) : null;
     return price?.toString() || '0';
   } catch (error) {
     console.error('Failed to get share price:', error);

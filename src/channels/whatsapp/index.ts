@@ -706,7 +706,6 @@ export async function createWhatsAppChannel(
           text: textContent,
           thread: replyToMessageId ? { replyToMessageId } : undefined,
           attachments: attachments.length > 0 ? attachments : undefined,
-          replyToMessageId,
           timestamp: new Date(
             (msg.messageTimestamp as number) * 1000 || Date.now()
           ),

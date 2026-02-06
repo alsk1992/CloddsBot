@@ -14,7 +14,7 @@ import { logger } from '../utils/logger';
 import { generateId as generateSecureId } from '../utils/id';
 
 // Transformers.js types
-type Pipeline = (texts: string | string[], options?: { pooling?: string; normalize?: boolean }) => Promise<{ data: Float32Array; dims: number[] }>;
+export type Pipeline = (texts: string | string[], options?: { pooling?: string; normalize?: boolean }) => Promise<{ data: Float32Array; dims: number[] }>;
 
 // Lazy-loaded transformers.js pipeline
 let localPipeline: Pipeline | null = null;
@@ -24,7 +24,7 @@ const LOCAL_MODEL = 'Xenova/all-MiniLM-L6-v2'; // 384-dim, fast & good quality
 /**
  * Initialize transformers.js pipeline (lazy-loaded, singleton)
  */
-async function getTransformersPipeline(): Promise<Pipeline> {
+export async function getTransformersPipeline(): Promise<Pipeline> {
   if (localPipeline) return localPipeline;
 
   if (pipelinePromise) return pipelinePromise;

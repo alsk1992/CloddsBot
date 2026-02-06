@@ -8,6 +8,42 @@
 import { logger } from '../../utils/logger';
 import { generateId as generateSecureId } from '../../utils/id';
 
+// Lazy-load puppeteer to avoid startup cost
+let puppeteerModule: typeof import('puppeteer') | null = null;
+async function getPuppeteer() {
+  if (!puppeteerModule) {
+    puppeteerModule = await import('puppeteer');
+  }
+  return puppeteerModule;
+}
+
+// Lazy-load docx library (for writing)
+let docxModule: typeof import('docx') | null = null;
+async function getDocx() {
+  if (!docxModule) {
+    docxModule = await import('docx');
+  }
+  return docxModule;
+}
+
+// Lazy-load mammoth library (for reading DOCX)
+interface MammothResult {
+  value: string;
+  messages: Array<{ type: string; message: string }>;
+}
+interface MammothModule {
+  convertToMarkdown(options: { buffer: Buffer }): Promise<MammothResult>;
+  convertToHtml(options: { buffer: Buffer }): Promise<MammothResult>;
+  extractRawText(options: { buffer: Buffer }): Promise<MammothResult>;
+}
+let mammothModule: MammothModule | null = null;
+async function getMammoth(): Promise<MammothModule> {
+  if (!mammothModule) {
+    mammothModule = await import('mammoth') as unknown as MammothModule;
+  }
+  return mammothModule;
+}
+
 export interface OpenProseConfig {
   enabled: boolean;
   /** Document storage path */
@@ -464,10 +500,144 @@ Output the expanded document.`;
           return Buffer.from(html, 'utf-8');
         }
 
-        case 'pdf':
-        case 'docx':
-          logger.warn({ format }, 'Export format not yet implemented');
-          return Buffer.from(doc.content, 'utf-8');
+        case 'pdf': {
+          // Convert markdown to HTML first
+          let pdfHtml = doc.content
+            .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+            .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+            .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+            .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+            .replace(/\*(.*)\*/gim, '<em>$1</em>')
+            .replace(/\n/gim, '<br>');
+
+          const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${doc.title}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; line-height: 1.6; }
+    h1, h2, h3 { margin-top: 1.5em; margin-bottom: 0.5em; }
+    h1 { font-size: 2em; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+    h2 { font-size: 1.5em; }
+    h3 { font-size: 1.25em; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+    pre { background: #f4f4f4; padding: 16px; border-radius: 6px; overflow-x: auto; }
+  </style>
+</head>
+<body>${pdfHtml}</body>
+</html>`;
+
+          try {
+            const puppeteer = await getPuppeteer();
+            const browser = await puppeteer.launch({ headless: true });
+            const page = await browser.newPage();
+            await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
+            const pdfBuffer = await page.pdf({
+              format: 'A4',
+              margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
+              printBackground: true,
+            });
+            await browser.close();
+            return Buffer.from(pdfBuffer);
+          } catch (err) {
+            logger.error({ err }, 'Failed to generate PDF with puppeteer');
+            throw new Error('PDF export failed - puppeteer error');
+          }
+        }
+
+        case 'docx': {
+          try {
+            const docx = await getDocx();
+
+            // Parse markdown content into paragraphs
+            const lines = doc.content.split('\n');
+            const children: InstanceType<typeof docx.Paragraph>[] = [];
+
+            for (const line of lines) {
+              // Handle headings
+              if (line.startsWith('### ')) {
+                children.push(new docx.Paragraph({
+                  text: line.slice(4),
+                  heading: docx.HeadingLevel.HEADING_3,
+                }));
+              } else if (line.startsWith('## ')) {
+                children.push(new docx.Paragraph({
+                  text: line.slice(3),
+                  heading: docx.HeadingLevel.HEADING_2,
+                }));
+              } else if (line.startsWith('# ')) {
+                children.push(new docx.Paragraph({
+                  text: line.slice(2),
+                  heading: docx.HeadingLevel.HEADING_1,
+                }));
+              } else if (line.startsWith('- ') || line.startsWith('* ')) {
+                // Bullet list
+                children.push(new docx.Paragraph({
+                  text: line.slice(2),
+                  bullet: { level: 0 },
+                }));
+              } else if (/^\d+\.\s/.test(line)) {
+                // Numbered list
+                children.push(new docx.Paragraph({
+                  text: line.replace(/^\d+\.\s/, ''),
+                  numbering: { reference: 'default-numbering', level: 0 },
+                }));
+              } else if (line.trim() === '') {
+                // Empty line = spacing
+                children.push(new docx.Paragraph({ text: '' }));
+              } else {
+                // Regular paragraph - handle bold/italic
+                const textRuns: InstanceType<typeof docx.TextRun>[] = [];
+                let remaining = line;
+
+                // Simple parsing for **bold** and *italic*
+                const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|([^*]+))/g;
+                let match;
+                while ((match = regex.exec(remaining)) !== null) {
+                  if (match[2]) {
+                    // Bold
+                    textRuns.push(new docx.TextRun({ text: match[2], bold: true }));
+                  } else if (match[3]) {
+                    // Italic
+                    textRuns.push(new docx.TextRun({ text: match[3], italics: true }));
+                  } else if (match[4]) {
+                    // Plain text
+                    textRuns.push(new docx.TextRun({ text: match[4] }));
+                  }
+                }
+
+                children.push(new docx.Paragraph({ children: textRuns.length ? textRuns : [new docx.TextRun(line)] }));
+              }
+            }
+
+            const docxDoc = new docx.Document({
+              title: doc.title,
+              creator: 'Clodds',
+              numbering: {
+                config: [{
+                  reference: 'default-numbering',
+                  levels: [{
+                    level: 0,
+                    format: docx.LevelFormat.DECIMAL,
+                    text: '%1.',
+                    alignment: docx.AlignmentType.LEFT,
+                  }],
+                }],
+              },
+              sections: [{
+                properties: {},
+                children,
+              }],
+            });
+
+            const buffer = await docx.Packer.toBuffer(docxDoc);
+            return Buffer.from(buffer);
+          } catch (err) {
+            logger.error({ err }, 'Failed to generate DOCX');
+            throw new Error('DOCX export failed');
+          }
+        }
 
         default:
           throw new Error(`Unsupported export format: ${format}`);
@@ -509,9 +679,28 @@ Output the expanded document.`;
           break;
         }
 
-        case 'docx':
-          logger.warn('DOCX import not yet implemented');
+        case 'docx': {
+          try {
+            const mammoth = await getMammoth();
+            // Convert DOCX to markdown
+            const result = await mammoth.convertToMarkdown({ buffer: content });
+            textContent = result.value;
+
+            // Extract title from first heading
+            const docxTitleMatch = textContent.match(/^#\s+(.+)$/m);
+            if (docxTitleMatch) {
+              title = docxTitleMatch[1];
+            }
+
+            if (result.messages.length > 0) {
+              logger.warn({ messages: result.messages }, 'DOCX import warnings');
+            }
+          } catch (err) {
+            logger.error({ err }, 'Failed to import DOCX');
+            throw new Error('DOCX import failed');
+          }
           break;
+        }
       }
 
       return extension.createDocument(title, textContent, 'markdown');

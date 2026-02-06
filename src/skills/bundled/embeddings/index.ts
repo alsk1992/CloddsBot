@@ -18,35 +18,57 @@ import {
 import { logger } from '../../../utils/logger';
 
 let service: EmbeddingsService | null = null;
+let serviceInitPromise: Promise<EmbeddingsService | null> | null = null;
 
-function getService(): EmbeddingsService | null {
-  // Service requires a Database instance; without one we cannot initialize
-  // In a real runtime the skill loader would inject the db instance.
-  // For now we attempt lazy init with a lightweight in-memory stub if available.
+async function initService(): Promise<EmbeddingsService | null> {
   if (service) return service;
 
   try {
-    // The embeddings service needs a Database; we try to import a shared one
-    const { getDatabase } = require('../../../db/index');
-    const db = getDatabase?.();
-    if (!db) return null;
+    // Import database module and create instance
+    const { createDatabase } = await import('../../../db/index');
+    const db = createDatabase();
 
     const config: Partial<EmbeddingConfig> = {};
     if (process.env.OPENAI_API_KEY) {
       config.provider = 'openai';
       config.apiKey = process.env.OPENAI_API_KEY;
+    } else if (process.env.VOYAGE_API_KEY) {
+      config.provider = 'voyage';
+      config.apiKey = process.env.VOYAGE_API_KEY;
     }
+    // Default: uses local transformers.js (no API key needed)
 
     service = createEmbeddingsService(db, config);
     return service;
-  } catch {
+  } catch (err) {
+    logger.warn({ err }, 'Failed to initialize embeddings service');
     return null;
   }
 }
 
+function getService(): EmbeddingsService | null {
+  // Return cached service if available
+  if (service) return service;
+
+  // Trigger async init if not started
+  if (!serviceInitPromise) {
+    serviceInitPromise = initService();
+  }
+
+  return null; // Will be available after init
+}
+
+async function getServiceAsync(): Promise<EmbeddingsService | null> {
+  if (service) return service;
+  if (!serviceInitPromise) {
+    serviceInitPromise = initService();
+  }
+  return serviceInitPromise;
+}
+
 async function handleEmbed(text: string): Promise<string> {
-  const svc = getService();
-  if (!svc) return 'Embeddings service not available. Database required.';
+  const svc = await getServiceAsync();
+  if (!svc) return 'Embeddings service not available. Check database initialization.';
 
   try {
     const vector = await svc.embed(text);
@@ -60,8 +82,8 @@ async function handleEmbed(text: string): Promise<string> {
 }
 
 async function handleSimilarity(input: string): Promise<string> {
-  const svc = getService();
-  if (!svc) return 'Embeddings service not available. Database required.';
+  const svc = await getServiceAsync();
+  if (!svc) return 'Embeddings service not available. Check database initialization.';
 
   const parts = input.split('|').map(s => s.trim());
   if (parts.length < 2) {
@@ -83,21 +105,31 @@ async function handleSimilarity(input: string): Promise<string> {
 }
 
 async function handleCacheStats(): Promise<string> {
+  const svc = await getServiceAsync();
+  const hasOpenAI = !!process.env.OPENAI_API_KEY;
+  const hasVoyage = !!process.env.VOYAGE_API_KEY;
+  const provider = hasOpenAI ? 'OpenAI' : hasVoyage ? 'Voyage' : 'Local (transformers.js)';
+  const model = hasOpenAI ? 'text-embedding-3-small' : hasVoyage ? 'voyage-2' : 'Xenova/all-MiniLM-L6-v2';
+
   return `**Embedding Cache**\n\n` +
-    `Provider: ${process.env.OPENAI_API_KEY ? 'OpenAI' : 'Local (transformers.js)'}\n` +
-    `Model: ${process.env.OPENAI_API_KEY ? 'text-embedding-3-small' : 'Xenova/all-MiniLM-L6-v2'}\n` +
-    `Status: ${getService() ? 'Active' : 'Not initialized'}`;
+    `Provider: ${provider}\n` +
+    `Model: ${model}\n` +
+    `Status: ${svc ? 'Active' : 'Not initialized'}`;
 }
 
 async function handleConfig(): Promise<string> {
   const hasOpenAI = !!process.env.OPENAI_API_KEY;
+  const hasVoyage = !!process.env.VOYAGE_API_KEY;
+  const provider = hasOpenAI ? 'OpenAI' : hasVoyage ? 'Voyage' : 'Local (transformers.js)';
+  const model = hasOpenAI ? 'text-embedding-3-small' : hasVoyage ? 'voyage-2' : 'Xenova/all-MiniLM-L6-v2';
+  const dims = hasOpenAI ? '1536' : hasVoyage ? '1024' : '384';
 
   return `**Embeddings Configuration**\n\n` +
-    `Provider: ${hasOpenAI ? 'OpenAI' : 'Local (transformers.js)'}\n` +
-    `Model: ${hasOpenAI ? 'text-embedding-3-small' : 'Xenova/all-MiniLM-L6-v2'}\n` +
-    `Dimensions: ${hasOpenAI ? '1536' : '384'}\n` +
+    `Provider: ${provider}\n` +
+    `Model: ${model}\n` +
+    `Dimensions: ${dims}\n` +
     `Cache: SQLite-backed with in-memory layer\n` +
-    `OPENAI_API_KEY: ${hasOpenAI ? 'Set' : 'Not set (using local)'}`;
+    `API Key: ${hasOpenAI ? 'OpenAI set' : hasVoyage ? 'Voyage set' : 'None (using local)'}`;
 }
 
 export async function execute(args: string): Promise<string> {
