@@ -3643,6 +3643,276 @@ export function createDoctorCommand(program: Command): void {
 }
 
 // =============================================================================
+// ONBOARD COMMAND - interactive setup wizard
+// =============================================================================
+
+export function createOnboardCommand(program: Command): void {
+  program
+    .command('onboard')
+    .alias('setup')
+    .description('Interactive setup wizard — get running in 60 seconds')
+    .option('--api-key <key>', 'Anthropic API key (skip prompt)')
+    .option('--channel <name>', 'Channel to configure (telegram, discord, slack, webchat)')
+    .option('--no-start', 'Skip the "start now?" prompt')
+    .action(async (options: { apiKey?: string; channel?: string; start?: boolean }) => {
+      const { createInterface } = await import('readline');
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const ask = (prompt: string): Promise<string> =>
+        new Promise((resolve) => rl.question(prompt, (a) => resolve(a.trim())));
+
+      const cloddsDir = join(homedir(), '.clodds');
+      const envPath = join(cloddsDir, '.env');
+      const configPath = join(cloddsDir, 'clodds.json');
+
+      // Track what we'll write
+      const envVars: Record<string, string> = {};
+      const configObj: Record<string, unknown> = {};
+
+      // Load existing config if present
+      if (existsSync(configPath)) {
+        try {
+          Object.assign(configObj, JSON.parse(readFileSync(configPath, 'utf-8')));
+        } catch { /* fresh */ }
+      }
+
+      // Load existing .env if present
+      if (existsSync(envPath)) {
+        try {
+          const lines = readFileSync(envPath, 'utf-8').split('\n');
+          for (const line of lines) {
+            const match = line.match(/^([A-Z_]+)=(.+)$/);
+            if (match) envVars[match[1]] = match[2];
+          }
+        } catch { /* fresh */ }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      console.log('');
+      console.log('  ╔═══════════════════════════════════════════╗');
+      console.log('  ║         Welcome to Clodds Setup           ║');
+      console.log('  ║   AI assistant for prediction markets     ║');
+      console.log('  ╚═══════════════════════════════════════════╝');
+      console.log('');
+
+      // ── Step 1: API Key ──────────────────────────────────────────────
+      console.log('  [1/4] Anthropic API Key');
+      console.log('  Get one at: https://console.anthropic.com\n');
+
+      let apiKey = options.apiKey || envVars.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
+
+      // Check if the existing key looks valid (not a placeholder)
+      const isPlaceholder = !apiKey || apiKey === 'sk-ant-...' || apiKey.length < 20;
+
+      if (isPlaceholder) {
+        apiKey = await ask('  Paste your API key: ');
+        if (!apiKey || apiKey.length < 10) {
+          console.log('\n  No API key provided. You can set it later in ~/.clodds/.env');
+          console.log('  ANTHROPIC_API_KEY=sk-ant-...\n');
+          rl.close();
+          return;
+        }
+      } else {
+        const masked = apiKey.slice(0, 10) + '...' + apiKey.slice(-4);
+        console.log(`  Found existing key: ${masked}`);
+        const reuse = await ask('  Use this key? [Y/n]: ');
+        if (reuse.toLowerCase() === 'n') {
+          apiKey = await ask('  Paste new API key: ');
+        }
+      }
+
+      envVars.ANTHROPIC_API_KEY = apiKey;
+
+      // Quick validation
+      console.log('  Validating...');
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-3-haiku-20240307',
+            max_tokens: 1,
+            messages: [{ role: 'user', content: 'hi' }],
+          }),
+        });
+        if (r.ok || r.status === 429) {
+          console.log('  Key valid!\n');
+        } else if (r.status === 401) {
+          console.log('  WARNING: Key appears invalid (401). Continuing anyway...\n');
+        } else {
+          console.log(`  WARNING: Got HTTP ${r.status}. Continuing anyway...\n`);
+        }
+      } catch {
+        console.log('  Could not validate (network error). Continuing...\n');
+      }
+
+      // ── Step 2: Channel ──────────────────────────────────────────────
+      console.log('  [2/4] Messaging Channel');
+      console.log('  WebChat is always available at http://localhost:18789/webchat');
+      console.log('  Optionally connect a messaging platform:\n');
+      console.log('  1) WebChat only (no extra setup)');
+      console.log('  2) Telegram (recommended — easiest)');
+      console.log('  3) Discord');
+      console.log('  4) Slack');
+      console.log('');
+
+      let channelChoice = options.channel || '';
+      if (!channelChoice) {
+        const choice = await ask('  Choose [1-4, default 1]: ');
+        const map: Record<string, string> = { '1': 'webchat', '2': 'telegram', '3': 'discord', '4': 'slack', '': 'webchat' };
+        channelChoice = map[choice] || choice.toLowerCase();
+      }
+
+      // ── Step 3: Channel Token ────────────────────────────────────────
+      if (channelChoice === 'telegram') {
+        console.log('\n  [3/4] Telegram Setup');
+        console.log('  Open Telegram, message @BotFather, send /newbot');
+        console.log('  Copy the token it gives you.\n');
+
+        let token = envVars.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
+        if (token) {
+          console.log(`  Found existing token: ${token.slice(0, 8)}...`);
+          const reuse = await ask('  Use this token? [Y/n]: ');
+          if (reuse.toLowerCase() === 'n') token = '';
+        }
+        if (!token) {
+          token = await ask('  Bot token: ');
+        }
+        if (token) {
+          envVars.TELEGRAM_BOT_TOKEN = token;
+          configObj.channels = { ...(configObj.channels as object || {}), telegram: { enabled: true } };
+          console.log('  Telegram configured!\n');
+        } else {
+          console.log('  Skipped. You can add it later in ~/.clodds/.env\n');
+        }
+
+      } else if (channelChoice === 'discord') {
+        console.log('\n  [3/4] Discord Setup');
+        console.log('  Create a bot at: https://discord.com/developers/applications');
+        console.log('  Bot > Token > Copy\n');
+
+        let token = envVars.DISCORD_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN || '';
+        if (token) {
+          console.log(`  Found existing token: ${token.slice(0, 8)}...`);
+          const reuse = await ask('  Use this token? [Y/n]: ');
+          if (reuse.toLowerCase() === 'n') token = '';
+        }
+        if (!token) {
+          token = await ask('  Bot token: ');
+        }
+        if (token) {
+          envVars.DISCORD_BOT_TOKEN = token;
+          const appId = await ask('  Application ID (optional, press Enter to skip): ');
+          if (appId) envVars.DISCORD_APP_ID = appId;
+          configObj.channels = { ...(configObj.channels as object || {}), discord: { enabled: true } };
+          console.log('  Discord configured!\n');
+        } else {
+          console.log('  Skipped. You can add it later in ~/.clodds/.env\n');
+        }
+
+      } else if (channelChoice === 'slack') {
+        console.log('\n  [3/4] Slack Setup');
+        console.log('  Create an app at: https://api.slack.com/apps');
+        console.log('  You need both Bot Token and App Token\n');
+
+        let botToken = envVars.SLACK_BOT_TOKEN || process.env.SLACK_BOT_TOKEN || '';
+        if (!botToken) {
+          botToken = await ask('  Bot token (xoxb-...): ');
+        }
+        let appToken = envVars.SLACK_APP_TOKEN || process.env.SLACK_APP_TOKEN || '';
+        if (!appToken) {
+          appToken = await ask('  App token (xapp-...): ');
+        }
+        if (botToken && appToken) {
+          envVars.SLACK_BOT_TOKEN = botToken;
+          envVars.SLACK_APP_TOKEN = appToken;
+          configObj.channels = { ...(configObj.channels as object || {}), slack: { enabled: true } };
+          console.log('  Slack configured!\n');
+        } else {
+          console.log('  Incomplete. You can add tokens later in ~/.clodds/.env\n');
+        }
+
+      } else {
+        console.log('\n  [3/4] WebChat only — no extra tokens needed!\n');
+      }
+
+      // ── Step 4: Write files ──────────────────────────────────────────
+      console.log('  [4/4] Writing configuration...');
+
+      if (!existsSync(cloddsDir)) {
+        mkdirSync(cloddsDir, { recursive: true });
+      }
+
+      // Write .env
+      const envContent = Object.entries(envVars)
+        .filter(([_, v]) => v && v !== 'sk-ant-...')
+        .map(([k, v]) => `${k}=${v}`)
+        .join('\n') + '\n';
+      writeFileSync(envPath, envContent, { mode: 0o600 });
+      console.log(`  Wrote ${envPath}`);
+
+      // Write config
+      if (!configObj.gateway) {
+        configObj.gateway = { port: 18789 };
+      }
+      writeFileSync(configPath, JSON.stringify(configObj, null, 2));
+      console.log(`  Wrote ${configPath}`);
+
+      // ── Done ─────────────────────────────────────────────────────────
+      console.log('\n  ────────────────────────────────────────');
+      console.log('  Setup complete!\n');
+      console.log('  Next steps:');
+      console.log('    clodds doctor    — verify everything works');
+      console.log('    clodds start     — start Clodds');
+      console.log('    Open http://localhost:18789/webchat\n');
+
+      if (channelChoice === 'telegram' && envVars.TELEGRAM_BOT_TOKEN) {
+        console.log('  Then message your Telegram bot to start chatting.\n');
+      }
+
+      if (options.start !== false) {
+        const startNow = await ask('  Start Clodds now? [Y/n]: ');
+        rl.close();
+
+        if (!startNow || startNow.toLowerCase() === 'y' || startNow.toLowerCase() === 'yes') {
+          // Set env vars for this process so start command picks them up
+          for (const [k, v] of Object.entries(envVars)) {
+            process.env[k] = v;
+          }
+
+          console.log('\n  Starting Clodds...\n');
+
+          // Load config and start gateway
+          const config = await loadConfig();
+          const { configureHttpClient } = await import('../../utils/http.js');
+          configureHttpClient(config.http);
+          const { createGateway } = await import('../../gateway/index.js');
+          const gateway = await createGateway(config);
+          await gateway.start();
+
+          console.log(`  Clodds is running!`);
+          console.log(`  WebChat: http://localhost:${config.gateway.port}/webchat\n`);
+          console.log('  Press Ctrl+C to stop\n');
+
+          const shutdown = async () => {
+            console.log('\n  Shutting down...');
+            await gateway.stop();
+            process.exit(0);
+          };
+
+          process.on('SIGINT', shutdown);
+          process.on('SIGTERM', shutdown);
+        }
+      } else {
+        rl.close();
+      }
+    });
+}
+
+// =============================================================================
 // MAIN EXPORT
 // =============================================================================
 
@@ -3668,6 +3938,7 @@ export function addAllCommands(program: Command): void {
   createLogoutCommand(program);
   createWhatsAppCommands(program);
   createBittensorCommands(program);
+  createOnboardCommand(program);
   createDoctorCommand(program);
   createVersionCommand(program);
 }
