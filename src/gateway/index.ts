@@ -54,6 +54,7 @@ import { setBittensorService } from '../agents/handlers/bittensor';
 import { createFeatureEngineering, setFeatureEngine, type FeatureEngineering } from '../services/feature-engineering';
 import { createAltDataService, type AltDataService, type EmbeddingsLike, type FeedManagerLike } from '../services/alt-data';
 import { createSignalRouter, type SignalRouter } from '../signal-router';
+import { createMLPipeline, type MLPipeline } from '../ml-pipeline';
 import { createExecutionProducer, createQueuedExecutionService, type ExecutionProducer } from '../queue/jobs';
 import chokidar, { FSWatcher } from 'chokidar';
 import path from 'path';
@@ -66,6 +67,8 @@ import { createTradingOrchestrator, type TradingOrchestrator } from '../trading/
 import { createSafetyManager, type SafetyManager } from '../trading/safety';
 import { createCircuitBreaker } from '../execution/circuit-breaker';
 import { createTradingApiRouter } from './api-routes';
+import { createPositionManager, type PositionManager } from '../execution/position-manager';
+import { createPositionCloseCallback, createPositionBridge, type PositionBridge } from '../trading/position-bridge';
 
 // =============================================================================
 // TYPES
@@ -613,6 +616,17 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     logger.info('Trading orchestrator wired: safety manager + circuit breaker active');
   }
 
+  // Position manager + bridge: automated TP/SL/trailing stop exits.
+  // executeClose callback is created first, then passed to the PM config,
+  // so triggers fire close orders through the (guarded) execution service.
+  let positionManager: PositionManager | null = null;
+  let positionBridge: PositionBridge | null = null;
+  if (executionService) {
+    const executeClose = createPositionCloseCallback(executionService);
+    positionManager = createPositionManager({ executeClose });
+    logger.info('Position manager created with auto-close callback');
+  }
+
   // Execution queue setup — reads from config.queue or env vars.
   // Decouples gateway from execution: orders go through BullMQ.
   // Only agent tool handlers use the queued wrapper; other services
@@ -692,6 +706,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
 
   // Signal router — routes signals to execution
   let signalRouter: SignalRouter | null = null;
+
+  // ML training pipeline — learn from signal outcomes
+  let mlPipeline: MLPipeline | null = null;
 
   // Tick recorder for historical data
   let tickRecorder: TickRecorder | null = null;
@@ -794,11 +811,20 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     logger.info({ dryRun: effectiveDryRun, hasExecutionService: !!executionService }, 'Arbitrage executor initialized');
   }
 
+  // Initialize ML pipeline if enabled (before signal router so model is available)
+  if (config.mlPipeline?.enabled) {
+    mlPipeline = createMLPipeline(db, config.mlPipeline);
+    logger.info('ML training pipeline initialized');
+  }
+
   // Initialize signal router if enabled
   const signalRouterCfg = config.signalRouter;
   if (signalRouterCfg?.enabled) {
-    signalRouter = createSignalRouter(executionService, signalRouterCfg, smartRouter);
-    logger.info({ dryRun: signalRouterCfg.dryRun ?? true }, 'Signal router initialized');
+    const mlModel = (config.mlPipeline?.useMLConfidence !== false && mlPipeline)
+      ? mlPipeline.getModel()
+      : null;
+    signalRouter = createSignalRouter(executionService, signalRouterCfg, smartRouter, mlModel);
+    logger.info({ dryRun: signalRouterCfg.dryRun ?? true, mlEnabled: !!mlModel }, 'Signal router initialized');
   }
 
   // Initialize tick recorder if enabled
@@ -910,6 +936,17 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   signalBus.connectFeeds(feeds);
 
   logger.info('Signal bus wired: feeds → tick/orderbook/signal consumers');
+
+  // Create position bridge (wires signal bus ticks → PM price updates,
+  // signal router fills → PM position tracking, PM close events → cleanup)
+  if (positionManager) {
+    positionBridge = createPositionBridge({
+      positionManager,
+      signalBus,
+      signalRouter,
+    });
+    logger.info('Position bridge created');
+  }
 
   // Initialize x402 client for outbound payments (agent-to-agent)
   let x402Client: X402Client | null = null;
@@ -1306,11 +1343,37 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         await altDataService.start();
       }
 
+      // Recreate ML pipeline with current config
+      if (currentConfig.mlPipeline?.enabled) {
+        mlPipeline = createMLPipeline(db, currentConfig.mlPipeline);
+      }
+
       // Recreate signal router with current config
       const rebuildSignalRouterCfg = currentConfig.signalRouter;
       if (rebuildSignalRouterCfg?.enabled) {
-        signalRouter = createSignalRouter(executionService, rebuildSignalRouterCfg, smartRouter);
+        const mlModel = (currentConfig.mlPipeline?.useMLConfidence !== false && mlPipeline)
+          ? mlPipeline.getModel()
+          : null;
+        signalRouter = createSignalRouter(executionService, rebuildSignalRouterCfg, smartRouter, mlModel);
         signalRouter.start(signalBus);
+
+        // Start ML pipeline after signal router
+        if (mlPipeline) {
+          mlPipeline.start(signalRouter, null);
+        }
+      }
+
+      // Reconnect position bridge to new signal router
+      if (positionBridge) {
+        positionBridge.stop();
+      }
+      if (positionManager) {
+        positionBridge = createPositionBridge({
+          positionManager,
+          signalBus,
+          signalRouter,
+        });
+        positionBridge.start();
       }
 
       if (workspaceChanged) {
@@ -1951,6 +2014,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     orchestrator,
     safety: safetyManager,
     signalRouter,
+    mlPipeline,
     botManager: null, // BotManager lives inside TradingSystem, not gateway scope
     tradeLogger: null, // TradeLogger lives inside TradingSystem, not gateway scope
   });
@@ -1971,6 +2035,8 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         if (copyTrading) copyTrading.stop();
         if (realtimeAlerts) realtimeAlerts.stop();
         if (arbitrageExecutor) arbitrageExecutor.stop();
+        if (mlPipeline) mlPipeline.stop();
+        if (positionBridge) positionBridge.stop();
         if (signalRouter) signalRouter.stop();
         // Stop event flow first, then flush pending writes
         signalBus.disconnectFeeds();
@@ -2026,6 +2092,18 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       if (signalRouter) {
         signalRouter.start(signalBus);
         logger.info('Signal router started');
+      }
+
+      // Start ML pipeline if enabled (after signal router so it can subscribe)
+      if (mlPipeline && signalRouter) {
+        mlPipeline.start(signalRouter, null);
+        logger.info('ML training pipeline started');
+      }
+
+      // Start position bridge (subscribes to ticks, fills, and close events)
+      if (positionBridge) {
+        positionBridge.start();
+        logger.info('Position bridge started');
       }
 
       // Start tick recorder if enabled
@@ -2152,6 +2230,18 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       if (arbitrageExecutor) {
         arbitrageExecutor.stop();
         arbitrageExecutor = null;
+      }
+
+      // Stop ML pipeline (before signal router, since it subscribes to router events)
+      if (mlPipeline) {
+        mlPipeline.stop();
+        mlPipeline = null;
+      }
+
+      // Stop position bridge (before signal router, since it subscribes to router events)
+      if (positionBridge) {
+        positionBridge.stop();
+        positionBridge = null;
       }
 
       // Stop signal router
