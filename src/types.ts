@@ -1273,6 +1273,8 @@ export interface Config {
     /** Job timeout in ms (default: 30000) */
     timeoutMs?: number;
   };
+  /** Bittensor subnet mining configuration */
+  bittensor?: import('./bittensor/types').BittensorConfig;
 }
 
 export interface RateLimitConfig {
