@@ -53,6 +53,7 @@ import { createBittensorRouter } from '../bittensor/server';
 import { setBittensorService } from '../agents/handlers/bittensor';
 import { createFeatureEngineering, setFeatureEngine, type FeatureEngineering } from '../services/feature-engineering';
 import { createAltDataService, type AltDataService, type EmbeddingsLike, type FeedManagerLike } from '../services/alt-data';
+import { createSignalRouter, type SignalRouter } from '../signal-router';
 import { createExecutionProducer, createQueuedExecutionService, type ExecutionProducer } from '../queue/jobs';
 import chokidar, { FSWatcher } from 'chokidar';
 import path from 'path';
@@ -649,6 +650,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   // Auto-arbitrage executor
   let arbitrageExecutor: OpportunityExecutor | null = null;
 
+  // Signal router — routes signals to execution
+  let signalRouter: SignalRouter | null = null;
+
   // Tick recorder for historical data
   let tickRecorder: TickRecorder | null = null;
 
@@ -748,6 +752,13 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     }, smartRouter);
 
     logger.info({ dryRun: effectiveDryRun, hasExecutionService: !!executionService }, 'Arbitrage executor initialized');
+  }
+
+  // Initialize signal router if enabled
+  const signalRouterCfg = config.signalRouter;
+  if (signalRouterCfg?.enabled) {
+    signalRouter = createSignalRouter(executionService, signalRouterCfg, smartRouter);
+    logger.info({ dryRun: signalRouterCfg.dryRun ?? true }, 'Signal router initialized');
   }
 
   // Initialize tick recorder if enabled
@@ -1253,6 +1264,13 @@ export async function createGateway(config: Config): Promise<AppGateway> {
           embeddings: embeddings as unknown as EmbeddingsLike,
         });
         await altDataService.start();
+      }
+
+      // Recreate signal router with current config
+      const rebuildSignalRouterCfg = currentConfig.signalRouter;
+      if (rebuildSignalRouterCfg?.enabled) {
+        signalRouter = createSignalRouter(executionService, rebuildSignalRouterCfg, smartRouter);
+        signalRouter.start(signalBus);
       }
 
       if (workspaceChanged) {
@@ -1901,6 +1919,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         if (copyTrading) copyTrading.stop();
         if (realtimeAlerts) realtimeAlerts.stop();
         if (arbitrageExecutor) arbitrageExecutor.stop();
+        if (signalRouter) signalRouter.stop();
         // Stop event flow first, then flush pending writes
         signalBus.disconnectFeeds();
         if (tickRecorder) await tickRecorder.stop();
@@ -1949,6 +1968,12 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       if (arbitrageExecutor) {
         arbitrageExecutor.start();
         logger.info('Arbitrage executor started');
+      }
+
+      // Start signal router if enabled
+      if (signalRouter) {
+        signalRouter.start(signalBus);
+        logger.info('Signal router started');
       }
 
       // Start tick recorder if enabled
@@ -2075,6 +2100,12 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       if (arbitrageExecutor) {
         arbitrageExecutor.stop();
         arbitrageExecutor = null;
+      }
+
+      // Stop signal router
+      if (signalRouter) {
+        signalRouter.stop();
+        signalRouter = null;
       }
 
       // Stop event flow first, then flush pending writes

@@ -1275,6 +1275,8 @@ export interface Config {
   };
   /** Alternative data sentiment pipeline */
   altData?: import('./services/alt-data/types').AltDataConfig;
+  /** Signal router — routes signals to execution */
+  signalRouter?: import('./signal-router/types').SignalRouterConfig;
   /** Bittensor subnet mining configuration */
   bittensor?: import('./bittensor/types').BittensorConfig;
 }

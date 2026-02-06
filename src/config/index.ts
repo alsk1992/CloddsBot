@@ -385,6 +385,7 @@ export interface CloddsConfig {
   ledger?: LedgerConfig;
   meta?: MetaConfig;
   altData?: import('../services/alt-data/types').AltDataConfig;
+  signalRouter?: import('../signal-router/types').SignalRouterConfig;
   bittensor?: Partial<import('../bittensor/types').BittensorConfig>;
 }
 
@@ -617,6 +618,10 @@ export const DEFAULT_CONFIG: CloddsConfig = {
     fearGreedEnabled: true,
     fundingRatesEnabled: true,
     redditEnabled: false,
+  },
+  signalRouter: {
+    enabled: false,
+    dryRun: true,
   },
   bittensor: {
     enabled: false,
@@ -1059,6 +1064,58 @@ const ENV_MAPPINGS: Record<string, (cfg: CloddsConfig) => void> = {
     if (!cfg.altData) cfg.altData = {};
     const raw = process.env.ALT_DATA_REDDIT_SUBREDDITS;
     if (raw) cfg.altData.redditSubreddits = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  },
+  SIGNAL_ROUTER_ENABLED: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_ENABLED;
+    if (raw) cfg.signalRouter.enabled = raw === '1' || raw.toLowerCase() === 'true';
+  },
+  SIGNAL_ROUTER_DRY_RUN: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_DRY_RUN;
+    if (raw) cfg.signalRouter.dryRun = raw === '1' || raw.toLowerCase() === 'true';
+  },
+  SIGNAL_ROUTER_MIN_STRENGTH: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_MIN_STRENGTH;
+    if (raw) cfg.signalRouter.minStrength = parseFloat(raw);
+  },
+  SIGNAL_ROUTER_DEFAULT_SIZE_USD: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_DEFAULT_SIZE_USD;
+    if (raw) cfg.signalRouter.defaultSizeUsd = parseInt(raw, 10);
+  },
+  SIGNAL_ROUTER_MAX_SIZE_USD: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_MAX_SIZE_USD;
+    if (raw) cfg.signalRouter.maxSizeUsd = parseInt(raw, 10);
+  },
+  SIGNAL_ROUTER_MAX_DAILY_LOSS: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_MAX_DAILY_LOSS;
+    if (raw) cfg.signalRouter.maxDailyLoss = parseInt(raw, 10);
+  },
+  SIGNAL_ROUTER_MAX_CONCURRENT_POSITIONS: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_MAX_CONCURRENT_POSITIONS;
+    if (raw) cfg.signalRouter.maxConcurrentPositions = parseInt(raw, 10);
+  },
+  SIGNAL_ROUTER_COOLDOWN_MS: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_COOLDOWN_MS;
+    if (raw) cfg.signalRouter.cooldownMs = parseInt(raw, 10);
+  },
+  SIGNAL_ROUTER_ORDER_MODE: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_ORDER_MODE;
+    if (raw && ['maker', 'limit', 'market'].includes(raw)) {
+      cfg.signalRouter.orderMode = raw as 'maker' | 'limit' | 'market';
+    }
+  },
+  SIGNAL_ROUTER_SIGNAL_TYPES: (cfg) => {
+    if (!cfg.signalRouter) cfg.signalRouter = {};
+    const raw = process.env.SIGNAL_ROUTER_SIGNAL_TYPES;
+    if (raw) cfg.signalRouter.signalTypes = raw.split(',').map((s) => s.trim()).filter(Boolean) as any[];
   },
   CLODDS_GROUP_POLICIES: (cfg) => {
     if (!process.env.CLODDS_GROUP_POLICIES) return;
