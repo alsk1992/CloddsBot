@@ -52,6 +52,7 @@ import { createBittensorService, type BittensorService } from '../bittensor';
 import { createBittensorRouter } from '../bittensor/server';
 import { setBittensorService } from '../agents/handlers/bittensor';
 import { createFeatureEngineering, setFeatureEngine, type FeatureEngineering } from '../services/feature-engineering';
+import { createAltDataService, type AltDataService, type EmbeddingsLike, type FeedManagerLike } from '../services/alt-data';
 import { createExecutionProducer, createQueuedExecutionService, type ExecutionProducer } from '../queue/jobs';
 import chokidar, { FSWatcher } from 'chokidar';
 import path from 'path';
@@ -513,6 +514,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     httpGateway.setBittensorRouter(bittensorRouter);
     logger.info({ network: btConfig.network }, 'Bittensor service created');
   }
+
+  // Create alt-data sentiment pipeline if enabled
+  let altDataService: AltDataService | null = null;
 
   // Create execution service for real trading
   let executionService: ExecutionService | null = null;
@@ -1167,6 +1171,12 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         logger.warn({ error }, 'Failed to stop old channels during reload');
       }
 
+      // Stop alt-data service before rebuilding feeds
+      if (altDataService) {
+        altDataService.stop();
+        altDataService = null;
+      }
+
       try {
         await oldFeeds.stop();
       } catch (error) {
@@ -1232,6 +1242,18 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       await channels.start();
       await startCronService();
       startMonitoring();
+
+      // Recreate alt-data service with fresh feeds
+      const rebuildAltDataCfg = currentConfig.altData;
+      if (rebuildAltDataCfg?.enabled !== false) {
+        altDataService = createAltDataService({
+          config: rebuildAltDataCfg ?? {},
+          signalBus,
+          feeds: feeds as unknown as FeedManagerLike,
+          embeddings: embeddings as unknown as EmbeddingsLike,
+        });
+        await altDataService.start();
+      }
 
       if (workspaceChanged) {
         setupSkillWatcher();
@@ -1941,6 +1963,19 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         logger.info('Bittensor mining service started');
       }
 
+      // Start alt-data sentiment pipeline if enabled
+      const altDataCfg = currentConfig.altData;
+      if (altDataCfg?.enabled !== false) {
+        altDataService = createAltDataService({
+          config: altDataCfg ?? {},
+          signalBus,
+          feeds: feeds as unknown as FeedManagerLike,
+          embeddings: embeddings as unknown as EmbeddingsLike,
+        });
+        await altDataService.start();
+        logger.info({ feeds: altDataService.getStats().activeFeeds }, 'Alt-data service started');
+      }
+
       started = true;
       if (!channelRateLimitCleanupInterval) {
         channelRateLimitCleanupInterval = setInterval(() => {
@@ -2028,6 +2063,12 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         await bittensorService.stop();
         setBittensorService(null);
         bittensorService = null;
+      }
+
+      // Stop alt-data service
+      if (altDataService) {
+        altDataService.stop();
+        altDataService = null;
       }
 
       // Stop arbitrage executor

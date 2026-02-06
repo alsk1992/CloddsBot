@@ -34,7 +34,7 @@ export interface OrderbookUpdate {
 }
 
 export interface TradingSignal {
-  type: 'momentum' | 'reversal' | 'volatility_spike' | 'spread_widening' | 'opportunity';
+  type: 'momentum' | 'reversal' | 'volatility_spike' | 'spread_widening' | 'opportunity' | 'sentiment_shift';
   platform: string;
   marketId: string;
   outcomeId: string;

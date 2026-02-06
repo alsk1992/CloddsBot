@@ -384,6 +384,7 @@ export interface CloddsConfig {
   monitoring?: MonitoringConfig;
   ledger?: LedgerConfig;
   meta?: MetaConfig;
+  altData?: import('../services/alt-data/types').AltDataConfig;
   bittensor?: Partial<import('../bittensor/types').BittensorConfig>;
 }
 
@@ -610,6 +611,12 @@ export const DEFAULT_CONFIG: CloddsConfig = {
       diskWarnPct: 90,
       cooldownMs: 30 * 60 * 1000,
     },
+  },
+  altData: {
+    enabled: true,
+    fearGreedEnabled: true,
+    fundingRatesEnabled: true,
+    redditEnabled: false,
   },
   bittensor: {
     enabled: false,
@@ -1017,6 +1024,41 @@ const ENV_MAPPINGS: Record<string, (cfg: CloddsConfig) => void> = {
     if (!cfg.bittensor) cfg.bittensor = {};
     const raw = process.env.BITTENSOR_TAO_PRICE_USD;
     if (raw) cfg.bittensor.taoPriceUsd = Number.parseFloat(raw);
+  },
+  ALT_DATA_ENABLED: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_ENABLED;
+    if (raw) cfg.altData.enabled = raw === '1' || raw.toLowerCase() === 'true';
+  },
+  ALT_DATA_MIN_SENTIMENT_CONFIDENCE: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_MIN_SENTIMENT_CONFIDENCE;
+    if (raw) cfg.altData.minSentimentConfidence = Number.parseFloat(raw);
+  },
+  ALT_DATA_MIN_MARKET_RELEVANCE: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_MIN_MARKET_RELEVANCE;
+    if (raw) cfg.altData.minMarketRelevance = Number.parseFloat(raw);
+  },
+  ALT_DATA_FEAR_GREED_ENABLED: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_FEAR_GREED_ENABLED;
+    if (raw) cfg.altData.fearGreedEnabled = raw === '1' || raw.toLowerCase() === 'true';
+  },
+  ALT_DATA_FUNDING_RATES_ENABLED: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_FUNDING_RATES_ENABLED;
+    if (raw) cfg.altData.fundingRatesEnabled = raw === '1' || raw.toLowerCase() === 'true';
+  },
+  ALT_DATA_REDDIT_ENABLED: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_REDDIT_ENABLED;
+    if (raw) cfg.altData.redditEnabled = raw === '1' || raw.toLowerCase() === 'true';
+  },
+  ALT_DATA_REDDIT_SUBREDDITS: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_REDDIT_SUBREDDITS;
+    if (raw) cfg.altData.redditSubreddits = raw.split(',').map((s) => s.trim()).filter(Boolean);
   },
   CLODDS_GROUP_POLICIES: (cfg) => {
     if (!process.env.CLODDS_GROUP_POLICIES) return;

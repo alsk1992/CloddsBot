@@ -1273,6 +1273,8 @@ export interface Config {
     /** Job timeout in ms (default: 30000) */
     timeoutMs?: number;
   };
+  /** Alternative data sentiment pipeline */
+  altData?: import('./services/alt-data/types').AltDataConfig;
   /** Bittensor subnet mining configuration */
   bittensor?: import('./bittensor/types').BittensorConfig;
 }
