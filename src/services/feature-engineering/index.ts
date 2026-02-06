@@ -4,6 +4,7 @@
  * Computes trading indicators from tick and orderbook data in real-time.
  */
 
+import { EventEmitter } from 'events';
 import { logger } from '../../utils/logger';
 import { RollingWindow, RollingStats } from './rolling-window';
 import * as indicators from './indicators';
@@ -50,10 +51,13 @@ export function createFeatureEngineering(config: FeatureConfig = {}): FeatureEng
   const orderbookWindowSize = config.orderbookWindowSize ?? DEFAULT_ORDERBOOK_WINDOW;
   const momentumLookback = config.momentumLookback ?? DEFAULT_MOMENTUM_LOOKBACK;
   const volatilityLookback = config.volatilityLookback ?? DEFAULT_VOLATILITY_LOOKBACK;
+  const signalMomentumThreshold = config.signalMomentumThreshold ?? 0.02;
+  const signalVolatilityThreshold = config.signalVolatilityThreshold ?? 0.05;
 
   const markets = new Map<string, MarketState>();
   let ticksProcessed = 0;
   let orderbooksProcessed = 0;
+  let emitter: EventEmitter | null = null;
 
   function getOrCreateMarket(key: string): MarketState {
     let state = markets.get(key);
@@ -128,6 +132,25 @@ export function createFeatureEngineering(config: FeatureConfig = {}): FeatureEng
       };
 
       tick.lastFeatures = features;
+
+      // Emit trading signal when thresholds are crossed
+      if (emitter && (Math.abs(momentum) > signalMomentumThreshold || volatility > signalVolatilityThreshold)) {
+        try {
+          emitter.emit('signal', {
+            type: Math.abs(momentum) > signalMomentumThreshold ? 'momentum' : 'volatility_spike',
+            platform: update.platform,
+            marketId: update.marketId,
+            outcomeId: update.outcomeId,
+            strength: Math.min(1, Math.max(Math.abs(momentum) / 0.05, volatility / 0.1)),
+            direction: momentum > 0 ? 'buy' : momentum < 0 ? 'sell' : 'neutral',
+            features: { momentum, volatility },
+            timestamp: Date.now(),
+          });
+        } catch (error) {
+          logger.error({ error }, 'Failed to emit feature signal');
+        }
+      }
+
       return features;
     },
 
@@ -323,6 +346,10 @@ export function createFeatureEngineering(config: FeatureConfig = {}): FeatureEng
       // Sort all by timestamp
       allFeatures.sort((a, b) => a.timestamp - b.timestamp);
       return allFeatures;
+    },
+
+    setEmitter(e: EventEmitter): void {
+      emitter = e;
     },
 
     clearMarket(platform, marketId): void {

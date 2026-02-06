@@ -30,6 +30,7 @@ import type { OpportunityFinder, Opportunity, ExecutionStep } from './index';
 import type { ExecutionService, OrderResult } from '../execution/index';
 import { getMarketFeatures, checkLiquidity, checkSpread, isArbitrageReady, type FeatureThresholds } from '../services/feature-engineering';
 import type { CircuitBreaker } from '../risk/circuit-breaker';
+import type { SmartRouter } from '../execution/smart-router';
 
 // =============================================================================
 // TYPES
@@ -147,7 +148,8 @@ const DEFAULT_CONFIG: Required<OpportunityExecutorConfig> = {
 export function createOpportunityExecutor(
   finder: OpportunityFinder,
   execution: ExecutionService | null,
-  config: OpportunityExecutorConfig = {}
+  config: OpportunityExecutorConfig = {},
+  smartRouter?: SmartRouter | null
 ): OpportunityExecutor {
   const emitter = new EventEmitter() as OpportunityExecutor;
   let cfg = { ...DEFAULT_CONFIG, ...config };
@@ -270,14 +272,44 @@ export function createOpportunityExecutor(
     openPositions.add(opp.id);
 
     try {
+      // Try to improve routing via SmartRouter for each step
+      const routeOverrides = new Map<number, { platform: string; price: number }>();
+      if (smartRouter) {
+        for (const step of opp.execution.steps) {
+          try {
+            const route = await smartRouter.findBestRoute({
+              marketId: step.marketId,
+              side: step.action as 'buy' | 'sell',
+              size: Math.min(step.size, cfg.maxPositionSize / step.price),
+            });
+            if (route.bestRoute && route.bestRoute.platform !== step.platform) {
+              routeOverrides.set(step.order, {
+                platform: route.bestRoute.platform,
+                price: route.bestRoute.price,
+              });
+              logger.info(
+                { step: step.order, from: step.platform, to: route.bestRoute.platform, savings: route.totalSavings },
+                'SmartRouter rerouted execution step'
+              );
+            }
+          } catch (error) {
+            logger.debug({ error, step: step.order }, 'SmartRouter routing failed — using original platform');
+          }
+        }
+      }
+
       // Execute each step in order
       for (const step of opp.execution.steps) {
+        const override = routeOverrides.get(step.order);
+        const effectivePlatform = override?.platform ?? step.platform;
+        const effectivePrice = override?.price ?? step.price;
+
         // Use GTC order type; postOnly ensures maker-only execution if preferred
         const orderType = step.orderType === 'market' ? 'FOK' : 'GTC';
         const postOnly = cfg.preferMakerOrders && step.orderType !== 'market';
 
         // Determine size (capped by maxPositionSize)
-        const maxSize = cfg.maxPositionSize / step.price;
+        const maxSize = cfg.maxPositionSize / effectivePrice;
         const size = Math.min(step.size, maxSize);
 
         let orderResult: OrderResult;
@@ -289,29 +321,29 @@ export function createOpportunityExecutor(
             orderId: generateSecureId('dry'),
             status: 'filled',
             filledSize: size,
-            avgFillPrice: step.price,
+            avgFillPrice: effectivePrice,
           };
-          logger.info({ step, dryRun: true }, 'Dry run order');
+          logger.info({ step, dryRun: true, platform: effectivePlatform }, 'Dry run order');
         } else if (execution) {
-          // Real execution
+          // Real execution (using routed platform + price)
           if (step.action === 'buy') {
             orderResult = await execution.buyLimit({
-              platform: step.platform as 'polymarket' | 'kalshi',
+              platform: effectivePlatform as 'polymarket' | 'kalshi',
               marketId: step.marketId,
-              tokenId: step.marketId, // May need adjustment for Polymarket
+              tokenId: step.marketId,
               outcome: step.outcome,
-              price: step.price,
+              price: effectivePrice,
               size,
               orderType,
               postOnly,
             });
           } else {
             orderResult = await execution.sellLimit({
-              platform: step.platform as 'polymarket' | 'kalshi',
+              platform: effectivePlatform as 'polymarket' | 'kalshi',
               marketId: step.marketId,
               tokenId: step.marketId,
               outcome: step.outcome,
-              price: step.price,
+              price: effectivePrice,
               size,
               orderType,
               postOnly,
@@ -334,7 +366,7 @@ export function createOpportunityExecutor(
         };
 
         result.steps.push(stepResult);
-        result.totalCost += (orderResult.filledSize || size) * step.price;
+        result.totalCost += (orderResult.filledSize || size) * effectivePrice;
 
         if (!orderResult.success) {
           result.error = `Step ${step.order} failed: ${orderResult.error}`;

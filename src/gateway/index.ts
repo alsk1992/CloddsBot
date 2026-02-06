@@ -48,6 +48,8 @@ import { createRealtimeAlertsService, connectWhaleTracker, connectOpportunityFin
 import { createOpportunityExecutor, type OpportunityExecutor } from '../opportunity/executor';
 import { createTickRecorder, type TickRecorder } from '../services/tick-recorder';
 import { createTickStreamer, type TickStreamer } from '../services/tick-streamer';
+import { createBittensorService, type BittensorService } from '../bittensor';
+import { createBittensorRouter } from '../bittensor/server';
 import { createFeatureEngineering, setFeatureEngine, type FeatureEngineering } from '../services/feature-engineering';
 import { createExecutionProducer, createQueuedExecutionService, type ExecutionProducer } from '../queue/jobs';
 import chokidar, { FSWatcher } from 'chokidar';
@@ -56,6 +58,7 @@ import { loadConfig, CONFIG_FILE } from '../utils/config';
 import { configureHttpClient } from '../utils/http';
 import { normalizeIncomingMessage } from '../messages/unified';
 import { setupShutdownHandlers, onShutdown, trackError } from '../utils/production';
+import { createSignalBus, type SignalBus } from './signal-bus';
 
 // =============================================================================
 // TYPES
@@ -489,6 +492,16 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       })
     : null;
 
+  // Create Bittensor mining service if enabled
+  let bittensorService: BittensorService | null = null;
+  if (config.bittensor?.enabled) {
+    const btConfig = config.bittensor as import('../bittensor/types').BittensorConfig;
+    bittensorService = createBittensorService(btConfig, db);
+    const bittensorRouter = createBittensorRouter(bittensorService);
+    httpGateway.setBittensorRouter(bittensorRouter);
+    logger.info({ network: btConfig.network }, 'Bittensor service created');
+  }
+
   // Create execution service for real trading
   let executionService: ExecutionService | null = null;
   if (config.trading?.enabled) {
@@ -716,7 +729,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       enabledPlatforms: config.arbitrageExecution?.platforms ?? ['polymarket', 'kalshi'],
       preferMakerOrders: config.arbitrageExecution?.preferMakerOrders ?? true,
       confirmationDelayMs: config.arbitrageExecution?.confirmationDelayMs ?? 0,
-    });
+    }, smartRouter);
 
     logger.info({ dryRun: effectiveDryRun, hasExecutionService: !!executionService }, 'Arbitrage executor initialized');
   }
@@ -732,15 +745,6 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       platforms: config.tickRecorder.platforms,
     });
 
-    // Subscribe to feed events
-    feeds.on('price', (update) => {
-      tickRecorder?.recordTick(update);
-    });
-
-    feeds.on('orderbook', (update) => {
-      tickRecorder?.recordOrderbook(update);
-    });
-
     logger.info(
       { platforms: config.tickRecorder.platforms ?? 'all' },
       'Tick recorder initialized (will start with gateway)'
@@ -748,15 +752,29 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   }
 
   // Initialize tick streamer for real-time WebSocket streaming
-  // Always create it - it will be wired to feed events
   tickStreamer = createTickStreamer({
     maxSubscriptionsPerClient: 100,
     pingIntervalMs: 30000,
     connectionTimeoutMs: 60000,
   });
 
-  // Wire feed events to tick streamer for real-time broadcasting
-  feeds.on('price', (update) => {
+  // Initialize feature engineering for computing trading indicators
+  featureEngine = createFeatureEngineering({
+    tickWindowSize: 100,
+    orderbookWindowSize: 50,
+    momentumLookback: 20,
+    volatilityLookback: 50,
+  });
+
+  // Make feature engine available globally for other services
+  setFeatureEngine(featureEngine);
+
+  // ── Signal Bus: single subscription point for all feed consumers ──────────
+  const signalBus = createSignalBus();
+
+  // Tick consumers (error-isolated via signal bus)
+  signalBus.onTick((update) => tickRecorder?.recordTick(update));
+  signalBus.onTick((update) => {
     if (tickStreamer && update.outcomeId) {
       tickStreamer.broadcastTick({
         platform: update.platform,
@@ -768,8 +786,22 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       });
     }
   });
+  signalBus.onTick((update) => {
+    if (featureEngine && update.outcomeId) {
+      featureEngine.processTick({
+        platform: update.platform,
+        marketId: update.marketId,
+        outcomeId: update.outcomeId,
+        price: update.price,
+        prevPrice: update.prevPrice ?? null,
+        timestamp: update.timestamp,
+      });
+    }
+  });
 
-  feeds.on('orderbook', (update) => {
+  // Orderbook consumers
+  signalBus.onOrderbook((update) => tickRecorder?.recordOrderbook(update));
+  signalBus.onOrderbook((update) => {
     if (tickStreamer) {
       tickStreamer.broadcastOrderbook({
         platform: update.platform,
@@ -783,35 +815,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       });
     }
   });
-
-  logger.info('Tick streamer initialized for real-time WebSocket streaming');
-
-  // Initialize feature engineering for computing trading indicators
-  featureEngine = createFeatureEngineering({
-    tickWindowSize: 100,
-    orderbookWindowSize: 50,
-    momentumLookback: 20,
-    volatilityLookback: 50,
-  });
-
-  // Make feature engine available globally for other services
-  setFeatureEngine(featureEngine);
-
-  // Wire feed events to feature engineering
-  feeds.on('price', (update) => {
-    if (featureEngine && update.outcomeId) {
-      featureEngine.processTick({
-        platform: update.platform,
-        marketId: update.marketId,
-        outcomeId: update.outcomeId,
-        price: update.price,
-        prevPrice: update.prevPrice ?? null,
-        timestamp: update.timestamp,
-      });
-    }
-  });
-
-  feeds.on('orderbook', (update) => {
+  signalBus.onOrderbook((update) => {
     if (featureEngine) {
       featureEngine.processOrderbook({
         platform: update.platform,
@@ -824,7 +828,21 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     }
   });
 
-  logger.info('Feature engineering initialized for trading indicators');
+  // Log feature signals for observability (consumers can subscribe via signalBus.onSignal)
+  signalBus.onSignal((signal) => {
+    logger.debug(
+      { type: signal.type, platform: signal.platform, market: signal.marketId, strength: signal.strength, direction: signal.direction },
+      'Trading signal emitted'
+    );
+  });
+
+  // Connect feature engine signal output → signal bus
+  featureEngine.setEmitter(signalBus);
+
+  // Connect feeds → signal bus (single subscription point)
+  signalBus.connectFeeds(feeds);
+
+  logger.info('Signal bus wired: feeds → tick/orderbook/signal consumers');
 
   // Initialize x402 client for outbound payments (agent-to-agent)
   let x402Client: X402Client | null = null;
@@ -1150,6 +1168,11 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       }
 
       feeds = await createFeedManager(currentConfig.feeds);
+
+      // Reconnect signal bus to new feeds (consumers keep their state)
+      signalBus.disconnectFeeds();
+      signalBus.connectFeeds(feeds);
+
       agents = await createAgentManager(
         currentConfig,
         feeds,
@@ -1843,6 +1866,8 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         if (copyTrading) copyTrading.stop();
         if (realtimeAlerts) realtimeAlerts.stop();
         if (arbitrageExecutor) arbitrageExecutor.stop();
+        // Stop event flow first, then flush pending writes
+        signalBus.disconnectFeeds();
         if (tickRecorder) await tickRecorder.stop();
         if (tickStreamer) tickStreamer.stop();
         if (cronService) await cronService.stop();
@@ -1895,6 +1920,12 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       if (tickRecorder) {
         await tickRecorder.start();
         logger.info('Tick recorder started');
+      }
+
+      // Start Bittensor mining service if enabled
+      if (bittensorService) {
+        await bittensorService.start();
+        logger.info('Bittensor mining service started');
       }
 
       started = true;
@@ -1979,19 +2010,26 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       monitoring?.stop();
       monitoring = null;
 
+      // Stop Bittensor mining service
+      if (bittensorService) {
+        await bittensorService.stop();
+        bittensorService = null;
+      }
+
       // Stop arbitrage executor
       if (arbitrageExecutor) {
         arbitrageExecutor.stop();
         arbitrageExecutor = null;
       }
 
-      // Stop tick recorder
+      // Stop event flow first, then flush pending writes
+      signalBus.disconnectFeeds();
+
       if (tickRecorder) {
         await tickRecorder.stop();
         tickRecorder = null;
       }
 
-      // Stop tick streamer
       if (tickStreamer) {
         tickStreamer.stop();
         tickStreamer = null;

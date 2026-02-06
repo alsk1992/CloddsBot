@@ -94,6 +94,10 @@ export interface FeatureConfig {
   momentumLookback?: number;
   /** Volatility lookback in ticks (default: 50) */
   volatilityLookback?: number;
+  /** Minimum absolute momentum to emit a signal (default: 0.02) */
+  signalMomentumThreshold?: number;
+  /** Minimum volatility to emit a signal (default: 0.05) */
+  signalVolatilityThreshold?: number;
 }
 
 export interface FeatureSnapshot {
@@ -155,6 +159,12 @@ export interface FeatureEngineering {
    * Clear feature state for a market
    */
   clearMarket(platform: string, marketId: string): void;
+
+  /**
+   * Attach an EventEmitter that will receive 'signal' events when thresholds
+   * are crossed during processTick().
+   */
+  setEmitter(emitter: import('events').EventEmitter): void;
 
   /**
    * Get service stats
