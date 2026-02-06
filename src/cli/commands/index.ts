@@ -3699,25 +3699,17 @@ export function createOnboardCommand(program: Command): void {
       // ═══════════════════════════════════════════════════════════════════
       // WELCOME
       // ═══════════════════════════════════════════════════════════════════
+      const figlet = await import('figlet');
+      const banner = figlet.default.textSync('Clodds', { font: 'ANSI Shadow' });
       console.log('');
-      console.log(`       ${dim('*')}   ${magenta('_')}     ${dim('.')}          ${dim('*')}`);
-      console.log(`        ${dim('.')} ${magenta('/ \\')}   ${dim('*')}`);
-      console.log(`          ${magenta('|')}${yellow('\u00b0')}${magenta('|')}              ${dim('*')}`);
-      console.log(`      ${dim('.')}  ${magenta('\\_/')}    ${dim('.')}`);
-      console.log(`      ${red('/\\\\')}${dim('~~~')}${red('/\\\\')}${dim('~~~')}${red('/\\\\')}`);
-      console.log(`     ${red('(  )')} ${cyan('(\u25cf)')}  ${red('(  )')}`);
-      console.log(`      ${red('\\\\/')}  ${cyan('||')}  ${red('\\\\/')}`);
-      console.log(`       ${dim('\u2500\u2500')} ${cyan('/')}  ${cyan('\\\\')} ${dim('\u2500\u2500')}`);
-      console.log('');
-      console.log(bold(`    ___  _             _      _`));
-      console.log(bold(`   / __|| |  ___    __| |  __| | ___`));
-      console.log(bold(`  | (__ | | / _ \\  / _\` | / _\` |/ __|`));
-      console.log(bold(`   \\___||_| \\___/  \\__,_| \\__,_|\\____|`));
+      for (const line of banner.split('\n')) {
+        if (line.trim()) console.log(`  ${magenta(line)}`);
+      }
       console.log('');
       console.log(`  ${bold('AI Trading Terminal')} ${dim('for prediction markets, crypto & futures')}`);
       console.log(`  ${dim('10 markets  |  22 channels  |  103 skills')}`);
       console.log('');
-      console.log(`  ${dim('='.repeat(50))}`);
+      console.log(`  ${dim('='.repeat(56))}`);
       console.log('');
 
       // ═══════════════════════════════════════════════════════════════════
