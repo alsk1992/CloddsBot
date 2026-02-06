@@ -158,7 +158,7 @@ export async function getKaminoMarkets(
     const market = await KaminoMarket.load(
       connection,
       new PublicKey(KAMINO_MAIN_MARKET),
-      PROGRAM_ID
+      PROGRAM_ID as any
     );
 
     if (!market) {
@@ -172,8 +172,8 @@ export async function getKaminoMarkets(
         symbol: reserve.symbol || 'UNKNOWN',
         mint: reserve.getLiquidityMint().toBase58(),
         decimals: (reserve.state.liquidity.mintDecimals as BN).toNumber(),
-        depositRate: reserve.calculateSupplyAPR() * 100,
-        borrowRate: reserve.calculateBorrowAPR() * 100,
+        depositRate: (reserve as any).calculateSupplyAPR() * 100,
+        borrowRate: (reserve as any).calculateBorrowAPR() * 100,
         totalDeposits: reserve.getTotalSupply().toString(),
         totalBorrows: reserve.getBorrowedAmount().toString(),
         availableLiquidity: reserve.getLiquidityAvailableAmount().toString(),
@@ -229,7 +229,7 @@ export async function getKaminoObligation(
     const market = await KaminoMarket.load(
       connection,
       new PublicKey(marketAddress || KAMINO_MAIN_MARKET),
-      PROGRAM_ID
+      PROGRAM_ID as any
     );
 
     if (!market) {
@@ -241,7 +241,7 @@ export async function getKaminoObligation(
 
     const obligation = await market.getObligationByWallet(
       keypair.publicKey,
-      new VanillaObligation(PROGRAM_ID)
+      new VanillaObligation(PROGRAM_ID as any)
     );
     if (!obligation) {
       return null;
@@ -312,7 +312,7 @@ export async function depositToKamino(
   const market = await KaminoMarket.load(
     connection,
     new PublicKey(params.marketAddress || KAMINO_MAIN_MARKET),
-    PROGRAM_ID
+    PROGRAM_ID as any
   );
 
   if (!market) {
@@ -331,7 +331,7 @@ export async function depositToKamino(
     amount,
     reserve.getLiquidityMint(),
     keypair.publicKey,
-    new VanillaObligation(PROGRAM_ID),
+    new VanillaObligation(PROGRAM_ID as any),
     400000,  // extraComputeBudget
     true,  // includeAtaIxs
   );
@@ -369,7 +369,7 @@ export async function withdrawFromKamino(
   const market = await KaminoMarket.load(
     connection,
     new PublicKey(params.marketAddress || KAMINO_MAIN_MARKET),
-    PROGRAM_ID
+    PROGRAM_ID as any
   );
 
   if (!market) {
@@ -388,7 +388,7 @@ export async function withdrawFromKamino(
     amount,
     reserve.getLiquidityMint(),
     keypair.publicKey,
-    new VanillaObligation(PROGRAM_ID),
+    new VanillaObligation(PROGRAM_ID as any),
     400000,  // extraComputeBudget
     true,  // includeAtaIxs
   );
@@ -426,7 +426,7 @@ export async function borrowFromKamino(
   const market = await KaminoMarket.load(
     connection,
     new PublicKey(params.marketAddress || KAMINO_MAIN_MARKET),
-    PROGRAM_ID
+    PROGRAM_ID as any
   );
 
   if (!market) {
@@ -445,7 +445,7 @@ export async function borrowFromKamino(
     amount,
     reserve.getLiquidityMint(),
     keypair.publicKey,
-    new VanillaObligation(PROGRAM_ID),
+    new VanillaObligation(PROGRAM_ID as any),
     400000,  // extraComputeBudget
     true,  // includeAtaIxs
   );
@@ -483,7 +483,7 @@ export async function repayToKamino(
   const market = await KaminoMarket.load(
     connection,
     new PublicKey(params.marketAddress || KAMINO_MAIN_MARKET),
-    PROGRAM_ID
+    PROGRAM_ID as any
   );
 
   if (!market) {
@@ -505,7 +505,7 @@ export async function repayToKamino(
     amount,
     reserve.getLiquidityMint(),
     keypair.publicKey,
-    new VanillaObligation(PROGRAM_ID),
+    new VanillaObligation(PROGRAM_ID as any),
     currentSlot,  // currentSlot
     undefined,  // payer
     400000,  // extraComputeBudget
@@ -541,7 +541,7 @@ export async function getKaminoStrategies(
 ): Promise<KaminoStrategyInfo[]> {
   try {
     const { Kamino } = await import('@kamino-finance/kliquidity-sdk');
-    const kamino = new Kamino('mainnet-beta', connection);
+    const kamino = new Kamino('mainnet-beta', connection as any);
 
     const strategies = await kamino.getStrategies();
     const results: KaminoStrategyInfo[] = [];
@@ -589,7 +589,7 @@ export async function getKaminoStrategy(
 ): Promise<KaminoStrategyInfo | null> {
   try {
     const { Kamino } = await import('@kamino-finance/kliquidity-sdk');
-    const kamino = new Kamino('mainnet-beta', connection);
+    const kamino = new Kamino('mainnet-beta', connection as any);
 
     const strategy = await kamino.getStrategyByAddress(new PublicKey(strategyAddress));
     if (!strategy) {
@@ -631,7 +631,7 @@ export async function getKaminoUserShares(
 ): Promise<KaminoUserShares[]> {
   try {
     const { Kamino } = await import('@kamino-finance/kliquidity-sdk');
-    const kamino = new Kamino('mainnet-beta', connection);
+    const kamino = new Kamino('mainnet-beta', connection as any);
 
     if (strategyAddress) {
       const strategy = await kamino.getStrategyByAddress(new PublicKey(strategyAddress));
@@ -705,7 +705,7 @@ export async function depositToKaminoVault(
   params: KaminoVaultDepositParams
 ): Promise<KaminoVaultResult> {
   const { Kamino } = await import('@kamino-finance/kliquidity-sdk');
-  const kamino = new Kamino('mainnet-beta', connection);
+  const kamino = new Kamino('mainnet-beta', connection as any);
 
   const strategy = await kamino.getStrategyByAddress(new PublicKey(params.strategyAddress));
   if (!strategy) {
@@ -746,7 +746,7 @@ export async function withdrawFromKaminoVault(
   params: KaminoVaultWithdrawParams
 ): Promise<KaminoVaultResult> {
   const { Kamino } = await import('@kamino-finance/kliquidity-sdk');
-  const kamino = new Kamino('mainnet-beta', connection);
+  const kamino = new Kamino('mainnet-beta', connection as any);
 
   const strategy = await kamino.getStrategyByAddress(new PublicKey(params.strategyAddress));
   if (!strategy) {
@@ -803,7 +803,7 @@ export async function getKaminoSharePrice(
 ): Promise<string> {
   try {
     const { Kamino } = await import('@kamino-finance/kliquidity-sdk');
-    const kamino = new Kamino('mainnet-beta', connection);
+    const kamino = new Kamino('mainnet-beta', connection as any);
 
     const strategy = await kamino.getStrategyByAddress(new PublicKey(strategyAddress));
     const price = strategy ? await kamino.getStrategySharePrice(new PublicKey(strategyAddress)) : null;
