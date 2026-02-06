@@ -91,12 +91,20 @@ export function createChutesMinerManager(
     running = true;
     startTime = new Date();
 
+    // Mark nodes online only while the miner process is alive
     for (const node of gpuNodes) {
       const status = nodeStatuses.get(node.name);
       if (status) {
         status.online = true;
       }
     }
+
+    // When the process exits, mark all nodes offline
+    minerProcess.onExit(() => {
+      for (const [, s] of nodeStatuses) {
+        s.online = false;
+      }
+    });
   }
 
   async function stop(): Promise<void> {
@@ -157,7 +165,7 @@ export function createChutesMinerManager(
       totalInvocations,
       computeHours: totalComputeHours,
       estimatedEarningsTao: estimatedTao,
-      estimatedEarningsUsd: estimatedTao * 170,
+      estimatedEarningsUsd: 0, // calculated by service using live price
       periodStart,
       periodEnd: now,
     };

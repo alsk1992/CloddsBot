@@ -3192,6 +3192,106 @@ export function createBittensorCommands(program: Command): void {
       console.log('  curl localhost:18789/api/bittensor/status\n');
     });
 
+  // ── earnings: query from running gateway ─────────────────────────────────
+  bittensor
+    .command('earnings')
+    .description('Show TAO earnings (queries running gateway)')
+    .option('-p, --period <period>', 'Period: hourly, daily, weekly, monthly, all', 'daily')
+    .option('--port <port>', 'Gateway port', '18789')
+    .action(async (options: { period?: string; port?: string }) => {
+      const port = options.port ?? '18789';
+      const period = options.period ?? 'daily';
+      try {
+        const token = process.env.CLODDS_TOKEN;
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const r = await fetch(`http://127.0.0.1:${port}/api/bittensor/earnings?period=${period}`, { headers });
+        if (!r.ok) {
+          console.log(`\nGateway returned ${r.status}. Is Clodds running? (clodds start)\n`);
+          return;
+        }
+        const body = await r.json() as { ok: boolean; data?: Array<{ subnetId: number; hotkey: string; taoEarned: number; usdEarned: number }> };
+        const data = body.data ?? [];
+        if (data.length === 0) {
+          console.log(`\nNo ${period} earnings recorded yet.\n`);
+          return;
+        }
+        const totalTao = data.reduce((s, e) => s + e.taoEarned, 0);
+        const totalUsd = data.reduce((s, e) => s + e.usdEarned, 0);
+        console.log(`\n${period.charAt(0).toUpperCase() + period.slice(1)} Earnings:`);
+        console.log(`  TAO: ${totalTao.toFixed(4)}`);
+        console.log(`  USD: $${totalUsd.toFixed(2)}`);
+        console.log(`  Records: ${data.length}\n`);
+      } catch {
+        console.log('\nCould not reach gateway. Is Clodds running? (clodds start)\n');
+      }
+    });
+
+  // ── miners: query from running gateway ───────────────────────────────────
+  bittensor
+    .command('miners')
+    .description('Show registered miner statuses (queries running gateway)')
+    .option('--port <port>', 'Gateway port', '18789')
+    .action(async (options: { port?: string }) => {
+      const port = options.port ?? '18789';
+      try {
+        const token = process.env.CLODDS_TOKEN;
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const r = await fetch(`http://127.0.0.1:${port}/api/bittensor/miners`, { headers });
+        if (!r.ok) {
+          console.log(`\nGateway returned ${r.status}. Is Clodds running? (clodds start)\n`);
+          return;
+        }
+        const body = await r.json() as { ok: boolean; data?: Array<{ subnetId: number; hotkey: string; uid: number; trust: number; incentive: number; emission: number; rank: number; active: boolean }> };
+        const data = body.data ?? [];
+        if (data.length === 0) {
+          console.log('\nNo miners registered.\n');
+          return;
+        }
+        console.log('\nRegistered Miners:');
+        for (const m of data) {
+          console.log(`  SN${m.subnetId} UID${m.uid}: trust=${m.trust.toFixed(3)} incentive=${m.incentive.toFixed(3)} emission=${m.emission.toFixed(6)} rank=${m.rank} ${m.active ? 'ACTIVE' : 'OFFLINE'}`);
+        }
+        console.log('');
+      } catch {
+        console.log('\nCould not reach gateway. Is Clodds running? (clodds start)\n');
+      }
+    });
+
+  // ── subnets: query from running gateway ──────────────────────────────────
+  bittensor
+    .command('subnets')
+    .description('List available Bittensor subnets (queries running gateway)')
+    .option('--port <port>', 'Gateway port', '18789')
+    .action(async (options: { port?: string }) => {
+      const port = options.port ?? '18789';
+      try {
+        const token = process.env.CLODDS_TOKEN;
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const r = await fetch(`http://127.0.0.1:${port}/api/bittensor/subnets`, { headers });
+        if (!r.ok) {
+          console.log(`\nGateway returned ${r.status}. Is Clodds running? (clodds start)\n`);
+          return;
+        }
+        const body = await r.json() as { ok: boolean; data?: Array<{ netuid: number; name: string; minerCount: number; registrationCost: number }> };
+        const data = body.data ?? [];
+        if (data.length === 0) {
+          console.log('\nCould not fetch subnets. Check connection.\n');
+          return;
+        }
+        console.log('\nAvailable Subnets:');
+        for (const s of data.slice(0, 30)) {
+          console.log(`  SN${s.netuid} (${s.name}): ${s.minerCount} miners, reg: ${s.registrationCost.toFixed(4)} TAO`);
+        }
+        if (data.length > 30) console.log(`  ... and ${data.length - 30} more`);
+        console.log('');
+      } catch {
+        console.log('\nCould not reach gateway. Is Clodds running? (clodds start)\n');
+      }
+    });
+
   // ── check: dependency verification ─────────────────────────────────────────
   bittensor
     .command('check')

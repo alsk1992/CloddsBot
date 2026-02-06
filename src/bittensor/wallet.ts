@@ -11,6 +11,7 @@ import type {
   MinerStatus,
   SubnetInfo,
 } from './types';
+import { logger } from '../utils/logger';
 
 // TAO has 9 decimal places (rao = 1e-9 TAO)
 const RAO_PER_TAO = 1_000_000_000;
@@ -54,9 +55,40 @@ export async function getWalletInfo(
 ): Promise<TaoWalletInfo> {
   const balance = await getBalance(api, coldkeyAddress);
 
+  // Query hotkeys owned by this coldkey from the chain
+  const hotkeys: import('./types').HotkeyInfo[] = [];
+  try {
+    const ownedHotkeys = await api.query['subtensorModule']?.['ownedHotkeys']?.(coldkeyAddress);
+    const hotkeyAddresses: string[] = ownedHotkeys
+      ? (ownedHotkeys as unknown as { toJSON(): string[] }).toJSON() ?? []
+      : [];
+
+    for (const hkAddress of hotkeyAddresses) {
+      // Find which subnets this hotkey is registered on
+      const registeredSubnets: number[] = [];
+      try {
+        const isRegistered = await api.query['subtensorModule']?.['isNetworkMember']?.(hkAddress);
+        if (isRegistered) {
+          const netuids = (isRegistered as unknown as { toJSON(): number[] }).toJSON() ?? [];
+          registeredSubnets.push(...netuids);
+        }
+      } catch {
+        // Some chains may not have isNetworkMember; skip subnet detection
+      }
+
+      hotkeys.push({
+        address: hkAddress,
+        name: `hotkey-${hotkeys.length}`,
+        registeredSubnets,
+      });
+    }
+  } catch (err) {
+    logger.warn({ err }, '[bittensor] Failed to query hotkeys from chain — returning empty list');
+  }
+
   return {
     coldkeyAddress,
-    hotkeys: [],
+    hotkeys,
     balance,
     network,
   };
@@ -99,7 +131,8 @@ export async function getMinerInfo(
       active: Boolean(activeResult && (activeResult as unknown as { isTrue?: boolean }).isTrue),
       updatedAt: new Date(),
     };
-  } catch {
+  } catch (err) {
+    logger.warn({ err, netuid, hotkey }, '[bittensor] getMinerInfo failed');
     return null;
   }
 }
@@ -130,7 +163,8 @@ export async function getSubnetInfo(
       registrationCost: raoToTao(toNumber(registrationCostResult)),
       immunityPeriodBlocks: toNumber(immunityResult),
     };
-  } catch {
+  } catch (err) {
+    logger.warn({ err, netuid }, '[bittensor] getSubnetInfo failed');
     return null;
   }
 }
@@ -180,8 +214,8 @@ export async function listSubnets(api: ApiPromise): Promise<SubnetInfo[]> {
         subnets.push(info);
       }
     }
-  } catch {
-    // Return whatever we collected
+  } catch (err) {
+    logger.warn({ err }, '[bittensor] listSubnets partially failed');
   }
 
   return subnets;

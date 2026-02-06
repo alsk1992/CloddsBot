@@ -45,8 +45,245 @@ tags:
     description: Spending limits
   - name: Admin
     description: Admin operations (protected)
+  - name: Bittensor
+    description: Bittensor subnet mining (requires CLODDS_TOKEN auth)
 
 paths:
+  /api/bittensor/status:
+    get:
+      tags: [Bittensor]
+      summary: Get mining status
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Mining status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      connected: { type: boolean }
+                      network: { type: string, enum: [mainnet, testnet, local] }
+                      walletLoaded: { type: boolean }
+                      totalTaoEarned: { type: number }
+                      totalUsdEarned: { type: number }
+                      activeMiners:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            subnetId: { type: integer }
+                            type: { type: string }
+                            running: { type: boolean }
+
+  /api/bittensor/wallet:
+    get:
+      tags: [Bittensor]
+      summary: Get wallet info and balance
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Wallet info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      coldkeyAddress: { type: string }
+                      balance:
+                        type: object
+                        properties:
+                          free: { type: number }
+                          staked: { type: number }
+                          total: { type: number }
+                      network: { type: string }
+                      hotkeys:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            address: { type: string }
+                            name: { type: string }
+                            registeredSubnets:
+                              type: array
+                              items: { type: integer }
+
+  /api/bittensor/earnings:
+    get:
+      tags: [Bittensor]
+      summary: Get earnings by period
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [hourly, daily, weekly, monthly, all]
+            default: daily
+      responses:
+        '200':
+          description: Earnings list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        subnetId: { type: integer }
+                        hotkey: { type: string }
+                        taoEarned: { type: number }
+                        usdEarned: { type: number }
+                        netProfit: { type: number }
+                        period: { type: string }
+
+  /api/bittensor/miners:
+    get:
+      tags: [Bittensor]
+      summary: Get registered miner statuses
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Miner statuses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        subnetId: { type: integer }
+                        hotkey: { type: string }
+                        uid: { type: integer }
+                        trust: { type: number }
+                        incentive: { type: number }
+                        emission: { type: number }
+                        rank: { type: integer }
+                        active: { type: boolean }
+
+  /api/bittensor/subnets:
+    get:
+      tags: [Bittensor]
+      summary: List available subnets
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subnet list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        netuid: { type: integer }
+                        name: { type: string }
+                        minerCount: { type: integer }
+                        registrationCost: { type: number }
+
+  /api/bittensor/register:
+    post:
+      tags: [Bittensor]
+      summary: Register on a subnet
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subnetId]
+              properties:
+                subnetId: { type: integer }
+                hotkeyName: { type: string }
+      responses:
+        '200':
+          description: Registration result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  message: { type: string }
+
+  /api/bittensor/start:
+    post:
+      tags: [Bittensor]
+      summary: Start mining on a subnet
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subnetId]
+              properties:
+                subnetId: { type: integer }
+      responses:
+        '200':
+          description: Start result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  message: { type: string }
+
+  /api/bittensor/stop:
+    post:
+      tags: [Bittensor]
+      summary: Stop mining on a subnet
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subnetId]
+              properties:
+                subnetId: { type: integer }
+      responses:
+        '200':
+          description: Stop result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  message: { type: string }
   /health:
     get:
       tags: [Health]

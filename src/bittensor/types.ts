@@ -19,6 +19,8 @@ export interface BittensorConfig {
   pythonPath?: string;
   subnets?: SubnetMinerConfig[];
   earningsPollIntervalMs?: number;
+  /** Override TAO/USD price. If unset, fetched from CoinGecko. */
+  taoPriceUsd?: number;
 }
 
 export type SubnetType = 'chutes' | 'apex' | 'nineteen' | 'custom';

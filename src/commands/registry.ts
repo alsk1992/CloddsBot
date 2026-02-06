@@ -3393,7 +3393,7 @@ export function createDefaultCommands(): CommandDefinition[] {
       handler: async (args, ctx) => {
         const svc = ctx.bittensorService;
         if (!svc) {
-          return 'Bittensor is not enabled. Set `BITTENSOR_ENABLED=true` in your config.';
+          return 'Bittensor is not enabled. Run `clodds bittensor setup` or set `BITTENSOR_ENABLED=true` in your config.';
         }
 
         const parts = args.trim().split(/\s+/);
