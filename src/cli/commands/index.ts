@@ -3702,6 +3702,13 @@ export function createOnboardCommand(program: Command): void {
       const figlet = await import('figlet');
       const banner = figlet.default.textSync('Clodds', { font: 'ANSI Shadow' });
       console.log('');
+      console.log(`              ${dim('\u2727')}    ${cyan('.-."""-.')}    ${dim('*')}`);
+      console.log(`           ${dim('*')}     ${cyan('/ .===. \\')}`);
+      console.log(`                 ${cyan('| |')} ${magenta('\u2661\u2661\u2661')} ${cyan('| |')}`);
+      console.log(`                 ${cyan('\\ \\.===./ /')}`);
+      console.log(`             ${dim('\u2726')}   ${cyan(" '-.._.-'")}`);
+      console.log(`                 ${yellow('\u2584\u2584\u2584\u2584\u2584\u2584\u2584\u2584\u2584')}`);
+      console.log('');
       for (const line of banner.split('\n')) {
         if (line.trim()) console.log(`  ${magenta(line)}`);
       }
