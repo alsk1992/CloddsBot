@@ -149,9 +149,9 @@ export function createChutesMinerManager(
       totalComputeHours = hours * activeGpus;
     }
 
-    const estimatedTaoPerHourPerGpu = 0.001;
-    const activeGpuCount = running ? gpuNodes.reduce((sum, n) => sum + n.gpuCount, 0) : 0;
-    const estimatedTao = totalComputeHours * estimatedTaoPerHourPerGpu * activeGpuCount;
+    const estimatedTaoPerGpuHour = 0.001;
+    // totalComputeHours already accounts for GPU count (hours * activeGpus)
+    const estimatedTao = totalComputeHours * estimatedTaoPerGpuHour;
 
     return {
       totalInvocations,

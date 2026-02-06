@@ -90,28 +90,31 @@ export async function createChannelManager(
   const queueByPlatform = new Map<string, Array<QueuedMessage>>();
   let queueTimer: NodeJS.Timeout | null = null;
 
+  // Channel init helper - isolates failures so one bad channel doesn't block the rest
+  async function initChannel(
+    name: string,
+    factory: () => Promise<ChannelAdapter> | ChannelAdapter,
+  ): Promise<void> {
+    try {
+      logger.info(`Initializing ${name} channel`);
+      const adapter = await factory();
+      channels.set(name, adapter);
+    } catch (error) {
+      logger.error({ error, channel: name }, `Failed to initialize ${name} channel — skipping`);
+    }
+  }
+
   // Initialize Telegram if enabled
   if (config.telegram?.enabled && config.telegram.botToken) {
-    logger.info('Initializing Telegram channel');
-    const telegram = await createTelegramChannel(
-      config.telegram,
-      callbacks,
-      callbacks.pairing,
-      callbacks.commands
-    );
-    channels.set('telegram', telegram as unknown as ChannelAdapter);
+    await initChannel('telegram', () =>
+      createTelegramChannel(config.telegram!, callbacks, callbacks.pairing, callbacks.commands)
+        .then((t) => t as unknown as ChannelAdapter));
   }
 
   // Initialize Discord if enabled
   if (config.discord?.enabled && config.discord.token) {
-    logger.info('Initializing Discord channel');
-    const discord = await createDiscordChannel(
-      config.discord,
-      callbacks,
-      callbacks.pairing,
-      callbacks.commands
-    );
-    channels.set('discord', discord);
+    await initChannel('discord', () =>
+      createDiscordChannel(config.discord!, callbacks, callbacks.pairing, callbacks.commands));
   }
 
   // Initialize WebChat if enabled (starts when WebSocket attached)
@@ -122,197 +125,115 @@ export async function createChannelManager(
 
   // Initialize WhatsApp if enabled
   if ((config as any).whatsapp?.enabled) {
-    logger.info('Initializing WhatsApp channel');
-    const whatsapp = await createWhatsAppChannel(
-      (config as any).whatsapp as WhatsAppConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('whatsapp', whatsapp);
+    await initChannel('whatsapp', () =>
+      createWhatsAppChannel((config as any).whatsapp as WhatsAppConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Slack if enabled
   if ((config as any).slack?.enabled && (config as any).slack?.botToken) {
-    logger.info('Initializing Slack channel');
-    const slack = await createSlackChannel(
-      (config as any).slack as SlackConfig,
-      callbacks,
-      callbacks.pairing,
-      callbacks.commands
-    );
-    channels.set('slack', slack);
+    await initChannel('slack', () =>
+      createSlackChannel((config as any).slack as SlackConfig, callbacks, callbacks.pairing, callbacks.commands));
   }
 
   // Initialize Google Chat if enabled
   if ((config as any).googlechat?.enabled) {
-    logger.info('Initializing Google Chat channel');
-    const googlechat = await createGoogleChatChannel(
-      (config as any).googlechat as GoogleChatConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('googlechat', googlechat);
+    await initChannel('googlechat', () =>
+      createGoogleChatChannel((config as any).googlechat as GoogleChatConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Microsoft Teams if enabled
   if ((config as any).teams?.enabled && (config as any).teams?.appId) {
-    logger.info('Initializing Microsoft Teams channel');
-    const teams = await createTeamsChannel(
-      (config as any).teams as TeamsConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('teams', teams);
+    await initChannel('teams', () =>
+      createTeamsChannel((config as any).teams as TeamsConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Matrix if enabled
   if ((config as any).matrix?.enabled && (config as any).matrix?.accessToken) {
-    logger.info('Initializing Matrix channel');
-    const matrix = await createMatrixChannel(
-      (config as any).matrix as MatrixConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('matrix', matrix);
+    await initChannel('matrix', () =>
+      createMatrixChannel((config as any).matrix as MatrixConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Signal if enabled
   if ((config as any).signal?.enabled && (config as any).signal?.phoneNumber) {
-    logger.info('Initializing Signal channel');
-    const signal = await createSignalChannel(
-      (config as any).signal as SignalConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('signal', signal);
+    await initChannel('signal', () =>
+      createSignalChannel((config as any).signal as SignalConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize iMessage if enabled (macOS only)
   if ((config as any).imessage?.enabled && process.platform === 'darwin') {
-    logger.info('Initializing iMessage channel');
-    const imessage = await createiMessageChannel(
-      (config as any).imessage as iMessageConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('imessage', imessage);
+    await initChannel('imessage', () =>
+      createiMessageChannel((config as any).imessage as iMessageConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize LINE if enabled
   if ((config as any).line?.enabled) {
-    logger.info('Initializing LINE channel');
-    const line = await createLineChannel(
-      (config as any).line as LineChannelConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('line', line);
+    await initChannel('line', () =>
+      createLineChannel((config as any).line as LineChannelConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Mattermost if enabled
   if ((config as any).mattermost?.enabled && (config as any).mattermost?.accessToken) {
-    logger.info('Initializing Mattermost channel');
-    const mattermost = await createMattermostChannel(
-      (config as any).mattermost as MattermostConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('mattermost', mattermost);
+    await initChannel('mattermost', () =>
+      createMattermostChannel((config as any).mattermost as MattermostConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Nextcloud Talk if enabled
   if ((config as any)['nextcloud-talk']?.enabled && (config as any)['nextcloud-talk']?.appPassword) {
-    logger.info('Initializing Nextcloud Talk channel');
-    const nextcloudTalk = await createNextcloudTalkChannel(
-      (config as any)['nextcloud-talk'] as NextcloudTalkConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('nextcloud-talk', nextcloudTalk);
+    await initChannel('nextcloud-talk', () =>
+      createNextcloudTalkChannel((config as any)['nextcloud-talk'] as NextcloudTalkConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Nostr if enabled
   if ((config as any).nostr?.enabled && (config as any).nostr?.privateKey) {
-    logger.info('Initializing Nostr channel');
-    const nostr = await createNostrChannel(
-      (config as any).nostr as NostrConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('nostr', nostr);
+    await initChannel('nostr', () =>
+      createNostrChannel((config as any).nostr as NostrConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Tlon (Urbit) if enabled
   if ((config as any).tlon?.enabled && (config as any).tlon?.code) {
-    logger.info('Initializing Tlon channel');
-    const tlon = await createTlonChannel(
-      (config as any).tlon as TlonConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('tlon', tlon);
+    await initChannel('tlon', () =>
+      createTlonChannel((config as any).tlon as TlonConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Twitch if enabled
   if ((config as any).twitch?.enabled && (config as any).twitch?.oauthToken) {
-    logger.info('Initializing Twitch channel');
-    const twitch = await createTwitchChannel(
-      (config as any).twitch as TwitchConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('twitch', twitch);
+    await initChannel('twitch', () =>
+      createTwitchChannel((config as any).twitch as TwitchConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Voice if enabled
   if ((config as any).voice?.enabled && (config as any).voice?.phoneNumber) {
-    logger.info('Initializing Voice channel');
-    const voice = await createVoiceChannel(
-      (config as any).voice as VoiceConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('voice', voice);
+    await initChannel('voice', () =>
+      createVoiceChannel((config as any).voice as VoiceConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize BlueBubbles if enabled
   if ((config as any).bluebubbles?.enabled && (config as any).bluebubbles?.password) {
-    logger.info('Initializing BlueBubbles channel');
-    const bluebubbles = await createBlueBubblesChannel(
-      (config as any).bluebubbles as BlueBubblesConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('bluebubbles', bluebubbles);
+    await initChannel('bluebubbles', () =>
+      createBlueBubblesChannel((config as any).bluebubbles as BlueBubblesConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Zalo OA if enabled
   if ((config as any).zalo?.enabled && (config as any).zalo?.accessToken) {
-    logger.info('Initializing Zalo channel');
-    const zalo = await createZaloChannel(
-      (config as any).zalo as ZaloConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('zalo', zalo);
+    await initChannel('zalo', () =>
+      createZaloChannel((config as any).zalo as ZaloConfig, callbacks, callbacks.pairing));
   }
 
   // Initialize Zalo Personal if enabled
   if ((config as any)['zalo-personal']?.enabled && (config as any)['zalo-personal']?.cookies) {
-    logger.info('Initializing Zalo Personal channel');
-    const zaloPersonal = await createZaloPersonalChannel(
-      (config as any)['zalo-personal'] as ZaloPersonalConfig,
-      callbacks,
-      callbacks.pairing
-    );
-    channels.set('zalo-personal', zaloPersonal);
+    await initChannel('zalo-personal', () =>
+      createZaloPersonalChannel((config as any)['zalo-personal'] as ZaloPersonalConfig, callbacks, callbacks.pairing));
   }
 
   return {
     async start() {
       for (const [name, channel] of channels) {
-        logger.info({ channel: name }, 'Starting channel');
-        await channel.start();
+        try {
+          logger.info({ channel: name }, 'Starting channel');
+          await channel.start();
+        } catch (error) {
+          logger.error({ error, channel: name }, `Failed to start ${name} channel — skipping`);
+        }
       }
       if (offlineQueue.enabled && !queueTimer) {
         queueTimer = setInterval(() => {

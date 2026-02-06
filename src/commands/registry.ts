@@ -27,6 +27,7 @@ export interface CommandContext {
   db: Database;
   memory?: MemoryService;
   opportunityFinder?: OpportunityFinder;
+  bittensorService?: import('../bittensor/types').BittensorService;
   commands: CommandRegistry;
   send: (message: OutgoingMessage) => Promise<string | null>;
 }
@@ -3382,6 +3383,108 @@ export function createDefaultCommands(): CommandDefinition[] {
           lines.push('');
         }
         return lines.join('\n');
+      },
+    },
+    {
+      name: 'tao',
+      description: 'Bittensor mining management',
+      usage: '/tao [status|earnings|wallet|miners|subnets|start|stop|register]',
+      aliases: ['bittensor'],
+      handler: async (args, ctx) => {
+        const svc = ctx.bittensorService;
+        if (!svc) {
+          return 'Bittensor is not enabled. Set `BITTENSOR_ENABLED=true` in your config.';
+        }
+
+        const parts = args.trim().split(/\s+/);
+        const cmd = parts[0]?.toLowerCase() || 'status';
+
+        try {
+          switch (cmd) {
+            case 'status': {
+              const s = await svc.getStatus();
+              const lines = [
+                '**Bittensor Mining Status**',
+                `Connected: ${s.connected ? 'Yes' : 'No'} | Network: ${s.network}`,
+                `Wallet: ${s.walletLoaded ? 'Loaded' : 'Not loaded'}`,
+                `Earned: ${s.totalTaoEarned.toFixed(4)} TAO ($${s.totalUsdEarned.toFixed(2)})`,
+              ];
+              for (const m of s.activeMiners) {
+                lines.push(`  SN${m.subnetId} [${m.type}]: ${m.running ? 'Running' : 'Stopped'}`);
+              }
+              return lines.join('\n');
+            }
+            case 'earnings': {
+              const period = (parts[1] ?? 'daily') as 'hourly' | 'daily' | 'weekly' | 'monthly' | 'all';
+              const earnings = await svc.getEarnings(period);
+              if (earnings.length === 0) return `No ${period} earnings recorded yet.`;
+              const tao = earnings.reduce((s, e) => s + e.taoEarned, 0);
+              const usd = earnings.reduce((s, e) => s + e.usdEarned, 0);
+              return `**${period} Earnings**: ${tao.toFixed(4)} TAO ($${usd.toFixed(2)}) from ${earnings.length} records`;
+            }
+            case 'wallet': {
+              const w = await svc.getWalletInfo();
+              if (!w) return 'Wallet not loaded.';
+              return [
+                `**TAO Wallet** (${w.network})`,
+                `Address: \`${w.coldkeyAddress}\``,
+                `Free: ${w.balance.free.toFixed(4)} TAO | Staked: ${w.balance.staked.toFixed(4)} TAO`,
+                `Total: ${w.balance.total.toFixed(4)} TAO`,
+              ].join('\n');
+            }
+            case 'miners': {
+              const miners = await svc.getMinerStatuses();
+              if (miners.length === 0) return 'No miners registered.';
+              const lines = ['**Registered Miners**'];
+              for (const m of miners) {
+                lines.push(`SN${m.subnetId} UID${m.uid}: T=${m.trust.toFixed(3)} I=${m.incentive.toFixed(3)} E=${m.emission.toFixed(6)} ${m.active ? 'ACTIVE' : 'OFFLINE'}`);
+              }
+              return lines.join('\n');
+            }
+            case 'subnets': {
+              const subnets = await svc.getSubnets();
+              if (subnets.length === 0) return 'Could not fetch subnets.';
+              const lines = ['**Subnets**'];
+              for (const s of subnets.slice(0, 15)) {
+                lines.push(`SN${s.netuid}: ${s.minerCount} miners, reg: ${s.registrationCost.toFixed(4)} TAO`);
+              }
+              return lines.join('\n');
+            }
+            case 'start': {
+              const id = parseInt(parts[1], 10);
+              if (isNaN(id)) return 'Usage: /tao start <subnetId>';
+              const r = await svc.startMining(id);
+              return r.message;
+            }
+            case 'stop': {
+              const id = parseInt(parts[1], 10);
+              if (isNaN(id)) return 'Usage: /tao stop <subnetId>';
+              const r = await svc.stopMining(id);
+              return r.message;
+            }
+            case 'register': {
+              const id = parseInt(parts[1], 10);
+              if (isNaN(id)) return 'Usage: /tao register <subnetId> [hotkeyName]';
+              const r = await svc.registerOnSubnet(id, parts[2]);
+              return r.message;
+            }
+            default:
+              return [
+                '**Usage:** /tao <command>',
+                '',
+                '  status   - Mining status overview',
+                '  earnings - TAO earnings (daily/weekly/monthly)',
+                '  wallet   - Wallet balance',
+                '  miners   - Registered miner info',
+                '  subnets  - Available subnets',
+                '  start    - Start mining (/tao start 64)',
+                '  stop     - Stop mining (/tao stop 64)',
+                '  register - Register on subnet (/tao register 64)',
+              ].join('\n');
+          }
+        } catch (err) {
+          return `Bittensor error: ${err instanceof Error ? err.message : 'Unknown error'}`;
+        }
       },
     },
   ];

@@ -384,6 +384,7 @@ export interface CloddsConfig {
   monitoring?: MonitoringConfig;
   ledger?: LedgerConfig;
   meta?: MetaConfig;
+  bittensor?: Partial<import('../bittensor/types').BittensorConfig>;
 }
 
 export interface PositionsConfig {
@@ -609,6 +610,10 @@ export const DEFAULT_CONFIG: CloddsConfig = {
       diskWarnPct: 90,
       cooldownMs: 30 * 60 * 1000,
     },
+  },
+  bittensor: {
+    enabled: false,
+    network: 'mainnet',
   },
 };
 
@@ -972,6 +977,37 @@ const ENV_MAPPINGS: Record<string, (cfg: CloddsConfig) => void> = {
     if (!cfg.gateway.auth) cfg.gateway.auth = {};
     cfg.gateway.auth.password = process.env.CLODDS_GATEWAY_PASSWORD;
     cfg.gateway.auth.mode = 'password';
+  },
+  BITTENSOR_ENABLED: (cfg) => {
+    if (!cfg.bittensor) cfg.bittensor = {};
+    const raw = process.env.BITTENSOR_ENABLED;
+    if (raw) cfg.bittensor.enabled = raw === '1' || raw.toLowerCase() === 'true';
+  },
+  BITTENSOR_NETWORK: (cfg) => {
+    if (!cfg.bittensor) cfg.bittensor = {};
+    const raw = process.env.BITTENSOR_NETWORK;
+    if (raw === 'mainnet' || raw === 'testnet' || raw === 'local') cfg.bittensor.network = raw;
+  },
+  BITTENSOR_SUBTENSOR_URL: (cfg) => {
+    if (!cfg.bittensor) cfg.bittensor = {};
+    cfg.bittensor.subtensorUrl = process.env.BITTENSOR_SUBTENSOR_URL;
+  },
+  BITTENSOR_COLDKEY_PATH: (cfg) => {
+    if (!cfg.bittensor) cfg.bittensor = {};
+    cfg.bittensor.coldkeyPath = process.env.BITTENSOR_COLDKEY_PATH;
+  },
+  BITTENSOR_COLDKEY_PASSWORD: (cfg) => {
+    if (!cfg.bittensor) cfg.bittensor = {};
+    cfg.bittensor.coldkeyPassword = process.env.BITTENSOR_COLDKEY_PASSWORD;
+  },
+  BITTENSOR_PYTHON_PATH: (cfg) => {
+    if (!cfg.bittensor) cfg.bittensor = {};
+    cfg.bittensor.pythonPath = process.env.BITTENSOR_PYTHON_PATH;
+  },
+  BITTENSOR_EARNINGS_POLL_INTERVAL_MS: (cfg) => {
+    if (!cfg.bittensor) cfg.bittensor = {};
+    const raw = process.env.BITTENSOR_EARNINGS_POLL_INTERVAL_MS;
+    if (raw) cfg.bittensor.earningsPollIntervalMs = Number.parseInt(raw, 10);
   },
   CLODDS_GROUP_POLICIES: (cfg) => {
     if (!process.env.CLODDS_GROUP_POLICIES) return;

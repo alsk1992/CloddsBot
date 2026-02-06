@@ -76,7 +76,10 @@ export function createBittensorPersistence(db: Database): BittensorPersistence {
   }
 
   function getEarnings(period: EarningsPeriod, subnetId?: number): MinerEarnings[] {
-    const sinceMap: Record<EarningsPeriod, string> = {
+    // These are SQL expressions (not user input) so safe to inline.
+    // They can't be passed as parameterized values since SQLite would
+    // treat them as literal strings rather than evaluating them.
+    const sinceExpr: Record<EarningsPeriod, string> = {
       hourly: "datetime('now', '-1 hour')",
       daily: "datetime('now', '-1 day')",
       weekly: "datetime('now', '-7 days')",
@@ -84,8 +87,7 @@ export function createBittensorPersistence(db: Database): BittensorPersistence {
       all: "datetime('1970-01-01')",
     };
 
-    const since = sinceMap[period];
-    let query = `SELECT * FROM bittensor_earnings WHERE created_at >= ${since}`;
+    let query = `SELECT * FROM bittensor_earnings WHERE created_at >= ${sinceExpr[period]}`;
     const params: unknown[] = [];
 
     if (subnetId !== undefined) {

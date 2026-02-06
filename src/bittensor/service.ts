@@ -87,7 +87,11 @@ export function createBittensorService(
       }
 
       const pollMs = config.earningsPollIntervalMs ?? 300_000;
-      pollInterval = setInterval(() => { void pollEarnings(); }, pollMs);
+      pollInterval = setInterval(() => {
+        pollEarnings().catch((err) => {
+          logger.warn({ err }, '[bittensor] Earnings poll failed');
+        });
+      }, pollMs);
 
     } catch (err) {
       logger.error(`[bittensor] Failed to start: ${err instanceof Error ? err.message : err}`);
@@ -151,8 +155,9 @@ export function createBittensorService(
 
     for (const subnet of config.subnets ?? []) {
       const manager = minerManagers.get(subnet.subnetId);
-      const dbStatus = walletInfo?.hotkeys[0]
-        ? persistence.getMinerStatus(subnet.subnetId, walletInfo.hotkeys[0].address)
+      const firstHotkey = walletInfo?.hotkeys?.[0];
+      const dbStatus = firstHotkey
+        ? persistence.getMinerStatus(subnet.subnetId, firstHotkey.address)
         : null;
 
       activeMiners.push({

@@ -50,6 +50,7 @@ import { createTickRecorder, type TickRecorder } from '../services/tick-recorder
 import { createTickStreamer, type TickStreamer } from '../services/tick-streamer';
 import { createBittensorService, type BittensorService } from '../bittensor';
 import { createBittensorRouter } from '../bittensor/server';
+import { setBittensorService } from '../agents/handlers/bittensor';
 import { createFeatureEngineering, setFeatureEngine, type FeatureEngineering } from '../services/feature-engineering';
 import { createExecutionProducer, createQueuedExecutionService, type ExecutionProducer } from '../queue/jobs';
 import chokidar, { FSWatcher } from 'chokidar';
@@ -495,8 +496,18 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   // Create Bittensor mining service if enabled
   let bittensorService: BittensorService | null = null;
   if (config.bittensor?.enabled) {
-    const btConfig = config.bittensor as import('../bittensor/types').BittensorConfig;
+    const btConfig: import('../bittensor/types').BittensorConfig = {
+      enabled: true,
+      network: config.bittensor.network ?? 'mainnet',
+      subtensorUrl: config.bittensor.subtensorUrl,
+      coldkeyPath: config.bittensor.coldkeyPath,
+      coldkeyPassword: config.bittensor.coldkeyPassword,
+      pythonPath: config.bittensor.pythonPath,
+      subnets: config.bittensor.subnets as import('../bittensor/types').SubnetMinerConfig[] | undefined,
+      earningsPollIntervalMs: config.bittensor.earningsPollIntervalMs,
+    };
     bittensorService = createBittensorService(btConfig, db);
+    setBittensorService(bittensorService);
     const bittensorRouter = createBittensorRouter(bittensorService);
     httpGateway.setBittensorRouter(bittensorRouter);
     logger.info({ network: btConfig.network }, 'Bittensor service created');
@@ -1343,6 +1354,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       db,
       memory,
       opportunityFinder: opportunityFinder ?? undefined,
+      bittensorService: bittensorService ?? undefined,
       send: sendMessage,
     });
 
@@ -2013,6 +2025,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       // Stop Bittensor mining service
       if (bittensorService) {
         await bittensorService.stop();
+        setBittensorService(null);
         bittensorService = null;
       }
 

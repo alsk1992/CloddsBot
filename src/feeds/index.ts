@@ -307,24 +307,32 @@ export async function createFeedManager(config: Config['feeds']): Promise<FeedMa
     });
   }
 
-  // Start method
+  // Start method — per-feed error isolation so one broken feed doesn't block the rest
   emitter.start = async () => {
     const startPromises: Promise<void>[] = [];
 
     for (const [name, feed] of feeds) {
       logger.info(`Starting ${name} feed`);
-      if (feed.start) {
-        startPromises.push(feed.start());
-      } else if (feed.connect) {
-        startPromises.push(feed.connect());
-      }
+      const p = (feed.start ? feed.start() : feed.connect ? feed.connect() : Promise.resolve())
+        .catch((error: unknown) => {
+          logger.error({ error, feed: name }, `Failed to start ${name} feed — skipping`);
+        });
+      startPromises.push(p);
     }
 
     if (newsFeed) {
-      startPromises.push(newsFeed.start());
+      startPromises.push(
+        newsFeed.start().catch((error: unknown) => {
+          logger.error({ error }, 'Failed to start news feed — skipping');
+        })
+      );
     }
     if (polymarketRtds) {
-      startPromises.push(polymarketRtds.start());
+      startPromises.push(
+        polymarketRtds.start().catch((error: unknown) => {
+          logger.error({ error }, 'Failed to start Polymarket RTDS — skipping');
+        })
+      );
     }
 
     await Promise.all(startPromises);

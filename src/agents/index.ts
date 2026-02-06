@@ -8154,6 +8154,29 @@ function buildTools(): ToolDefinition[] {
         },
       },
     },
+    // Bittensor mining
+    {
+      name: 'bittensor',
+      description: 'Manage Bittensor subnet mining - check status, earnings, wallet, start/stop miners, register on subnets.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['status', 'earnings', 'wallet', 'miners', 'subnets', 'start', 'stop', 'register'],
+            description: 'The action to perform',
+          },
+          period: {
+            type: 'string',
+            enum: ['hourly', 'daily', 'weekly', 'monthly', 'all'],
+            description: 'Earnings period (for earnings action)',
+          },
+          subnetId: { type: 'number', description: 'Subnet ID (for start/stop/register)' },
+          hotkeyName: { type: 'string', description: 'Hotkey name (for register)' },
+        },
+        required: ['action'],
+      },
+    },
   ];
 }
 

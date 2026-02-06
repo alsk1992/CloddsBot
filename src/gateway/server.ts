@@ -2,7 +2,7 @@
  * HTTP + WebSocket server
  */
 
-import express, { Request } from 'express';
+import express, { Request, Router } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createHttpServer, Server, IncomingMessage } from 'http';
 import { logger } from '../utils/logger';
@@ -35,6 +35,7 @@ export interface GatewayServer {
   setTickRecorderStatsHandler(handler: TickRecorderStatsHandler | null): void;
   setTickStreamer(streamer: TickStreamer | null): void;
   setFeatureEngineering(service: FeatureEngineering | null): void;
+  setBittensorRouter(router: Router | null): void;
 }
 
 export type ChannelWebhookHandler = (
@@ -1500,6 +1501,11 @@ export function createServer(
     },
     setFeatureEngineering(service: FeatureEngineering | null): void {
       featureEngineering = service;
+    },
+    setBittensorRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/bittensor', requireAuth, router);
+      }
     },
   };
 }

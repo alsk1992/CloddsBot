@@ -2391,6 +2391,61 @@ export function createCredsCommands(program: Command): void {
         }
       }
 
+      // Test OpenAI
+      if (!platform || platform === 'openai') {
+        const openaiKey = process.env.OPENAI_API_KEY;
+        if (!openaiKey) {
+          results.push({
+            name: 'OpenAI',
+            status: 'warn',
+            message: 'Not configured (optional)',
+            fix: 'Get key from: https://platform.openai.com/api-keys',
+          });
+        } else {
+          try {
+            const response = await fetch('https://api.openai.com/v1/models', {
+              headers: { Authorization: `Bearer ${openaiKey}` },
+            });
+            if (response.ok) {
+              results.push({ name: 'OpenAI', status: 'pass', message: 'Key valid' });
+            } else if (response.status === 401) {
+              results.push({ name: 'OpenAI', status: 'fail', message: 'Invalid API key', fix: 'Check at platform.openai.com' });
+            } else {
+              results.push({ name: 'OpenAI', status: 'warn', message: `HTTP ${response.status}` });
+            }
+          } catch {
+            results.push({ name: 'OpenAI', status: 'warn', message: 'Network error' });
+          }
+        }
+      }
+
+      // Test Slack
+      if (!platform || platform === 'slack') {
+        const slackToken = process.env.SLACK_BOT_TOKEN;
+        if (!slackToken) {
+          results.push({
+            name: 'Slack',
+            status: 'warn',
+            message: 'Not configured (optional)',
+            fix: 'Get token from: https://api.slack.com/apps',
+          });
+        } else {
+          try {
+            const response = await fetch('https://slack.com/api/auth.test', {
+              headers: { Authorization: `Bearer ${slackToken}` },
+            });
+            const data = await response.json() as { ok: boolean; user?: string; team?: string; error?: string };
+            if (data.ok) {
+              results.push({ name: 'Slack', status: 'pass', message: `${data.user} @ ${data.team}` });
+            } else {
+              results.push({ name: 'Slack', status: 'fail', message: data.error ?? 'Invalid token', fix: 'Check at api.slack.com/apps' });
+            }
+          } catch {
+            results.push({ name: 'Slack', status: 'warn', message: 'Network error' });
+          }
+        }
+      }
+
       // Display results
       const icons = { pass: '✅', warn: '⚠️ ', fail: '❌' };
 
@@ -2771,6 +2826,723 @@ export function createLedgerCommands(program: Command): void {
 }
 
 // =============================================================================
+// BITTENSOR COMMANDS
+// =============================================================================
+
+function btcliExec(pythonPath: string, args: string[], timeoutMs = 30_000): { ok: boolean; stdout: string; stderr: string } {
+  const result = spawnSync(pythonPath, ['-m', 'bittensor', ...args], {
+    encoding: 'utf-8',
+    timeout: timeoutMs,
+  });
+  return {
+    ok: result.status === 0,
+    stdout: (result.stdout ?? '').trim(),
+    stderr: (result.stderr ?? '').trim(),
+  };
+}
+
+function detectPython(): string | null {
+  for (const cmd of ['python3', 'python']) {
+    const r = spawnSync(cmd, ['--version'], { encoding: 'utf-8', timeout: 5_000 });
+    if (r.status === 0) return cmd;
+  }
+  return null;
+}
+
+function hasBtcli(pythonPath: string): boolean {
+  const r = spawnSync(pythonPath, ['-c', 'import bittensor; print(bittensor.__version__)'], {
+    encoding: 'utf-8',
+    timeout: 10_000,
+  });
+  return r.status === 0;
+}
+
+export function createBittensorCommands(program: Command): void {
+  const bittensor = program
+    .command('bittensor')
+    .alias('tao')
+    .description('Bittensor subnet mining management');
+
+  // ── setup: full onboarding wizard ──────────────────────────────────────────
+  bittensor
+    .command('setup')
+    .description('One-command setup: installs btcli, creates wallet, configures Clodds')
+    .option('--wallet-name <name>', 'Wallet name', 'default')
+    .option('--skip-install', 'Skip btcli installation')
+    .action(async (options: { walletName?: string; skipInstall?: boolean }) => {
+      const walletName = options.walletName ?? 'default';
+      const pythonEnv = process.env.BITTENSOR_PYTHON_PATH;
+
+      console.log('\n=== Bittensor Mining Setup ===\n');
+
+      // Step 0: Choose network
+      const { createInterface } = await import('readline');
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const ask = (prompt: string): Promise<string> =>
+        new Promise((resolve) => rl.question(prompt, (a) => resolve(a.trim())));
+
+      let network: string;
+      while (true) {
+        const choice = await ask('Network? (1) mainnet - real TAO, real earnings  (2) testnet - free to experiment\nChoose [1/2]: ');
+        if (choice === '1' || choice.toLowerCase() === 'mainnet') {
+          network = 'mainnet';
+          break;
+        } else if (choice === '2' || choice.toLowerCase() === 'testnet') {
+          network = 'testnet';
+          break;
+        }
+        console.log('  Please enter 1 or 2.\n');
+      }
+      rl.close();
+      console.log(`\n  Selected: ${network}\n`);
+
+      // Step 1: Find Python
+      console.log('[1/5] Checking Python...');
+      const pythonPath = pythonEnv || detectPython();
+      if (!pythonPath) {
+        console.log('  Python 3 not found. Install it first:');
+        console.log('    macOS:  brew install python3');
+        console.log('    Ubuntu: sudo apt install python3 python3-pip');
+        console.log('    Windows: https://python.org/downloads\n');
+        process.exitCode = 1;
+        return;
+      }
+      const pyVer = spawnSync(pythonPath, ['--version'], { encoding: 'utf-8' });
+      console.log(`  Found: ${pyVer.stdout?.trim() || pythonPath}`);
+
+      // Step 2: Install btcli
+      console.log('\n[2/5] Checking btcli...');
+      if (hasBtcli(pythonPath)) {
+        const ver = spawnSync(pythonPath, ['-c', 'import bittensor; print(bittensor.__version__)'], { encoding: 'utf-8' });
+        console.log(`  Already installed: bittensor ${ver.stdout?.trim()}`);
+      } else if (options.skipInstall) {
+        console.log('  btcli not found (skipped install)');
+      } else {
+        console.log('  Installing bittensor (this takes 1-2 minutes)...');
+        const install = spawnSync(pythonPath, ['-m', 'pip', 'install', 'bittensor', '--quiet'], {
+          encoding: 'utf-8',
+          timeout: 180_000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        if (install.status === 0) {
+          console.log('  Installed successfully');
+        } else {
+          console.log(`  Installation failed: ${install.stderr?.slice(0, 200)}`);
+          console.log('  Try manually: pip install bittensor\n');
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      // Step 3: Create wallet
+      console.log('\n[3/5] Setting up wallet...');
+      const walletDir = join(homedir(), '.bittensor', 'wallets', walletName);
+      const coldkeyPath = join(walletDir, 'coldkey');
+
+      if (existsSync(coldkeyPath)) {
+        console.log(`  Wallet "${walletName}" already exists at ${walletDir}`);
+      } else {
+        console.log(`  Creating wallet "${walletName}"...`);
+
+        // Create coldkey
+        const coldkey = btcliExec(pythonPath, [
+          'wallet', 'create',
+          '--wallet.name', walletName,
+          '--no_prompt',
+        ], 30_000);
+
+        if (coldkey.ok || existsSync(coldkeyPath)) {
+          console.log('  Wallet created');
+        } else {
+          // Try the newer btcli syntax
+          const coldkey2 = spawnSync(pythonPath, ['-m', 'bittensor.cli', 'wallet', 'create', '--wallet.name', walletName, '--no_prompt'], {
+            encoding: 'utf-8',
+            timeout: 30_000,
+          });
+          if (coldkey2.status === 0 || existsSync(coldkeyPath)) {
+            console.log('  Wallet created');
+          } else {
+            console.log('  Auto-create failed. Create manually:');
+            console.log(`    btcli wallet create --wallet.name ${walletName}`);
+          }
+        }
+      }
+
+      // Show wallet address
+      const overview = btcliExec(pythonPath, [
+        'wallet', 'overview',
+        '--wallet.name', walletName,
+        '--no_prompt',
+      ], 15_000);
+
+      const addrMatch = overview.stdout.match(/coldkey[:\s]+(\w{48})/i)
+        || overview.stdout.match(/(5[A-Za-z0-9]{47})/);
+      if (addrMatch) {
+        console.log(`  Address: ${addrMatch[1]}`);
+      }
+
+      // Step 4: Write config
+      console.log('\n[4/5] Configuring Clodds...');
+      const cloddsDir = join(homedir(), '.clodds');
+      const configPath = join(cloddsDir, 'clodds.json');
+
+      let existingConfig: Record<string, unknown> = {};
+      if (existsSync(configPath)) {
+        try {
+          existingConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+        } catch {
+          // fresh config
+        }
+      } else {
+        mkdirSync(cloddsDir, { recursive: true });
+      }
+
+      existingConfig.bittensor = {
+        enabled: true,
+        network,
+        coldkeyPath: join(homedir(), '.bittensor', 'wallets', walletName, 'coldkey'),
+        pythonPath,
+      };
+
+      writeFileSync(configPath, JSON.stringify(existingConfig, null, 2));
+      console.log(`  Written to ${configPath}`);
+      console.log(`  Network: ${network}`);
+
+      // Step 5: Summary
+      console.log('\n[5/5] Next steps:\n');
+      if (network === 'testnet') {
+        console.log('  You\'re on TESTNET - free to experiment, no real TAO needed.\n');
+        console.log('  Get testnet TAO:');
+        console.log('    btcli wallet faucet --wallet.name default --subtensor.network test\n');
+      } else {
+        console.log('  You\'re on MAINNET - you need real TAO to register.\n');
+        if (addrMatch) {
+          console.log(`  Fund your wallet: send TAO to ${addrMatch[1]}`);
+          console.log('  Buy TAO: Binance, KuCoin, Gate.io, or MEXC\n');
+        }
+      }
+      console.log('  Register on a subnet (Chutes SN64 recommended):');
+      console.log('    clodds bittensor register 64\n');
+      console.log('  Then start Clodds:');
+      console.log('    clodds start\n');
+      console.log('  Monitor in chat:');
+      console.log('    /tao status');
+      console.log('    /tao earnings\n');
+    });
+
+  // ── wallet: show / create ──────────────────────────────────────────────────
+  const wallet = bittensor
+    .command('wallet')
+    .description('Wallet management');
+
+  wallet
+    .command('show')
+    .description('Show wallet address and balance')
+    .option('--name <name>', 'Wallet name', 'default')
+    .action(async (options: { name?: string }) => {
+      const pythonPath = process.env.BITTENSOR_PYTHON_PATH || detectPython();
+      if (!pythonPath) {
+        console.log('\nPython not found. Run: clodds bittensor setup\n');
+        return;
+      }
+
+      const name = options.name ?? 'default';
+      console.log(`\nWallet: ${name}`);
+
+      const overview = btcliExec(pythonPath, [
+        'wallet', 'overview',
+        '--wallet.name', name,
+        '--no_prompt',
+      ], 15_000);
+
+      if (overview.ok) {
+        console.log(overview.stdout);
+      } else {
+        console.log(`  Not found. Create: clodds bittensor setup\n`);
+      }
+    });
+
+  wallet
+    .command('create')
+    .description('Create a new Bittensor wallet')
+    .option('--name <name>', 'Wallet name', 'default')
+    .action(async (options: { name?: string }) => {
+      const pythonPath = process.env.BITTENSOR_PYTHON_PATH || detectPython();
+      if (!pythonPath || !hasBtcli(pythonPath)) {
+        console.log('\nbtcli not found. Run: clodds bittensor setup\n');
+        return;
+      }
+
+      const name = options.name ?? 'default';
+      console.log(`\nCreating wallet "${name}"...`);
+
+      const result = btcliExec(pythonPath, [
+        'wallet', 'create',
+        '--wallet.name', name,
+        '--no_prompt',
+      ], 30_000);
+
+      if (result.ok) {
+        console.log('Wallet created successfully.');
+        console.log(result.stdout);
+      } else {
+        console.log(`Failed: ${result.stderr || result.stdout}`);
+      }
+      console.log('');
+    });
+
+  wallet
+    .command('balance')
+    .description('Check TAO balance')
+    .option('--name <name>', 'Wallet name', 'default')
+    .action(async (options: { name?: string }) => {
+      const pythonPath = process.env.BITTENSOR_PYTHON_PATH || detectPython();
+      if (!pythonPath || !hasBtcli(pythonPath)) {
+        console.log('\nbtcli not found. Run: clodds bittensor setup\n');
+        return;
+      }
+
+      const result = btcliExec(pythonPath, [
+        'wallet', 'balance',
+        '--wallet.name', options.name ?? 'default',
+        '--no_prompt',
+      ], 15_000);
+
+      console.log(result.ok ? `\n${result.stdout}\n` : `\nFailed: ${result.stderr}\n`);
+    });
+
+  // ── register: join a subnet ────────────────────────────────────────────────
+  bittensor
+    .command('register <subnetId>')
+    .description('Register on a subnet (e.g. 64 for Chutes)')
+    .option('--name <name>', 'Wallet name', 'default')
+    .action(async (subnetId: string, options: { name?: string }) => {
+      const pythonPath = process.env.BITTENSOR_PYTHON_PATH || detectPython();
+      if (!pythonPath || !hasBtcli(pythonPath)) {
+        console.log('\nbtcli not found. Run: clodds bittensor setup\n');
+        return;
+      }
+
+      const id = parseInt(subnetId, 10);
+      if (isNaN(id)) {
+        console.log('\nInvalid subnet ID. Example: clodds bittensor register 64\n');
+        return;
+      }
+
+      // Read network from config
+      let network = 'mainnet';
+      const cfgPath = join(homedir(), '.clodds', 'clodds.json');
+      if (existsSync(cfgPath)) {
+        try {
+          const cfg = JSON.parse(readFileSync(cfgPath, 'utf-8'));
+          if (cfg.bittensor?.network) network = cfg.bittensor.network;
+        } catch {}
+      }
+
+      console.log(`\nRegistering on subnet ${id} (${network})...`);
+      console.log('This may cost TAO. Check your balance first: clodds bittensor wallet balance\n');
+
+      const args = [
+        'subnet', 'register',
+        '--netuid', String(id),
+        '--wallet.name', options.name ?? 'default',
+        '--no_prompt',
+      ];
+
+      if (network === 'testnet') {
+        args.push('--subtensor.network', 'test');
+      }
+
+      const result = btcliExec(pythonPath, args, 120_000);
+
+      if (result.ok) {
+        console.log('Registered successfully!');
+        console.log(result.stdout);
+      } else {
+        console.log(`Registration failed: ${result.stderr || result.stdout}`);
+      }
+      console.log('');
+    });
+
+  // ── status ─────────────────────────────────────────────────────────────────
+  bittensor
+    .command('status')
+    .description('Show Bittensor mining status')
+    .action(async () => {
+      const { loadConfig } = await import('../../utils/config');
+      const config = await loadConfig();
+      if (!config.bittensor?.enabled) {
+        console.log('\nBittensor is not enabled. Run: clodds bittensor setup\n');
+        return;
+      }
+      console.log('\nBittensor Configuration:');
+      console.log(`  Network: ${config.bittensor.network ?? 'mainnet'}`);
+      console.log(`  Coldkey: ${config.bittensor.coldkeyPath ?? '(not set)'}`);
+      console.log(`  Python: ${config.bittensor.pythonPath ?? 'python3'}`);
+      const subnets = (config.bittensor.subnets as Array<{ subnetId: number; type: string; enabled: boolean }>) ?? [];
+      if (subnets.length > 0) {
+        console.log('  Subnets:');
+        for (const s of subnets) {
+          console.log(`    SN${s.subnetId} [${s.type}]: ${s.enabled ? 'enabled' : 'disabled'}`);
+        }
+      } else {
+        console.log('  Subnets: none configured');
+      }
+      console.log('\nLive status (requires running gateway):');
+      console.log('  curl localhost:18789/api/bittensor/status\n');
+    });
+
+  // ── check: dependency verification ─────────────────────────────────────────
+  bittensor
+    .command('check')
+    .description('Verify all dependencies are installed')
+    .action(() => {
+      console.log('\n=== Bittensor Dependency Check ===\n');
+
+      // Python
+      const pythonPath = process.env.BITTENSOR_PYTHON_PATH || detectPython();
+      if (pythonPath) {
+        const ver = spawnSync(pythonPath, ['--version'], { encoding: 'utf-8' });
+        console.log(`  Python:       ${ver.stdout?.trim()} (${pythonPath})`);
+      } else {
+        console.log('  Python:       NOT FOUND');
+      }
+
+      // btcli
+      if (pythonPath && hasBtcli(pythonPath)) {
+        const ver = spawnSync(pythonPath, ['-c', 'import bittensor; print(bittensor.__version__)'], { encoding: 'utf-8' });
+        console.log(`  bittensor:    ${ver.stdout?.trim()}`);
+      } else {
+        console.log('  bittensor:    NOT INSTALLED');
+      }
+
+      // Wallet
+      const walletDir = join(homedir(), '.bittensor', 'wallets', 'default');
+      console.log(`  Wallet:       ${existsSync(walletDir) ? 'found' : 'not found'} (${walletDir})`);
+
+      // @polkadot/api
+      try {
+        require.resolve('@polkadot/api');
+        console.log('  @polkadot/api: installed');
+      } catch {
+        console.log('  @polkadot/api: NOT INSTALLED');
+      }
+
+      // Config
+      const configPath = join(homedir(), '.clodds', 'clodds.json');
+      if (existsSync(configPath)) {
+        try {
+          const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
+          console.log(`  Config:       ${cfg.bittensor?.enabled ? 'enabled' : 'disabled'} (${configPath})`);
+        } catch {
+          console.log(`  Config:       error reading (${configPath})`);
+        }
+      } else {
+        console.log('  Config:       not found');
+      }
+
+      console.log('\nIf anything is missing, run: clodds bittensor setup\n');
+    });
+}
+
+// =============================================================================
+// DOCTOR COMMAND - comprehensive system health check
+// =============================================================================
+
+export function createDoctorCommand(program: Command): void {
+  program
+    .command('doctor')
+    .description('Run comprehensive system health checks')
+    .option('--verbose', 'Show detailed output')
+    .action(async (options: { verbose?: boolean }) => {
+      const verbose = !!options.verbose;
+      console.log('\n=== Clodds System Doctor ===\n');
+
+      type CheckResult = { name: string; status: 'pass' | 'warn' | 'fail'; message: string; fix?: string };
+      const results: CheckResult[] = [];
+
+      // ── 1. Core: Config + DB ─────────────────────────────────────────────
+      console.log('Checking core...');
+      const configPath = join(homedir(), '.clodds', 'clodds.json');
+      if (existsSync(configPath)) {
+        results.push({ name: 'Config file', status: 'pass', message: configPath });
+      } else {
+        results.push({ name: 'Config file', status: 'warn', message: 'Not found', fix: 'Run: clodds onboard' });
+      }
+
+      const envPath = join(homedir(), '.clodds', '.env');
+      if (existsSync(envPath)) {
+        results.push({ name: '.env file', status: 'pass', message: envPath });
+      } else {
+        results.push({ name: '.env file', status: 'warn', message: 'Not found (using env vars only)' });
+      }
+
+      try {
+        const db = createDatabase();
+        const runner = createMigrationRunner(db);
+        runner.migrate();
+        results.push({ name: 'Database', status: 'pass', message: 'SQLite OK, migrations applied' });
+      } catch (e) {
+        results.push({ name: 'Database', status: 'fail', message: `Error: ${(e as Error).message}` });
+      }
+
+      // ── 2. AI Providers ──────────────────────────────────────────────────
+      console.log('Checking AI providers...');
+
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (!anthropicKey) {
+        results.push({ name: 'Anthropic', status: 'fail', message: 'ANTHROPIC_API_KEY not set', fix: 'https://console.anthropic.com' });
+      } else {
+        try {
+          const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+          });
+          if (r.ok || r.status === 429) {
+            results.push({ name: 'Anthropic', status: 'pass', message: r.ok ? 'Key valid' : 'Key valid (rate limited)' });
+          } else {
+            results.push({ name: 'Anthropic', status: 'fail', message: `HTTP ${r.status}`, fix: 'Check key at console.anthropic.com' });
+          }
+        } catch (e) {
+          results.push({ name: 'Anthropic', status: 'warn', message: `Network error: ${(e as Error).message}` });
+        }
+      }
+
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (openaiKey) {
+        try {
+          const r = await fetch('https://api.openai.com/v1/models', {
+            headers: { Authorization: `Bearer ${openaiKey}` },
+          });
+          results.push({
+            name: 'OpenAI',
+            status: r.ok || r.status === 429 ? 'pass' : 'fail',
+            message: r.ok ? 'Key valid' : `HTTP ${r.status}`,
+            fix: r.ok ? undefined : 'Check key at platform.openai.com',
+          });
+        } catch (e) {
+          results.push({ name: 'OpenAI', status: 'warn', message: `Network error: ${(e as Error).message}` });
+        }
+      } else if (verbose) {
+        results.push({ name: 'OpenAI', status: 'warn', message: 'Not configured (optional)' });
+      }
+
+      // ── 3. Messaging Channels ────────────────────────────────────────────
+      console.log('Checking channels...');
+
+      // Telegram
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (tgToken) {
+        try {
+          const r = await fetch(`https://api.telegram.org/bot${tgToken}/getMe`);
+          const d = await r.json() as { ok: boolean; result?: { username: string } };
+          results.push({
+            name: 'Telegram',
+            status: d.ok ? 'pass' : 'fail',
+            message: d.ok ? `@${d.result?.username}` : 'Invalid token',
+            fix: d.ok ? undefined : 'Get token from @BotFather',
+          });
+        } catch {
+          results.push({ name: 'Telegram', status: 'warn', message: 'Network error' });
+        }
+      } else if (verbose) {
+        results.push({ name: 'Telegram', status: 'warn', message: 'Not configured' });
+      }
+
+      // Discord
+      const dcToken = process.env.DISCORD_BOT_TOKEN;
+      if (dcToken) {
+        try {
+          const r = await fetch('https://discord.com/api/v10/users/@me', {
+            headers: { Authorization: `Bot ${dcToken}` },
+          });
+          if (r.ok) {
+            const d = await r.json() as { username: string };
+            results.push({ name: 'Discord', status: 'pass', message: `Bot: ${d.username}` });
+          } else {
+            results.push({ name: 'Discord', status: 'fail', message: `HTTP ${r.status}`, fix: 'Check token at discord.com/developers' });
+          }
+        } catch {
+          results.push({ name: 'Discord', status: 'warn', message: 'Network error' });
+        }
+      } else if (verbose) {
+        results.push({ name: 'Discord', status: 'warn', message: 'Not configured' });
+      }
+
+      // Slack
+      const slackToken = process.env.SLACK_BOT_TOKEN;
+      if (slackToken) {
+        try {
+          const r = await fetch('https://slack.com/api/auth.test', {
+            headers: { Authorization: `Bearer ${slackToken}` },
+          });
+          const d = await r.json() as { ok: boolean; user?: string; team?: string; error?: string };
+          results.push({
+            name: 'Slack',
+            status: d.ok ? 'pass' : 'fail',
+            message: d.ok ? `${d.user} @ ${d.team}` : (d.error ?? 'Invalid token'),
+            fix: d.ok ? undefined : 'Check token at api.slack.com/apps',
+          });
+        } catch {
+          results.push({ name: 'Slack', status: 'warn', message: 'Network error' });
+        }
+      } else if (verbose) {
+        results.push({ name: 'Slack', status: 'warn', message: 'Not configured' });
+      }
+
+      // WhatsApp - check auth dir exists
+      const waAuthDir = join(process.cwd(), '.whatsapp-auth');
+      const waConfigAuthDir = (() => {
+        try {
+          const cfg = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf-8')) : {};
+          return cfg.channels?.whatsapp?.authDir;
+        } catch { return undefined; }
+      })();
+      const waDir = waConfigAuthDir || waAuthDir;
+      if (existsSync(waDir)) {
+        results.push({ name: 'WhatsApp', status: 'pass', message: `Auth at ${waDir}` });
+      } else if (verbose) {
+        results.push({ name: 'WhatsApp', status: 'warn', message: 'No auth session', fix: 'Run: clodds whatsapp setup' });
+      }
+
+      // ── 4. Trading Platforms ─────────────────────────────────────────────
+      console.log('Checking trading platforms...');
+
+      const polyKey = process.env.POLY_API_KEY;
+      const polySecret = process.env.POLY_API_SECRET;
+      const polyPass = process.env.POLY_API_PASSPHRASE;
+      if (polyKey && polySecret && polyPass) {
+        try {
+          const r = await fetch('https://clob.polymarket.com/markets?limit=1');
+          results.push({
+            name: 'Polymarket',
+            status: r.ok ? 'pass' : 'warn',
+            message: r.ok ? 'API reachable, credentials configured' : `API returned ${r.status}`,
+          });
+        } catch {
+          results.push({ name: 'Polymarket', status: 'warn', message: 'Network error' });
+        }
+        if (!process.env.POLY_PRIVATE_KEY) {
+          results.push({ name: 'Polymarket (trade)', status: 'warn', message: 'POLY_PRIVATE_KEY not set — read-only mode' });
+        }
+      } else if (verbose) {
+        results.push({ name: 'Polymarket', status: 'warn', message: 'Not configured' });
+      }
+
+      const kalshiKey = process.env.KALSHI_API_KEY;
+      if (kalshiKey) {
+        results.push({
+          name: 'Kalshi',
+          status: process.env.KALSHI_API_SECRET ? 'pass' : 'fail',
+          message: process.env.KALSHI_API_SECRET ? 'API key + secret configured' : 'Missing KALSHI_API_SECRET',
+        });
+      } else if (verbose) {
+        results.push({ name: 'Kalshi', status: 'warn', message: 'Not configured' });
+      }
+
+      // ── 5. External Services ─────────────────────────────────────────────
+      console.log('Checking services...');
+
+      const redisHost = process.env.REDIS_HOST;
+      if (redisHost) {
+        results.push({ name: 'Redis', status: 'warn', message: `Configured: ${redisHost} (not tested — requires connection)` });
+      } else if (verbose) {
+        results.push({ name: 'Redis', status: 'warn', message: 'Not configured (optional — used for execution queue)' });
+      }
+
+      const pgUrl = process.env.DATABASE_URL;
+      if (pgUrl) {
+        results.push({ name: 'PostgreSQL', status: 'warn', message: 'DATABASE_URL set (not tested — requires connection)' });
+      } else if (verbose) {
+        results.push({ name: 'PostgreSQL', status: 'warn', message: 'Not configured (optional — for tick recording)' });
+      }
+
+      // ── 6. Bittensor ────────────────────────────────────────────────────
+      let btEnabled = false;
+      try {
+        const cfg = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf-8')) : {};
+        btEnabled = cfg.bittensor?.enabled === true;
+      } catch {}
+
+      if (btEnabled || process.env.BITTENSOR_ENABLED === 'true') {
+        console.log('Checking Bittensor...');
+        const py = process.env.BITTENSOR_PYTHON_PATH || detectPython();
+        if (py) {
+          results.push({ name: 'Python', status: 'pass', message: py });
+          if (hasBtcli(py)) {
+            results.push({ name: 'btcli', status: 'pass', message: 'Installed' });
+          } else {
+            results.push({ name: 'btcli', status: 'fail', message: 'Not installed', fix: 'Run: clodds bittensor setup' });
+          }
+        } else {
+          results.push({ name: 'Python', status: 'fail', message: 'Not found', fix: 'Install Python 3' });
+        }
+
+        const walletDir = join(homedir(), '.bittensor', 'wallets', 'default');
+        results.push({
+          name: 'Bittensor wallet',
+          status: existsSync(walletDir) ? 'pass' : 'fail',
+          message: existsSync(walletDir) ? walletDir : 'Not found',
+          fix: existsSync(walletDir) ? undefined : 'Run: clodds bittensor setup',
+        });
+      } else if (verbose) {
+        results.push({ name: 'Bittensor', status: 'warn', message: 'Not enabled' });
+      }
+
+      // ── 7. Features Summary ──────────────────────────────────────────────
+      if (verbose) {
+        console.log('Checking features...');
+        const features: Array<{ name: string; enabled: boolean; envVar: string }> = [
+          { name: 'Paper Trading', enabled: process.env.PAPER_TRADING === 'true', envVar: 'PAPER_TRADING' },
+          { name: 'Tick Recording', enabled: !!process.env.TICK_DB_URL, envVar: 'TICK_DB_URL' },
+          { name: 'x402 Payments', enabled: process.env.X402_ENABLED === 'true', envVar: 'X402_ENABLED' },
+          { name: 'Copy Trading', enabled: !!process.env.WHALE_TRACKER_WALLETS, envVar: 'WHALE_TRACKER_WALLETS' },
+          { name: 'News Feed', enabled: !!process.env.TWITTER_BEARER_TOKEN, envVar: 'TWITTER_BEARER_TOKEN' },
+          { name: 'Execution Queue', enabled: !!process.env.REDIS_HOST, envVar: 'REDIS_HOST' },
+          { name: 'Cron Jobs', enabled: process.env.CRON_ENABLED === 'true', envVar: 'CRON_ENABLED' },
+          { name: 'Bittensor Mining', enabled: btEnabled || process.env.BITTENSOR_ENABLED === 'true', envVar: 'BITTENSOR_ENABLED' },
+        ];
+        for (const f of features) {
+          results.push({
+            name: f.name,
+            status: f.enabled ? 'pass' : 'warn',
+            message: f.enabled ? 'Enabled' : `Disabled (set ${f.envVar} to enable)`,
+          });
+        }
+      }
+
+      // ── Display ──────────────────────────────────────────────────────────
+      console.log('');
+      const icons = { pass: '\x1b[32m✓\x1b[0m', warn: '\x1b[33m!\x1b[0m', fail: '\x1b[31m✗\x1b[0m' };
+
+      for (const r of results) {
+        console.log(`  ${icons[r.status]} ${r.name}: ${r.message}`);
+        if (r.fix) {
+          console.log(`    Fix: ${r.fix}`);
+        }
+      }
+
+      const passed = results.filter(r => r.status === 'pass').length;
+      const warned = results.filter(r => r.status === 'warn').length;
+      const failed = results.filter(r => r.status === 'fail').length;
+
+      console.log(`\n  ${passed} passed, ${warned} warnings, ${failed} failed`);
+
+      if (failed > 0) {
+        console.log('\n  Fix the failures above and run `clodds doctor` again.');
+        process.exitCode = 1;
+      } else if (warned > 0) {
+        console.log('\n  Warnings are optional — fix them if you need those features.');
+      } else {
+        console.log('\n  Everything looks good!');
+      }
+
+      console.log(`\n  Tip: Run \`clodds doctor --verbose\` to see all features and optional services.\n`);
+    });
+}
+
+// =============================================================================
 // MAIN EXPORT
 // =============================================================================
 
@@ -2795,5 +3567,7 @@ export function addAllCommands(program: Command): void {
   createLoginCommand(program);
   createLogoutCommand(program);
   createWhatsAppCommands(program);
+  createBittensorCommands(program);
+  createDoctorCommand(program);
   createVersionCommand(program);
 }
