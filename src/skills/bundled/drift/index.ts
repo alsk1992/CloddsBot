@@ -207,8 +207,12 @@ async function handleCancel(orderId?: string): Promise<string> {
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
 
+    const parsedOrderId = orderId ? parseInt(orderId, 10) : undefined;
+    if (parsedOrderId !== undefined && isNaN(parsedOrderId)) {
+      return `Invalid order ID: ${orderId}. Must be a number.`;
+    }
     const result = await drift.cancelDriftOrder(connection, keypair, {
-      orderId: orderId ? parseInt(orderId, 10) : undefined,
+      orderId: parsedOrderId,
     });
 
     return `Order cancelled. TX: \`${result.txSig}\``;

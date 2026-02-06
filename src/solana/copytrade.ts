@@ -452,8 +452,8 @@ export class CopyTrader extends EventEmitter {
         };
       } else {
         // For sells, we need to check our balance first
-        const balance = await this.getTokenBalance(trade.mint);
-        if (balance <= 0) {
+        const balanceInfo = await this.getTokenBalance(trade.mint);
+        if (balanceInfo.uiAmount <= 0) {
           historyEntry.status = 'failed';
           historyEntry.error = 'No tokens to sell';
           return {
@@ -466,7 +466,7 @@ export class CopyTrader extends EventEmitter {
         const result = await executeJupiterSwap(this.connection, this.keypair, {
           inputMint: trade.mint,
           outputMint: SOL_MINT,
-          amount: String(Math.floor(balance * 1e6)), // Assuming 6 decimals, adjust as needed
+          amount: balanceInfo.rawAmount, // Use raw amount from token account (respects actual decimals)
           slippageBps: config.slippageBps || 500,
         });
 
@@ -496,19 +496,23 @@ export class CopyTrader extends EventEmitter {
     }
   }
 
-  private async getTokenBalance(mint: string): Promise<number> {
+  private async getTokenBalance(mint: string): Promise<{ uiAmount: number; rawAmount: string; decimals: number }> {
     try {
       const tokenAccounts = await this.connection.getParsedTokenAccountsByOwner(
         this.keypair.publicKey,
         { mint: new PublicKey(mint) }
       );
 
-      if (tokenAccounts.value.length === 0) return 0;
+      if (tokenAccounts.value.length === 0) return { uiAmount: 0, rawAmount: '0', decimals: 0 };
 
-      const balance = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount;
-      return balance || 0;
+      const tokenAmount = tokenAccounts.value[0].account.data.parsed.info.tokenAmount;
+      return {
+        uiAmount: tokenAmount.uiAmount || 0,
+        rawAmount: tokenAmount.amount || '0',
+        decimals: tokenAmount.decimals || 0,
+      };
     } catch {
-      return 0;
+      return { uiAmount: 0, rawAmount: '0', decimals: 0 };
     }
   }
 

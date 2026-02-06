@@ -79,9 +79,11 @@ async function handleCompare(marketA: string, marketB: string): Promise<string> 
   const service = getService();
 
   // Parse platform:id format
-  const parseMarket = (m: string): { platform: Platform; id: string } => {
+  const VALID_PLATFORMS: Platform[] = ['polymarket', 'kalshi', 'manifold', 'metaculus', 'drift', 'predictit', 'predictfun', 'betfair', 'smarkets', 'opinion', 'virtuals', 'hedgehog', 'hyperliquid', 'binance', 'bybit', 'mexc'];
+  const parseMarket = (m: string): { platform: Platform; id: string } | null => {
     const parts = m.split(':');
     if (parts.length === 2) {
+      if (!VALID_PLATFORMS.includes(parts[0] as Platform)) return null;
       return { platform: parts[0] as Platform, id: parts[1] };
     }
     return { platform: 'polymarket', id: m };
@@ -89,6 +91,8 @@ async function handleCompare(marketA: string, marketB: string): Promise<string> 
 
   const a = parseMarket(marketA);
   const b = parseMarket(marketB);
+  if (!a) return `Unknown platform in "${marketA}". Use format: platform:id (e.g., kalshi:MARKET_ID)`;
+  if (!b) return `Unknown platform in "${marketB}". Use format: platform:id (e.g., polymarket:MARKET_ID)`;
 
   try {
     const result = await service.compareMarkets(a.platform, a.id, b.platform, b.id);

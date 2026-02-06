@@ -332,6 +332,25 @@ export async function sendNativeBatch(
   recipients: BatchTransferItem[],
   privateKey: string
 ): Promise<TransferResult[]> {
+  // Pre-check: verify total balance covers all transfers
+  const provider = getProvider(chain);
+  const wallet = new Wallet(privateKey, provider);
+  const balance = await provider.getBalance(wallet.address);
+  const totalNeeded = recipients.reduce(
+    (sum, r) => sum + parseEther(r.amount),
+    0n
+  );
+  if (balance < totalNeeded) {
+    const shortfall = formatEther(totalNeeded - balance);
+    return recipients.map(r => ({
+      success: false,
+      from: wallet.address,
+      to: r.to,
+      amount: r.amount,
+      error: `Insufficient balance for batch. Need ${formatEther(totalNeeded)}, have ${formatEther(balance)} (short ${shortfall})`,
+    }));
+  }
+
   const results: TransferResult[] = [];
 
   for (const { to, amount } of recipients) {

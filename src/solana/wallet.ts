@@ -39,10 +39,16 @@ export async function signAndSendVersionedTransaction(
   const tx = VersionedTransaction.deserialize(txBytes);
   tx.sign([keypair]);
   const raw = tx.serialize();
-  return await connection.sendRawTransaction(raw, {
+  const signature = await connection.sendRawTransaction(raw, {
     skipPreflight: false,
     preflightCommitment: 'confirmed',
   });
+
+  // Confirm transaction to detect on-chain failures
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+
+  return signature;
 }
 
 export async function signAndSendTransaction(
