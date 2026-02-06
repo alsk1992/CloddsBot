@@ -159,7 +159,7 @@ const PLATFORM_CONFIGS: Record<TradePlatform, PlatformConfig> = {
   uniswap: {
     name: 'Uniswap',
     type: 'dex',
-    chains: ['ethereum', 'arbitrum', 'polygon', 'optimism'],
+    chains: ['ethereum', 'arbitrum', 'polygon', 'optimism', 'base'],
     minSize: 1,
     maxSize: 10000000,
     fees: 0.003,

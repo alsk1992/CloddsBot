@@ -487,11 +487,16 @@ async function getUniswapQuote(
 
   const amounts = await router.getAmountsOut(inputAmount, path);
   const outputAmount = amounts[1];
-  const outputAmountMin = (outputAmount * BigInt(10000 - slippageBps)) / 10000n;
+  const clampedSlippage = Math.max(0, Math.min(slippageBps, 10000));
+  const outputAmountMin = (outputAmount * BigInt(10000 - clampedSlippage)) / 10000n;
 
-  // Calculate price impact (simplified)
-  const currentPrice = Number(formatUnits(inputAmount, inputDecimals)) / Number(formatUnits(outputAmount, outputDecimals));
-  const priceImpact = 0; // Would need to compare with spot price
+  // Price = VIRTUAL per agent token (consistent with bonding curve convention)
+  const inputFloat = Number(formatUnits(inputAmount, inputDecimals));
+  const outputFloat = Number(formatUnits(outputAmount, outputDecimals));
+  const currentPrice = side === 'buy'
+    ? (inputFloat > 0 && outputFloat > 0 ? inputFloat / outputFloat : 0)
+    : (inputFloat > 0 && outputFloat > 0 ? outputFloat / inputFloat : 0);
+  const priceImpact = 0; // Would need spot price comparison
 
   return {
     agentToken: { address: agentToken, symbol, decimals: tokenDecimals },

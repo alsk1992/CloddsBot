@@ -313,14 +313,17 @@ export async function createVirtualsFeed(config?: {
 
     try {
       const contract = new Contract(tokenAddress, BONDING_ABI, provider);
-      const [assetBalance, tokenBalance] = await Promise.all([
+      const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
+      const [assetBalance, tokenBalance, decimals] = await Promise.all([
         contract.assetBalance(),
         contract.tokenBalance(),
+        tokenContract.decimals().catch(() => 18),
       ]);
 
-      // Price = assetBalance (VIRTUAL) / tokenBalance (agent tokens)
+      const tokenDecimals = Number(decimals);
+      // Price = assetBalance (VIRTUAL, 18 dec) / tokenBalance (agent tokens, tokenDecimals)
       const vReserve = Number(formatUnits(assetBalance, 18));
-      const tReserve = Number(formatUnits(tokenBalance, 18));
+      const tReserve = Number(formatUnits(tokenBalance, tokenDecimals));
       const price = tReserve > 0 ? vReserve / tReserve : 0;
       return price;
     } catch (error) {
