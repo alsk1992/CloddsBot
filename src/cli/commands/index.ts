@@ -3940,6 +3940,10 @@ export function createOnboardCommand(program: Command): void {
 
           console.log('');
 
+          // Silence pino logs during startup so they don't pollute the wizard UI
+          const prevLogLevel = process.env.LOG_LEVEL;
+          process.env.LOG_LEVEL = 'silent';
+
           const config = await loadConfig();
           const { configureHttpClient } = await import('../../utils/http.js');
           configureHttpClient(config.http);
@@ -3948,6 +3952,14 @@ export function createOnboardCommand(program: Command): void {
           process.stdout.write(`  ${dim('Starting...')}`);
           const gateway = await createGateway(config);
           await gateway.start();
+
+          // Restore log level for normal operation
+          if (prevLogLevel !== undefined) {
+            process.env.LOG_LEVEL = prevLogLevel;
+          } else {
+            delete process.env.LOG_LEVEL;
+          }
+
           console.log(`\r  ${green(bold('Clodds is running'))}                `);
           console.log('');
           console.log(`  ${cyan(`http://localhost:${config.gateway.port}/webchat`)}`);
