@@ -62,6 +62,9 @@ import { configureHttpClient } from '../utils/http';
 import { normalizeIncomingMessage } from '../messages/unified';
 import { setupShutdownHandlers, onShutdown, trackError } from '../utils/production';
 import { createSignalBus, type SignalBus } from './signal-bus';
+import { createTradingOrchestrator, type TradingOrchestrator } from '../trading/orchestrator';
+import { createSafetyManager, type SafetyManager } from '../trading/safety';
+import { createCircuitBreaker } from '../execution/circuit-breaker';
 
 // =============================================================================
 // TYPES
@@ -571,6 +574,42 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     } else {
       logger.warn('Trading enabled but no platform credentials configured');
     }
+  }
+
+  // Wire safety + circuit breaker + orchestrator around execution service.
+  // By reassigning executionService, all downstream consumers (signal router,
+  // copy trading, arbitrage executor) automatically get safety-checked execution.
+  let orchestrator: TradingOrchestrator | null = null;
+  let safetyManager: SafetyManager | null = null;
+  if (executionService) {
+    // Circuit breaker: execution-level error rate + loss tracking
+    const circuitBreaker = createCircuitBreaker({
+      maxLossUsd: config.trading?.maxDailyLoss ?? 1000,
+      maxConsecutiveLosses: 5,
+      maxErrorRate: 0.5,
+      resetTimeoutMs: 3600_000,
+    });
+    executionService.setCircuitBreaker(circuitBreaker);
+
+    // Safety manager: daily loss limits, drawdown, concentration checks
+    safetyManager = createSafetyManager(db, {
+      dailyLossLimit: config.trading?.maxDailyLoss ?? 500,
+      maxDrawdownPct: 20,
+      maxConcentrationPct: 25,
+      maxSameDirectionPositions: 5,
+    });
+
+    // Orchestrator wraps execution with pre-trade safety validation
+    orchestrator = createTradingOrchestrator({
+      execution: executionService,
+      safety: safetyManager,
+      db,
+    });
+
+    // Replace raw execution with guarded version for all downstream consumers
+    executionService = orchestrator.execution;
+
+    logger.info('Trading orchestrator wired: safety manager + circuit breaker active');
   }
 
   // Execution queue setup — reads from config.queue or env vars.

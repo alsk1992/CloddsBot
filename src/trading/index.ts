@@ -65,6 +65,7 @@ export * from './ml-signals';
 export * from './market-making/index';
 export { createTradingBridge, type TradingBridge, type TradingBridgeOpts } from './bridge';
 export { createCryptoHftAdapter, createDivergenceAdapter } from './adapters/index';
+export { createTradingOrchestrator, type TradingOrchestrator, type OrchestratorConfig, type OrchestratorStats } from './orchestrator';
 
 import {
   createTradeLogger,
