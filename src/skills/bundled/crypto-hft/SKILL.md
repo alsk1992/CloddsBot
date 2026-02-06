@@ -1,11 +1,16 @@
 ---
 name: crypto-hft
 description: "Automated trading on Polymarket 15-minute crypto binary markets"
-command: crypto-hft
-aliases:
-  - hft
+commands:
+  - /crypto-hft
+  - /hft
 gates:
-  envs: []
+  envs:
+    - POLY_PRIVATE_KEY
+    - POLY_FUNDER_ADDRESS
+    - POLY_API_KEY
+    - POLY_API_SECRET
+    - POLY_API_PASSPHRASE
 ---
 
 # Crypto HFT - 15-Minute Market Trading

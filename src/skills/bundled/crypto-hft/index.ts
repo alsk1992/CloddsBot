@@ -45,13 +45,13 @@ async function getFeed(): Promise<CryptoFeed | null> {
   }
 }
 
-function getExecution(): ExecutionService | null {
+async function getExecution(): Promise<ExecutionService | null> {
   if (execInstance) return execInstance;
   try {
     const privateKey = process.env.POLY_PRIVATE_KEY || process.env.PRIVATE_KEY;
     if (!privateKey) return null;
 
-    const { createExecutionService } = require('../../../execution/index.js');
+    const { createExecutionService } = await import('../../../execution/index.js');
     execInstance = createExecutionService({
       polymarket: {
         privateKey,
@@ -85,7 +85,7 @@ async function execute(args: string): Promise<string> {
 
       const feed = await getFeed();
       if (!feed) return 'Crypto feed not available. Check that Binance WS is reachable.';
-      const exec = getExecution();
+      const exec = await getExecution();
 
       // Check for preset
       const presetIdx = args.indexOf('--preset');
