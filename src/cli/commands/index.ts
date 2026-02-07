@@ -3899,6 +3899,12 @@ export function createOnboardCommand(program: Command): void {
         mkdirSync(cloddsDir, { recursive: true });
       }
 
+      // Auto-generate credential encryption key if not set
+      if (!envVars.CLODDS_CREDENTIAL_KEY && !process.env.CLODDS_CREDENTIAL_KEY) {
+        const { randomBytes } = await import('crypto');
+        envVars.CLODDS_CREDENTIAL_KEY = randomBytes(32).toString('hex');
+      }
+
       // Write .env
       const envContent = Object.entries(envVars)
         .filter(([_, v]) => v && v !== 'sk-ant-...')

@@ -117,6 +117,28 @@ export function loadSkillsFromDir(dir: string): Skill[] {
         if (skill) {
           skills.push(skill);
         }
+      } else {
+        // Fallback: try loading from JS module default export
+        const indexPath = path.join(dir, entry.name, 'index.js');
+        if (fs.existsSync(indexPath)) {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const mod = require(indexPath);
+            const def = mod.default || mod;
+            if (def && def.name) {
+              const cmds = (def.commands || []) as string[];
+              skills.push({
+                name: def.name,
+                description: def.description || '',
+                path: indexPath,
+                content: cmds.length > 0 ? `Commands: ${cmds.join(', ')}` : '',
+                enabled: true,
+              });
+            }
+          } catch {
+            // Skip modules that fail to load
+          }
+        }
       }
     }
   }
