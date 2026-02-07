@@ -3655,19 +3655,6 @@ export function createOnboardCommand(program: Command): void {
     .option('--channel <name>', 'Channel to configure (telegram, discord, slack, webchat)')
     .option('--no-start', 'Skip the "start now?" prompt')
     .action(async (options: { apiKey?: string; channel?: string; start?: boolean }) => {
-      // Mute pino-pretty output during the wizard. The logger is already
-      // constructed (imported at top-level), so we intercept stdout writes
-      // and filter out pino-pretty formatted lines (timestamped log lines).
-      const _origWrite = process.stdout.write.bind(process.stdout);
-      const pinoLineRe = /^\[?\d{4}-\d{2}-\d{2}[T ]/;
-      let muteLogLines = true;
-      process.stdout.write = function (chunk: any, ...args: any[]) {
-        if (muteLogLines && typeof chunk === 'string' && pinoLineRe.test(chunk)) {
-          return true; // swallow pino log lines
-        }
-        return (_origWrite as any)(chunk, ...args);
-      } as any;
-
       const { createInterface } = await import('readline');
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       const ask = (prompt: string): Promise<string> =>
@@ -3968,8 +3955,9 @@ export function createOnboardCommand(program: Command): void {
           const gateway = await createGateway(config);
           await gateway.start();
 
-          // Stop filtering pino lines from stdout
-          muteLogLines = false;
+          // Restore logging now that the gateway is running
+          const { logger: rootLog } = await import('../../utils/logger.js');
+          (rootLog as any).level = 'info';
 
           console.log(`\r  ${green(bold('Clodds is running'))}                `);
           console.log('');

@@ -10,6 +10,12 @@
  * - clodds pairing users <channel> - List paired users
  */
 
+// Silence pino during onboard/setup so log spam doesn't pollute the wizard.
+// Must run BEFORE any import that touches the logger (pino reads LOG_LEVEL once).
+if (process.argv.includes('onboard') || process.argv.includes('setup')) {
+  process.env.LOG_LEVEL = 'silent';
+}
+
 import 'dotenv/config';
 import { Command } from 'commander';
 import { createDatabase } from '../db/index';
