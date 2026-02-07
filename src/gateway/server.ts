@@ -40,7 +40,7 @@ export interface GatewayServer {
   setCommandListHandler(handler: CommandListHandler | null): void;
 }
 
-export type CommandListHandler = () => Array<{ name: string; description: string; category: string; subcommands?: Array<{ name: string; description: string }> }>;
+export type CommandListHandler = () => Array<{ name: string; description: string; category: string; subcommands?: Array<{ name: string; description: string; category: string }> }>;
 
 export type ChannelWebhookHandler = (
   platform: string,
@@ -1012,25 +1012,39 @@ export function createServer(
         if (!parent || !parent.subcommands || !parent.subcommands.length) { hidePalette(); return; }
 
         const subs = subQuery
-          ? parent.subcommands.filter(s => s.name.toLowerCase().includes(subQuery) || s.description.toLowerCase().includes(subQuery))
+          ? parent.subcommands.filter(s => s.name.toLowerCase().includes(subQuery) || s.description.toLowerCase().includes(subQuery) || (s.category || '').toLowerCase().includes(subQuery))
           : parent.subcommands;
 
         if (!subs.length) { hidePalette(); return; }
-        filteredCommands = subs.map(s => ({ name: s.name, description: s.description, fullName: parentCmd + ' ' + s.name }));
+        filteredCommands = subs.map(s => ({ name: s.name, description: s.description, category: s.category || 'General', fullName: parentCmd + ' ' + s.name }));
         subcommandMode = true;
 
         let html = '<div class="cmd-palette-header">'
-          + '<span>' + parentCmd + ' subcommands</span>'
+          + '<span>' + parentCmd + '</span>'
           + '<span class="cmd-palette-hint"><kbd>\u2191\u2193</kbd> navigate <kbd>Tab</kbd> select <kbd>Esc</kbd> close</span>'
           + '</div>';
         html += '<div class="cmd-back" data-action="back">\u2190 All commands</div>';
 
-        let idx = 0;
+        // Group subcommands by category
+        const subGroups = {};
         for (const cmd of filteredCommands) {
-          html += '<div class="cmd-item' + (idx === activeIndex ? ' active' : '') + '" data-index="' + idx + '" data-name="' + cmd.fullName + '">'
-            + '<span class="cmd-item-name">' + cmd.name + '</span>'
-            + '<span class="cmd-item-desc">' + cmd.description + '</span></div>';
-          idx++;
+          (subGroups[cmd.category] = subGroups[cmd.category] || []).push(cmd);
+        }
+
+        let idx = 0;
+        for (const [section, cmds] of Object.entries(subGroups)) {
+          html += '<div class="cmd-category">'
+            + '<div class="cmd-category-label">'
+            + '<span>' + section + '</span>'
+            + '<span class="cmd-category-count">' + cmds.length + '</span>'
+            + '</div>';
+          for (const cmd of cmds) {
+            html += '<div class="cmd-item' + (idx === activeIndex ? ' active' : '') + '" data-index="' + idx + '" data-name="' + cmd.fullName + '">'
+              + '<span class="cmd-item-name">' + cmd.name + '</span>'
+              + '<span class="cmd-item-desc">' + cmd.description + '</span></div>';
+            idx++;
+          }
+          html += '</div>';
         }
 
         palette.innerHTML = html;

@@ -75,42 +75,55 @@ function checkGates(gates?: SkillFrontmatter['gates']): boolean {
 }
 
 /**
- * Parse subcommands from SKILL.md content.
- * Supports two patterns:
+ * Parse subcommands from SKILL.md content, grouped by ### section headings.
+ * Supports two command patterns:
  *   A) Markdown tables:  | `/hl balance` | Description |
  *   B) Code block lines: /hl balance     # Description
+ * Each subcommand gets the category from its nearest ### heading above it.
  */
-function parseSubcommands(skillName: string, content: string): Array<{ name: string; description: string }> {
+function parseSubcommands(skillName: string, content: string): Array<{ name: string; description: string; category: string }> {
   const seen = new Set<string>();
-  const result: Array<{ name: string; description: string }> = [];
+  const result: Array<{ name: string; description: string; category: string }> = [];
   const normalized = skillName.toLowerCase().replace(/\s+/g, '-');
 
-  // Pattern A: Markdown table rows with backtick-quoted commands
-  // e.g. | `/hl balance` | Positions, balances, margin |
-  const tableRegex = /^\|\s*`\/?[\w-]+\s+([\w-]+)(?:\s[^`]*)?\`\s*\|\s*([^|]+)\|/gm;
-  let m: RegExpExecArray | null;
-  while ((m = tableRegex.exec(content)) !== null) {
-    const sub = m[1].toLowerCase();
-    const desc = m[2].trim();
-    if (!seen.has(sub)) {
-      seen.add(sub);
-      result.push({ name: sub, description: desc });
-    }
-  }
+  // Split content into lines and walk through, tracking current ### heading
+  const lines = content.split('\n');
+  let currentSection = 'General';
 
-  // Pattern B: Code block lines starting with /skillname subcmd
-  // e.g. /copy follow <address>     # Start following a wallet
-  //      /drift long <market> <size>   Open long position
+  const tableRegex = /^\|\s*`\/?[\w-]+\s+([\w-]+)(?:\s[^`]*)?\`\s*\|\s*([^|]+)\|/;
   const lineRegex = new RegExp(
-    `^\\s*\\/?${normalized}\\s+(\\w[\\w-]*)(?:\\s[^#\\n]*)?(?:#\\s*(.+))?$`,
-    'gm'
+    `^\\s*\\/?${normalized}\\s+(\\w[\\w-]*)(?:\\s[^#\\n]*)?(?:#\\s*(.+))?$`
   );
-  while ((m = lineRegex.exec(content)) !== null) {
-    const sub = m[1].toLowerCase();
-    const desc = (m[2] || '').trim();
-    if (!seen.has(sub)) {
-      seen.add(sub);
-      result.push({ name: sub, description: desc });
+
+  for (const line of lines) {
+    // Track ### section headings
+    const headingMatch = line.match(/^###\s+(.+)/);
+    if (headingMatch) {
+      currentSection = headingMatch[1].trim();
+      continue;
+    }
+
+    // Pattern A: table row
+    const tableMatch = line.match(tableRegex);
+    if (tableMatch) {
+      const sub = tableMatch[1].toLowerCase();
+      const desc = tableMatch[2].trim();
+      if (!seen.has(sub)) {
+        seen.add(sub);
+        result.push({ name: sub, description: desc, category: currentSection });
+      }
+      continue;
+    }
+
+    // Pattern B: code block line
+    const lineMatch = line.match(lineRegex);
+    if (lineMatch) {
+      const sub = lineMatch[1].toLowerCase();
+      const desc = (lineMatch[2] || '').trim();
+      if (!seen.has(sub)) {
+        seen.add(sub);
+        result.push({ name: sub, description: desc, category: currentSection });
+      }
     }
   }
 

@@ -666,7 +666,7 @@ export interface Skill {
   path: string;
   content: string;
   enabled: boolean;
-  subcommands?: Array<{ name: string; description: string }>;
+  subcommands?: Array<{ name: string; description: string; category: string }>;
 }
 
 // =============================================================================
