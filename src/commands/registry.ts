@@ -72,11 +72,11 @@ export const COMMAND_CATEGORIES: Record<string, string> = {
   opportunity: 'Market Data', edge: 'Market Data', 'market-index': 'Market Data',
   news: 'Market Data', research: 'Market Data', analytics: 'Market Data',
   ticks: 'Market Data', features: 'Market Data',
-  'whale-tracking': 'Market Data', weather: 'Market Data', stream: 'Market Data',
+  weather: 'Market Data', stream: 'Market Data',
 
   // ── Polymarket ──
   'trading-polymarket': 'Polymarket', 'copy-trading': 'Polymarket',
-  track: 'Polymarket',
+  track: 'Polymarket', 'crypto-hft': 'Polymarket', 'whale-tracking': 'Polymarket',
 
   // ── Kalshi ──
   'trading-kalshi': 'Kalshi',
@@ -119,9 +119,9 @@ export const COMMAND_CATEGORIES: Record<string, string> = {
 
   // ── Bots & Execution ──
   bot: 'Bots & Execution', arbitrage: 'Bots & Execution',
-  'crypto-hft': 'Bots & Execution', mm: 'Bots & Execution',
-  execution: 'Bots & Execution', 'trading-system': 'Bots & Execution',
-  slippage: 'Bots & Execution', trades: 'Bots & Execution',
+  mm: 'Bots & Execution', execution: 'Bots & Execution',
+  'trading-system': 'Bots & Execution', slippage: 'Bots & Execution',
+  trades: 'Bots & Execution',
 
   // ── Portfolio ──
   portfolio: 'Portfolio', pnl: 'Portfolio', positions: 'Portfolio',
