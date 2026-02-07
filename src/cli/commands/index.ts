@@ -3655,6 +3655,10 @@ export function createOnboardCommand(program: Command): void {
     .option('--channel <name>', 'Channel to configure (telegram, discord, slack, webchat)')
     .option('--no-start', 'Skip the "start now?" prompt')
     .action(async (options: { apiKey?: string; channel?: string; start?: boolean }) => {
+      // Mute all pino logs during the wizard so they don't pollute the UI
+      const { logger } = await import('../../utils/logger.js');
+      (logger as any).level = 'silent';
+
       const { createInterface } = await import('readline');
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       const ask = (prompt: string): Promise<string> =>
@@ -3951,10 +3955,6 @@ export function createOnboardCommand(program: Command): void {
 
           console.log('');
 
-          // Silence pino logs during startup so they don't pollute the wizard UI
-          const prevLogLevel = process.env.LOG_LEVEL;
-          process.env.LOG_LEVEL = 'silent';
-
           const config = await loadConfig();
           const { configureHttpClient } = await import('../../utils/http.js');
           configureHttpClient(config.http);
@@ -3964,12 +3964,8 @@ export function createOnboardCommand(program: Command): void {
           const gateway = await createGateway(config);
           await gateway.start();
 
-          // Restore log level for normal operation
-          if (prevLogLevel !== undefined) {
-            process.env.LOG_LEVEL = prevLogLevel;
-          } else {
-            delete process.env.LOG_LEVEL;
-          }
+          // Restore logging for normal operation
+          (logger as any).level = 'info';
 
           console.log(`\r  ${green(bold('Clodds is running'))}                `);
           console.log('');
