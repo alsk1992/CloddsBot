@@ -87,8 +87,9 @@ src/
      },
    };
    ```
-2. Add the directory name to `SKILL_MANIFEST` in `src/skills/executor.ts`
-3. Run `npx tsc --noEmit` to verify
+2. Add the directory name to `SKILL_MANIFEST` in `src/skills/executor.ts` (alphabetical order)
+3. Add the skill name to `COMMAND_CATEGORIES` in `src/commands/registry.ts` with its category (e.g. `'your-skill': 'Tools'`)
+4. Run `npm run typecheck` to verify
 
 Skills are lazy-loaded via `await import()` on first use. Each skill loads in its own try/catch, so a missing dependency only disables that one skill. If `requires.env` is set, the executor checks those vars before calling the handler and returns a clear message if any are missing.
 

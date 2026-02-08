@@ -130,7 +130,7 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 | **Token Security** | GoPlus-powered audits — honeypot detection, rug-pull analysis, holder concentration, risk scoring |
 | **Security Shield** | Code scanning (75 rules), scam DB (70+ addresses), multi-chain address checking, pre-trade tx validation |
 | **Trading** | Order execution on 5 platforms, portfolio tracking, P&L, trade logging, DCA on 16 platforms |
-| **MCP Server** | Expose all 111 skills as MCP tools for Claude Desktop and Claude Code |
+| **MCP Server** | Expose all 113 skills as MCP tools for Claude Desktop and Claude Code |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
 | **AI** | 6 LLM providers, 4 specialized agents, semantic memory, 21 tools |
 | **i18n** | 10 languages (EN, ZH, ES, JA, KO, DE, FR, PT, RU, AR) |

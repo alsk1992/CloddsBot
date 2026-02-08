@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Supports: Ethereum, BSC, Polygon, Arbitrum, Optimism, Avalanche, Fantom, Base, Linea, Scroll, zkSync, Mantle, Blast, Solana
 
 #### MCP Server Mode
-- `clodds mcp` command to expose all 111 skills as MCP tools via stdio JSON-RPC
+- `clodds mcp` command to expose all 113 skills as MCP tools via stdio JSON-RPC
 - `clodds mcp install` auto-configures Claude Desktop and Claude Code
 - `clodds mcp uninstall` removes configuration
 - Protocol version 2024-11-05, lazy skill loading, all tools named `clodds_<skill>`
