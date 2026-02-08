@@ -618,6 +618,9 @@ export interface Database {
   updateSession(session: Session): void;
   deleteSession(key: string): void;
   deleteSessionsBefore(cutoffMs: number): number;
+  getSessionById(id: string): Session | undefined;
+  listWebchatSessions(userId: string): Array<{ id: string; title: string | undefined; updatedAt: number; messageCount: number; lastMessage: string | undefined }>;
+  updateSessionTitle(key: string, title: string): void;
 
   // Cron jobs
   listCronJobs(): Array<{
@@ -1893,6 +1896,7 @@ export async function initDatabase(): Promise<Database> {
     try { db.run('ALTER TABLE market_index ADD COLUMN liquidity REAL'); } catch { /* Column exists */ }
     try { db.run('ALTER TABLE market_index ADD COLUMN open_interest REAL'); } catch { /* Column exists */ }
     try { db.run('ALTER TABLE market_index ADD COLUMN predictions INTEGER'); } catch { /* Column exists */ }
+    try { db.run('ALTER TABLE sessions ADD COLUMN title TEXT'); } catch { /* Column exists */ }
 
     // Ensure embeddings table exists for older DBs
     db.run(`
@@ -2052,7 +2056,12 @@ export async function initDatabase(): Promise<Database> {
 
   function parseSession(row: Record<string, unknown> | undefined): Session | undefined {
     if (!row) return undefined;
-    const context = JSON.parse((row.context as string) || '{}');
+    let context: any;
+    try { context = JSON.parse((row.context as string) || '{}'); } catch { context = {}; }
+    context.messageCount ??= 0;
+    context.lastMarkets ??= [];
+    context.preferences ??= {};
+    context.conversationHistory ??= [];
     return {
       id: row.id as string,
       key: row.key as string,
@@ -2061,6 +2070,7 @@ export async function initDatabase(): Promise<Database> {
       accountId: extractAccountIdFromSessionKey(row.key as string),
       chatId: row.chat_id as string,
       chatType: row.chat_type as 'dm' | 'group',
+      title: (row.title as string) || undefined,
       context,
       history: context.conversationHistory || [],
       lastActivity: row.last_activity ? new Date(row.last_activity as number) : new Date(row.updated_at as number),
@@ -2253,7 +2263,7 @@ export async function initDatabase(): Promise<Database> {
     getSession(key: string): Session | undefined {
       return parseSession(
         getOne(
-          'SELECT id, key, user_id, channel, chat_id, chat_type, context, created_at, updated_at FROM sessions WHERE key = ?',
+          'SELECT id, key, user_id, channel, chat_id, chat_type, context, title, created_at, updated_at FROM sessions WHERE key = ?',
           [key]
         )
       );
@@ -2281,7 +2291,7 @@ export async function initDatabase(): Promise<Database> {
     getLatestSessionForChat(platform: string, chatId: string): Session | undefined {
       return parseSession(
         getOne(
-          'SELECT id, key, user_id, channel, chat_id, chat_type, context, created_at, updated_at FROM sessions WHERE channel = ? AND chat_id = ? ORDER BY updated_at DESC LIMIT 1',
+          'SELECT id, key, user_id, channel, chat_id, chat_type, context, title, created_at, updated_at FROM sessions WHERE channel = ? AND chat_id = ? ORDER BY updated_at DESC LIMIT 1',
           [platform, chatId]
         )
       );
@@ -2289,7 +2299,7 @@ export async function initDatabase(): Promise<Database> {
 
     createSession(session: Session): void {
       run(
-        'INSERT INTO sessions (id, key, user_id, channel, chat_id, chat_type, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO sessions (id, key, user_id, channel, chat_id, chat_type, context, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           session.id,
           session.key,
@@ -2298,6 +2308,7 @@ export async function initDatabase(): Promise<Database> {
           session.chatId,
           session.chatType,
           JSON.stringify(session.context),
+          session.title || null,
           session.createdAt.getTime(),
           session.updatedAt.getTime(),
         ]
@@ -2305,8 +2316,9 @@ export async function initDatabase(): Promise<Database> {
     },
 
     updateSession(session: Session): void {
-      run('UPDATE sessions SET context = ?, updated_at = ? WHERE key = ?', [
+      run('UPDATE sessions SET context = ?, title = ?, updated_at = ? WHERE key = ?', [
         JSON.stringify(session.context),
+        session.title || null,
         session.updatedAt.getTime(),
         session.key,
       ]);
@@ -2321,6 +2333,46 @@ export async function initDatabase(): Promise<Database> {
       if (rows.length === 0) return 0;
       run('DELETE FROM sessions WHERE updated_at < ?', [cutoffMs]);
       return rows.length;
+    },
+
+    getSessionById(id: string): Session | undefined {
+      return parseSession(
+        getOne(
+          'SELECT id, key, user_id, channel, chat_id, chat_type, context, title, created_at, updated_at FROM sessions WHERE id = ?',
+          [id]
+        )
+      );
+    },
+
+    listWebchatSessions(userId: string): Array<{ id: string; title: string | undefined; updatedAt: number; messageCount: number; lastMessage: string | undefined }> {
+      const rows = getAll<{ id: string; title: string | null; context: string; updated_at: number }>(
+        'SELECT id, title, context, updated_at FROM sessions WHERE channel = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 200',
+        ['webchat', userId]
+      );
+      return rows.map(row => {
+        let messageCount = 0;
+        let lastMessage: string | undefined;
+        try {
+          const ctx = JSON.parse(row.context || '{}');
+          const history = ctx.conversationHistory || [];
+          messageCount = history.length;
+          if (history.length > 0) {
+            const last = history[history.length - 1];
+            lastMessage = typeof last.content === 'string' ? last.content.slice(0, 100) : undefined;
+          }
+        } catch { /* ignore */ }
+        return {
+          id: row.id,
+          title: row.title || undefined,
+          updatedAt: row.updated_at,
+          messageCount,
+          lastMessage,
+        };
+      });
+    },
+
+    updateSessionTitle(key: string, title: string): void {
+      run('UPDATE sessions SET title = ?, updated_at = ? WHERE key = ?', [title, Date.now(), key]);
     },
 
     // Cron jobs

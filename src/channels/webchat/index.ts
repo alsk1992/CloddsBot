@@ -59,6 +59,12 @@ export function createWebChatChannel(
   }
 
   function handleConnection(ws: WebSocket, sessionId: string): void {
+    // Evict any existing connection using this sessionId
+    const existing = sessions.get(sessionId);
+    if (existing && existing.ws !== ws && existing.ws.readyState === WebSocket.OPEN) {
+      existing.ws.close(4001, 'Session taken by another connection');
+    }
+
     const session: ChatSession = {
       id: sessionId,
       ws,
@@ -142,7 +148,7 @@ export function createWebChatChannel(
               id: randomUUID(),
               platform: 'webchat',
               userId: session.userId,
-              chatId: sessionId, // Use session as chat
+              chatId: session.id, // Use current session id (updated by switch)
               chatType: 'dm',
               text: typeof message.text === 'string' ? message.text.trim() : '',
               attachments: attachments.length > 0 ? attachments : undefined,
@@ -202,6 +208,48 @@ export function createWebChatChannel(
             }));
             break;
 
+          case 'switch':
+            if (!session.authenticated) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Not authenticated. Send auth first.',
+              }));
+              return;
+            }
+            if (message.sessionId && typeof message.sessionId === 'string') {
+              // Remove old session mapping, create new one
+              const oldSessionId = session.id;
+              sessions.delete(oldSessionId);
+
+              const newSessionId = message.sessionId;
+
+              // Evict any existing connection at the target session
+              const existingAtNew = sessions.get(newSessionId);
+              if (existingAtNew && existingAtNew.ws !== ws) {
+                if (existingAtNew.ws.readyState === WebSocket.OPEN) {
+                  existingAtNew.ws.close(4001, 'Session taken by another connection');
+                }
+                sessions.delete(newSessionId);
+              }
+
+              session.id = newSessionId;
+              sessions.set(newSessionId, session);
+
+              // Update user socket tracking
+              const userSessions = userSockets.get(session.userId);
+              if (userSessions) {
+                userSessions.delete(oldSessionId);
+                userSockets.get(session.userId)!.add(newSessionId);
+              }
+
+              ws.send(JSON.stringify({
+                type: 'switched',
+                sessionId: newSessionId,
+              }));
+              logger.info({ oldSessionId, newSessionId, userId: session.userId }, 'WebChat: Session switched');
+            }
+            break;
+
           case 'ping':
             ws.send(JSON.stringify({ type: 'pong' }));
             break;
@@ -213,32 +261,40 @@ export function createWebChatChannel(
             }));
         }
       } catch (error) {
-        logger.error({ error, sessionId }, 'WebChat: Error processing message');
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Invalid message format',
-        }));
+        logger.error({ error, sessionId: session.id }, 'WebChat: Error processing message');
+        try {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to process message',
+          }));
+        } catch { /* socket may already be closed */ }
       }
     });
 
     ws.on('close', () => {
-      logger.info({ sessionId }, 'WebChat: Connection closed');
+      // Use session.id (not the closure's sessionId) since it may have been updated by switch
+      const currentId = session.id;
+      logger.info({ sessionId: currentId }, 'WebChat: Connection closed');
+
+      // Only clean up if this session still owns the map entry (not evicted by a replacement)
+      const mapped = sessions.get(currentId);
+      if (!mapped || mapped.ws !== ws) return;
 
       // Clean up user socket tracking
       const userId = session.userId;
       const userSessionIds = userSockets.get(userId);
       if (userSessionIds) {
-        userSessionIds.delete(sessionId);
+        userSessionIds.delete(currentId);
         if (userSessionIds.size === 0) {
           userSockets.delete(userId);
         }
       }
 
-      sessions.delete(sessionId);
+      sessions.delete(currentId);
     });
 
     ws.on('error', (error) => {
-      logger.error({ error, sessionId }, 'WebChat: WebSocket error');
+      logger.error({ error, sessionId: session.id }, 'WebChat: WebSocket error');
     });
   }
 
@@ -249,9 +305,17 @@ export function createWebChatChannel(
       // Handle upgrades for /chat path
       wss.on('connection', (ws, req) => {
         // Only handle /chat connections
-        if (req.url !== '/chat') return;
+        const url = req.url || '';
+        if (!url.startsWith('/chat')) return;
 
-        const sessionId = randomUUID();
+        // Support sessionId from URL query param
+        let sessionId: string;
+        try {
+          const parsed = new URL(url, 'http://localhost');
+          sessionId = parsed.searchParams.get('sessionId') || randomUUID();
+        } catch {
+          sessionId = randomUUID();
+        }
         handleConnection(ws, sessionId);
       });
 
@@ -266,6 +330,16 @@ export function createWebChatChannel(
               session.ws.close(4000, 'Idle timeout');
             }
             sessions.delete(sessionId);
+
+            // Clean up user socket tracking
+            const userSessionIds = userSockets.get(session.userId);
+            if (userSessionIds) {
+              userSessionIds.delete(sessionId);
+              if (userSessionIds.size === 0) {
+                userSockets.delete(session.userId);
+              }
+            }
+
             logger.info({ sessionId }, 'WebChat: Closed idle connection');
           }
         }

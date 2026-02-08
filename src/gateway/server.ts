@@ -5,8 +5,9 @@
 import express, { Request, Router } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createHttpServer, Server, IncomingMessage } from 'http';
+import { join } from 'path';
 import { logger } from '../utils/logger';
-import type { Config } from '../types';
+import type { Config, Session } from '../types';
 import type { WebhookManager } from '../automation/webhooks';
 import { createWebhookMiddleware } from '../automation/webhooks';
 import { createX402Server, type X402Middleware } from '../payments/x402';
@@ -163,14 +164,25 @@ export type TickRecorderStatsHandler = (
   };
 } | { error: string; status?: number }>;
 
+export interface ServerDb {
+  query: <T>(sql: string) => T[];
+  getSessionById?(id: string): Session | undefined;
+  createSession?(session: Session): void;
+  updateSession?(session: Session): void;
+  deleteSession?(key: string): void;
+  listWebchatSessions?(userId: string): Array<{ id: string; title: string | undefined; updatedAt: number; messageCount: number; lastMessage: string | undefined }>;
+  updateSessionTitle?(key: string, title: string): void;
+}
+
 export function createServer(
   config: Config['gateway'] & { x402?: Config['x402'] },
   webhooks?: WebhookManager,
-  db?: { query: <T>(sql: string) => T[] }
+  db?: ServerDb
 ): GatewayServer {
   const app = express();
   let httpServer: Server | null = null;
   let wss: WebSocketServer | null = null;
+  let ipCleanupInterval: NodeJS.Timeout | null = null;
   let channelWebhookHandler: ChannelWebhookHandler | null = null;
   let marketIndexHandler: MarketIndexHandler | null = null;
   let marketIndexStatsHandler: MarketIndexStatsHandler | null = null;
@@ -278,7 +290,7 @@ export function createServer(
   });
 
   // Cleanup old IP records every 5 minutes
-  setInterval(() => {
+  ipCleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [ip, record] of ipRequestCounts) {
       if (now > record.resetAt + IP_RATE_WINDOW_MS) {
@@ -433,8 +445,140 @@ export function createServer(
     res.json({ commands: commandListHandler() });
   });
 
-  // Serve simple WebChat HTML client
-  app.get('/webchat', (_req, res) => {
+  // ── Session REST API for webchat ──
+
+  // GET /api/chat/sessions — list sessions for a user
+  app.get('/api/chat/sessions', (req, res) => {
+    const userId = (req.query.userId as string) || '';
+    if (!userId || !db?.listWebchatSessions) {
+      res.json({ sessions: [] });
+      return;
+    }
+    try {
+      const sessions = db.listWebchatSessions(userId);
+      res.json({ sessions });
+    } catch (error) {
+      logger.error({ error }, 'Failed to list webchat sessions');
+      res.status(500).json({ error: 'Failed to list sessions' });
+    }
+  });
+
+  // GET /api/chat/sessions/:id — load session with messages
+  app.get('/api/chat/sessions/:id', (req, res) => {
+    if (!db?.getSessionById) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    try {
+      const session = db.getSessionById(req.params.id);
+      if (!session) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+      res.json({
+        id: session.id,
+        title: session.title,
+        messages: session.context.conversationHistory || [],
+        updatedAt: session.updatedAt.getTime(),
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to get webchat session');
+      res.status(500).json({ error: 'Failed to get session' });
+    }
+  });
+
+  // POST /api/chat/sessions — create new session
+  app.post('/api/chat/sessions', (req, res) => {
+    if (!db?.createSession) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    try {
+      const userId = req.body?.userId || 'web-anonymous';
+      const now = new Date();
+      const sessionId = crypto.randomUUID();
+      const session: Session = {
+        id: sessionId,
+        key: `agent:main:webchat:dm:${sessionId}:${userId}`,
+        userId,
+        channel: 'webchat',
+        chatId: sessionId,
+        chatType: 'dm',
+        context: {
+          messageCount: 0,
+          lastMarkets: [],
+          preferences: {},
+          conversationHistory: [],
+        },
+        history: [],
+        lastActivity: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      db.createSession(session);
+      res.json({
+        session: {
+          id: session.id,
+          title: undefined,
+          updatedAt: now.getTime(),
+          messageCount: 0,
+          lastMessage: undefined,
+        },
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to create webchat session');
+      res.status(500).json({ error: 'Failed to create session' });
+    }
+  });
+
+  // DELETE /api/chat/sessions/:id — delete a session
+  app.delete('/api/chat/sessions/:id', (req, res) => {
+    if (!db?.getSessionById || !db?.deleteSession) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    try {
+      const session = db.getSessionById(req.params.id);
+      if (!session) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+      db.deleteSession(session.key);
+      res.json({ ok: true });
+    } catch (error) {
+      logger.error({ error }, 'Failed to delete webchat session');
+      res.status(500).json({ error: 'Failed to delete session' });
+    }
+  });
+
+  // PATCH /api/chat/sessions/:id — rename session
+  app.patch('/api/chat/sessions/:id', (req, res) => {
+    if (!db?.getSessionById || !db?.updateSessionTitle) {
+      res.status(500).json({ error: 'Database not available' });
+      return;
+    }
+    try {
+      const session = db.getSessionById(req.params.id);
+      if (!session) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+      const title = req.body?.title;
+      if (typeof title === 'string') {
+        db.updateSessionTitle(session.key, title);
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      logger.error({ error }, 'Failed to update webchat session');
+      res.status(500).json({ error: 'Failed to update session' });
+    }
+  });
+
+  // ── Static webchat files ──
+  app.use('/webchat', express.static(join(__dirname, '../../public/webchat')));
+
+  // Legacy inline WebChat HTML client
+  app.get('/webchat/legacy', (_req, res) => {
     res.send(`
 <!DOCTYPE html>
 <html>
@@ -2128,7 +2272,7 @@ export function createServer(
         httpServer = createHttpServer(app);
 
         // WebSocket server - handles both /ws and /chat
-        wss = new WebSocketServer({ noServer: true });
+        wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
         // Handle upgrade requests
         httpServer.on('upgrade', (request: IncomingMessage, socket, head) => {
@@ -2156,7 +2300,8 @@ export function createServer(
         // Default /ws handler (for API/control)
         wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
           // /chat connections are handled by WebChat channel via attachWebSocket
-          if (request.url === '/chat') {
+          const reqPath = (request.url || '').split('?')[0];
+          if (reqPath === '/chat') {
             return; // Let WebChat handle it
           }
 
@@ -2192,9 +2337,17 @@ export function createServer(
     },
 
     async stop() {
-      return new Promise((resolve) => {
+      if (ipCleanupInterval) {
+        clearInterval(ipCleanupInterval);
+        ipCleanupInterval = null;
+      }
+      return new Promise<void>((resolve) => {
         wss?.close();
-        httpServer?.close(() => resolve());
+        if (httpServer) {
+          httpServer.close(() => resolve());
+        } else {
+          resolve();
+        }
       });
     },
 
