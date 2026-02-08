@@ -1209,20 +1209,22 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   httpGateway.setCommandListHandler(() => {
     const registryCommands = commands.listAll();
     const registryNames = new Set(registryCommands.map(c => c.name));
-    const skillCommands = agents.getSkillCommands()
-      .map(s => {
-        // Normalize: lowercase, no spaces, strip leading slash
-        const normalized = s.name.toLowerCase().replace(/\s+/g, '-');
-        return { ...s, normalized };
-      })
-      .filter(s => !registryNames.has(`/${s.normalized}`))
-      .map(s => ({
-        name: `/${s.normalized}`,
-        description: s.description,
-        category: COMMAND_CATEGORIES[s.name] || COMMAND_CATEGORIES[s.normalized] || 'Other',
-        subcommands: s.subcommands || [],
-      }));
-    return [...registryCommands, ...skillCommands]
+    const skillEntries: typeof registryCommands = [];
+    for (const s of agents.getSkillCommands()) {
+      const normalized = s.name.toLowerCase().replace(/\s+/g, '-');
+      if (registryNames.has(`/${normalized}`)) continue;
+      const cats = COMMAND_CATEGORIES[s.name] || COMMAND_CATEGORIES[normalized] || 'Other';
+      const catList = Array.isArray(cats) ? cats : [cats];
+      for (const category of catList) {
+        skillEntries.push({
+          name: `/${normalized}`,
+          description: s.description,
+          category,
+          subcommands: s.subcommands || [],
+        });
+      }
+    }
+    return [...registryCommands, ...skillEntries]
       .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
   });
 

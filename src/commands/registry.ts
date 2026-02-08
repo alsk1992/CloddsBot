@@ -58,10 +58,11 @@ export interface CommandListEntry {
   name: string;
   description: string;
   category: string;
+  subcommands?: Array<{ name: string; description: string; category: string }>;
 }
 
-/** Category mapping for all known commands and skills */
-export const COMMAND_CATEGORIES: Record<string, string> = {
+/** Category mapping — string for single category, string[] for multi-category commands */
+export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
   // ── Core ──
   help: 'Core', new: 'Core', reset: 'Core', status: 'Core', model: 'Core',
   context: 'Core', resume: 'Core', sessions: 'Core', doctor: 'Core',
@@ -69,10 +70,20 @@ export const COMMAND_CATEGORIES: Record<string, string> = {
 
   // ── Market Data ──
   markets: 'Market Data', compare: 'Market Data', trending: 'Market Data',
-  opportunity: 'Market Data', edge: 'Market Data', 'market-index': 'Market Data',
-  news: 'Market Data', research: 'Market Data', analytics: 'Market Data',
-  ticks: 'Market Data', features: 'Market Data',
+  'market-index': 'Market Data', news: 'Market Data', research: 'Market Data',
+  analytics: 'Market Data', ticks: 'Market Data', features: 'Market Data',
   weather: 'Market Data', stream: 'Market Data',
+
+  // ── Cross-platform commands → appear under each platform they support ──
+  opportunity: ['Market Data', 'Polymarket', 'Kalshi', 'Prediction Markets', 'Sportsbooks'],
+  edge: ['Market Data', 'Polymarket', 'Kalshi'],
+  arbitrage: ['Polymarket', 'Kalshi', 'Prediction Markets', 'Sportsbooks'],
+  execution: ['Polymarket', 'Kalshi'],
+  portfolio: ['Portfolio', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures'],
+  positions: ['Portfolio', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures'],
+  pnl: ['Portfolio', 'Polymarket', 'Hyperliquid', 'CEX Futures'],
+  slippage: ['Polymarket', 'Kalshi'],
+  trades: ['Polymarket', 'Kalshi', 'Hyperliquid'],
 
   // ── Polymarket ──
   'trading-polymarket': 'Polymarket', 'copy-trading': 'Polymarket',
@@ -118,13 +129,10 @@ export const COMMAND_CATEGORIES: Record<string, string> = {
   'agent-quote': 'Virtuals & Agents', 'virtual-balance': 'Virtuals & Agents',
 
   // ── Bots & Execution ──
-  bot: 'Bots & Execution', arbitrage: 'Bots & Execution',
-  mm: 'Bots & Execution', execution: 'Bots & Execution',
-  'trading-system': 'Bots & Execution', slippage: 'Bots & Execution',
-  trades: 'Bots & Execution',
+  bot: 'Bots & Execution', mm: 'Bots & Execution',
+  'trading-system': 'Bots & Execution',
 
-  // ── Portfolio ──
-  portfolio: 'Portfolio', pnl: 'Portfolio', positions: 'Portfolio',
+  // ── Portfolio (single-category ones already handled above) ──
   'portfolio-sync': 'Portfolio', history: 'Portfolio', ledger: 'Portfolio',
 
   // ── Strategy ──
@@ -691,13 +699,15 @@ export function createCommandRegistry(): CommandRegistry {
   }
 
   function listAll(): CommandListEntry[] {
-    return Array.from(commands.values())
-      .map((c) => ({
-        name: `/${c.name}`,
-        description: c.description,
-        category: COMMAND_CATEGORIES[c.name] || 'Other',
-      }))
-      .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    const entries: CommandListEntry[] = [];
+    for (const c of commands.values()) {
+      const cats = COMMAND_CATEGORIES[c.name] || 'Other';
+      const catList = Array.isArray(cats) ? cats : [cats];
+      for (const category of catList) {
+        entries.push({ name: `/${c.name}`, description: c.description, category });
+      }
+    }
+    return entries.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
   }
 
   async function handle(
