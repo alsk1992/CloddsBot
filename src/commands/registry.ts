@@ -78,12 +78,12 @@ export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
   opportunity: ['Market Data', 'Polymarket', 'Kalshi', 'Prediction Markets', 'Sportsbooks'],
   edge: ['Market Data', 'Polymarket', 'Kalshi'],
   arbitrage: ['Polymarket', 'Kalshi', 'Prediction Markets', 'Sportsbooks'],
-  execution: ['Polymarket', 'Kalshi'],
-  portfolio: ['Portfolio', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures'],
-  positions: ['Portfolio', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures'],
+  execution: ['Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures'],
+  portfolio: ['Portfolio', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures', 'Solana DeFi'],
+  positions: ['Portfolio', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures', 'Solana DeFi'],
   pnl: ['Portfolio', 'Polymarket', 'Hyperliquid', 'CEX Futures'],
-  slippage: ['Polymarket', 'Kalshi'],
-  trades: ['Polymarket', 'Kalshi', 'Hyperliquid'],
+  slippage: ['Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures'],
+  trades: ['Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures'],
 
   // ── Polymarket ──
   'trading-polymarket': 'Polymarket', 'copy-trading': 'Polymarket',
@@ -117,7 +117,7 @@ export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
   'copy-trading-solana': 'Solana DeFi',
 
   // ── EVM DeFi ──
-  swap: 'EVM DeFi', bridge: 'EVM DeFi', 'trading-evm': 'EVM DeFi',
+  swap: 'EVM DeFi', bridge: ['EVM DeFi', 'Solana DeFi'], 'trading-evm': 'EVM DeFi',
   router: 'EVM DeFi', routing: 'EVM DeFi', mev: 'EVM DeFi',
   clanker: 'EVM DeFi', endaoment: 'EVM DeFi', onchainkit: 'EVM DeFi',
   erc8004: 'EVM DeFi', ens: 'EVM DeFi', qrcoin: 'EVM DeFi',
@@ -141,8 +141,9 @@ export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
   sizing: 'Strategy', risk: 'Strategy', safety: 'Strategy',
 
   // ── Wallet & Accounts ──
-  wallet: 'Wallet', send: 'Wallet', chains: 'Wallet',
-  account: 'Wallet', credentials: 'Wallet',
+  wallet: ['Wallet', 'Solana DeFi', 'EVM DeFi'],
+  send: ['Wallet', 'Solana DeFi', 'EVM DeFi'],
+  chains: 'Wallet', account: 'Wallet', credentials: 'Wallet',
 
   // ── Automation ──
   alerts: 'Automation', triggers: 'Automation', automation: 'Automation',
