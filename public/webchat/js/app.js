@@ -214,6 +214,63 @@ class App {
       }
     });
 
+    // Voice input (Web Speech API)
+    const micBtn = document.getElementById('mic-btn');
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition && micBtn) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      let listening = false;
+      let textBeforeVoice = '';
+
+      micBtn.addEventListener('click', () => {
+        if (listening) {
+          recognition.abort();
+          return;
+        }
+        textBeforeVoice = inputEl.value;
+        listening = true;
+        micBtn.classList.add('listening');
+        micBtn.title = 'Stop listening';
+        recognition.start();
+      });
+
+      recognition.onresult = (e) => {
+        let interim = '';
+        let final = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const transcript = e.results[i][0].transcript;
+          if (e.results[i].isFinal) {
+            final += transcript;
+          } else {
+            interim += transcript;
+          }
+        }
+        const separator = textBeforeVoice && !textBeforeVoice.endsWith(' ') ? ' ' : '';
+        inputEl.value = textBeforeVoice + separator + (final || interim);
+        autoResize();
+        sendBtnEl.classList.toggle('active', inputEl.value.trim().length > 0);
+      };
+
+      const stopListening = () => {
+        listening = false;
+        micBtn.classList.remove('listening');
+        micBtn.title = 'Voice input';
+      };
+
+      recognition.onend = stopListening;
+      recognition.onerror = (e) => {
+        stopListening();
+        if (e.error !== 'aborted' && e.error !== 'no-speech') {
+          console.warn('Speech recognition error:', e.error);
+        }
+      };
+    } else if (micBtn) {
+      micBtn.classList.add('unsupported');
+    }
+
     document.addEventListener('click', (e) => {
       if (!paletteEl.contains(e.target) && e.target !== inputEl) {
         this.commands.hide();

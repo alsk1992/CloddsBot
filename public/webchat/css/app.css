@@ -756,6 +756,32 @@ body {
 .file-preview-remove:hover { color: var(--text-primary); }
 .attach-btn svg { flex-shrink: 0; }
 
+/* ── Mic Button ── */
+.mic-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.mic-btn:hover { color: var(--text-primary); background: rgba(255,255,255,0.08); }
+.mic-btn.listening {
+  color: var(--red);
+  animation: mic-pulse 1.5s ease-in-out infinite;
+}
+.mic-btn.unsupported { display: none; }
+@keyframes mic-pulse {
+  0%, 100% { background: rgba(248, 113, 113, 0.1); }
+  50% { background: rgba(248, 113, 113, 0.25); }
+}
+
 /* ── Scroll to Bottom ── */
 .scroll-bottom {
   display: none;
