@@ -9,12 +9,12 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.3.4-blue" alt="Version">
-  <img src="https://img.shields.io/badge/node-%3E%3D20-brightgreen" alt="Node.js">
+  <a href="https://www.npmjs.com/package/clodds"><img src="https://img.shields.io/npm/v/clodds?color=blue" alt="npm version"></a>
+  <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node.js">
   <img src="https://img.shields.io/badge/typescript-5.3-blue" alt="TypeScript">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/channels-22-purple" alt="22 Channels">
-  <img src="https://img.shields.io/badge/markets-10-orange" alt="9 Markets">
+  <img src="https://img.shields.io/badge/channels-21-purple" alt="21 Channels">
+  <img src="https://img.shields.io/badge/markets-10-orange" alt="10 Markets">
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 ---
 
-**Clodds** is a personal AI trading terminal for prediction markets, crypto spot, and **perpetual futures with leverage**. Run it on your own machine, chat via any of **22 messaging platforms**, trade across **10 prediction markets + 6 futures exchanges** (including on-chain Solana perps via Percolator), and manage your portfolio — all through natural conversation.
+**Clodds** is a personal AI trading terminal for prediction markets, crypto spot, and **perpetual futures with leverage**. Run it on your own machine, chat via any of **21 messaging platforms**, trade across **10 prediction markets + 7 futures exchanges** (including on-chain Solana perps via Percolator), and manage your portfolio — all through natural conversation.
 
 Built on Claude with arbitrage detection algorithms based on [arXiv:2508.03474](https://arxiv.org/abs/2508.03474), which documented arbitrage patterns on Polymarket. See [Arbitrage Limitations](#arbitrage-limitations) for practical considerations.
 
@@ -37,7 +37,7 @@ Built on Claude with arbitrage detection algorithms based on [arXiv:2508.03474](
 
 | Option | Best For | Setup Time | Features |
 |--------|----------|------------|----------|
-| **[Self-Hosted](#quick-start)** | Full control, all features | 5 min | 22 channels, trading, DeFi, bots |
+| **[Self-Hosted](#quick-start)** | Full control, all features | 2 min | 21 channels, trading, DeFi, bots |
 | **[Cloudflare Worker](#cloudflare-worker)** | Lightweight, edge deployment | 2 min | 3 webhook channels, market data, arbitrage |
 | **[Compute API](#compute-api)** | Agents paying for compute | Live | LLM, code, web, data, storage |
 
@@ -78,32 +78,28 @@ See [docs/API.md](./docs/API.md#clodds-compute-api) for full documentation.
 
 ## Quick Start
 
-**Option 1: npm (recommended)**
 ```bash
-# One-time: configure npm for @alsk1992 scope
-echo "@alsk1992:registry=https://npm.pkg.github.com" >> ~/.npmrc
-
-# Install globally
-npm install -g @alsk1992/clodds
-
-# Run
-export ANTHROPIC_API_KEY=sk-ant-...
-clodds start
+npm install -g clodds
+clodds onboard
 ```
 
-**Option 2: From source**
+That's it. The setup wizard walks you through everything — API key, messaging channel, and starts the gateway. WebChat opens at `http://localhost:18789/webchat`.
+
+<details>
+<summary><strong>From source (alternative)</strong></summary>
+
 ```bash
 git clone https://github.com/alsk1992/CloddsBot.git && cd CloddsBot
 npm install && cp .env.example .env
 # Add ANTHROPIC_API_KEY to .env
 npm run build && npm start
 ```
-
-Open `http://localhost:18789/webchat` — no account needed.
+</details>
 
 ## CLI
 
 ```bash
+clodds onboard     # Interactive setup wizard
 clodds start       # Start the gateway
 clodds repl        # Interactive REPL
 clodds doctor      # System diagnostics
@@ -123,19 +119,19 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 
 | Category | What's Included |
 |----------|-----------------|
-| **Messaging** | 22 platforms (Telegram, Discord, WhatsApp, Slack, Teams, Signal, Matrix, iMessage, LINE, Nostr, and more) |
-| **Prediction Markets** | 9 platforms (Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt) |
-| **Perpetual Futures** | 5 exchanges (Binance, Bybit, Hyperliquid, MEXC, Percolator) with up to 200x leverage, database tracking, A/B testing |
+| **Messaging** | 21 platforms (Telegram, Discord, WhatsApp, Slack, Teams, Signal, Matrix, iMessage, LINE, Nostr, and more) |
+| **Prediction Markets** | 10 platforms (Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt, Opinion.xyz, Predict.fun) |
+| **Perpetual Futures** | 7 exchanges (Binance, Bybit, Hyperliquid, MEXC, Drift, Percolator, Lighter) with up to 200x leverage, database tracking, A/B testing |
 | **On-Chain Perps** | Percolator protocol — Solana-native perpetual futures with pluggable matchers, keeper cranking, real-time slab polling |
 | **Token Security** | GoPlus-powered audits — honeypot detection, rug-pull analysis, holder concentration, risk scoring |
 | **Security Shield** | Code scanning (75 rules), scam DB (70+ addresses), multi-chain address checking, pre-trade tx validation |
-| **Trading** | Order execution on 5 platforms, portfolio tracking, P&L, trade logging, DCA on 16 platforms |
-| **MCP Server** | Expose all 113 skills as MCP tools for Claude Desktop and Claude Code |
+| **Trading** | Order execution on 16+ platforms (prediction markets, futures, Solana DEXs, EVM DEXs), portfolio tracking, P&L, DCA |
+| **MCP Server** | Expose all 115 skills as MCP tools for Claude Desktop and Claude Code |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
-| **AI** | 6 LLM providers, 4 specialized agents, semantic memory, 21 tools |
+| **AI** | 8 LLM providers, 4 specialized agents, semantic memory, 18 tools |
 | **i18n** | 10 languages (EN, ZH, ES, JA, KO, DE, FR, PT, RU, AR) |
-| **Solana DeFi** | Jupiter, Raydium, Orca, Meteora, Pump.fun integration |
-| **EVM DeFi** | Uniswap V3, 1inch, Virtuals Protocol (ETH, ARB, OP, Base, Polygon) |
+| **Solana DeFi** | Jupiter, Raydium, Orca, Meteora, Kamino, Pump.fun, Bags.fm, AgentBets |
+| **EVM DeFi** | Uniswap V3, 1inch, PancakeSwap, Virtuals Protocol, Clanker, Veil, ENS (ETH, ARB, OP, Base, Polygon) |
 | **Smart Trading** | Whale tracking, copy trading, smart routing, MEV protection |
 | **Trade Ledger** | Decision audit trail with confidence calibration, SHA-256 integrity hashing, statistics |
 | **Crypto Whale Tracking** | Multi-chain whale monitoring (Solana, ETH, Polygon, ARB, Base, OP) |
@@ -146,7 +142,7 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 
 ---
 
-## Channels (22)
+## Channels (21)
 
 Telegram, Discord, Slack, WhatsApp, Teams, Matrix, Signal, iMessage, LINE, Nostr, Twitch, WebChat, and more.
 
@@ -167,6 +163,8 @@ All channels support real-time sync, rich media, and offline queuing.
 | Metaculus | data | Forecasting |
 | PredictIt | data | US Politics |
 | AgentBets | data | AI Agents / Solana (Colosseum Hackathon) |
+| Opinion.xyz | ✓ | BNB Chain |
+| Predict.fun | ✓ | BNB Chain |
 
 Supports limit/market orders, maker rebates, real-time orderbooks, P&L tracking, and smart routing.
 
@@ -174,9 +172,9 @@ Supports limit/market orders, maker rebates, real-time orderbooks, P&L tracking,
 
 ## Crypto & DeFi
 
-**Solana:** Jupiter, Raydium, Orca, Meteora, Pump.fun — with Jito MEV protection
+**Solana:** Jupiter, Raydium, Orca, Meteora, Kamino, Pump.fun, Bags.fm — with Jito MEV protection
 
-**EVM (5 chains):** Uniswap V3, 1inch, Virtuals Protocol on Ethereum, Arbitrum, Optimism, Base, Polygon — with Flashbots MEV protection
+**EVM (5 chains):** Uniswap V3, 1inch, PancakeSwap, Virtuals Protocol on Ethereum, Arbitrum, Optimism, Base, Polygon — with Flashbots MEV protection
 
 **Bridging:** Wormhole cross-chain transfers (ETH ↔ Solana, Polygon ↔ Base)
 
@@ -184,7 +182,7 @@ Supports limit/market orders, maker rebates, real-time orderbooks, P&L tracking,
 
 ---
 
-## Perpetual Futures (5 Exchanges)
+## Perpetual Futures (7 Exchanges)
 
 | Exchange | Max Leverage | KYC | Type |
 |----------|--------------|-----|------|
@@ -192,7 +190,9 @@ Supports limit/market orders, maker rebates, real-time orderbooks, P&L tracking,
 | Bybit | 100x | Yes | CEX |
 | Hyperliquid | 50x | No | DEX |
 | MEXC | 200x | No | CEX |
+| Drift | 20x | No | DEX (Solana) |
 | Percolator | Varies | No | On-chain (Solana) |
+| Lighter | 50x | No | DEX (Arbitrum) |
 
 Long/short, cross/isolated margin, TP/SL, liquidation alerts, funding tracking, database logging.
 
@@ -220,11 +220,11 @@ Configure: `PERCOLATOR_ENABLED=true PERCOLATOR_SLAB=<pubkey> PERCOLATOR_ORACLE=<
 
 ## AI System
 
-**6 LLM providers:** Claude (primary), GPT-4, Gemini, Groq, Together, Ollama
+**8 LLM providers:** Claude (primary), GPT-4, Gemini, Groq, Together, Fireworks, AWS Bedrock, Ollama
 
 **4 agents:** Main, Trading, Research, Alerts
 
-**21 tools:** Browser, docker, exec, files, git, email, sms, webhooks, sql, vision
+**18 tools:** Browser, docker, exec, files, git, email, sms, webhooks, sql, vision
 
 **Memory:** Semantic search (LanceDB), hybrid BM25, user profiles, persistent facts
 
@@ -315,16 +315,16 @@ Enable: `clodds config set ledger.enabled true`
 
 ## Skills & Extensions
 
-**111 bundled skills** across trading, data, automation, and infrastructure — lazy-loaded on first use so missing dependencies don't crash the app. Run `/skills` to see status.
+**115 bundled skills** across trading, data, automation, and infrastructure — lazy-loaded on first use so missing dependencies don't crash the app. Run `/skills` to see status.
 
 | Category | Skills |
 |----------|--------|
-| Trading | Polymarket, Kalshi, Betfair, Hyperliquid, Binance, Bybit, MEXC, Jupiter, Raydium, Orca, Percolator, DCA (16 platforms) |
+| Trading | Polymarket, Kalshi, Betfair, Hyperliquid, Binance, Bybit, MEXC, Drift, Jupiter, Raydium, Orca, Percolator, DCA (16 platforms) |
 | Analysis | Arbitrage detection, edge finding, whale tracking, copy trading, token security audits, security shield |
 | Automation | Cron jobs, triggers, bots, webhooks |
 | AI | Memory, embeddings, multi-agent routing |
 
-**7 extensions** for Copilot, OpenTelemetry, LanceDB, and more.
+**9 extensions** for Copilot, OpenTelemetry, LanceDB, Qwen Portal, and more.
 
 ---
 
@@ -340,16 +340,16 @@ Enable: `clodds config set ledger.enabled true`
         ▼                         ▼                         ▼
 ┌───────────────┐         ┌───────────────┐         ┌───────────────┐
 │   CHANNELS    │         │    AGENTS     │         │    FEEDS      │
-│   (22)        │         │    (4)        │         │    (9+)       │
+│   (21)        │         │    (4)        │         │    (12+)      │
 ├───────────────┤         ├───────────────┤         ├───────────────┤
 │ Telegram      │         │ Main          │         │ Polymarket    │
 │ Discord       │         │ Trading       │         │ Kalshi        │
 │ WhatsApp      │         │ Research      │         │ Betfair       │
 │ Slack         │         │ Alerts        │         │ Manifold      │
 │ Teams         │         │               │         │ Crypto (10)   │
-│ Matrix        │         │ Tools (21)    │         │               │
-│ Signal        │         │ Skills (110)  │         │ Arbitrage     │
-│ +15 more      │         │ Memory        │         │ Detector      │
+│ Matrix        │         │ Tools (18)    │         │               │
+│ Signal        │         │ Skills (115)  │         │ Arbitrage     │
+│ +14 more      │         │ Memory        │         │ Detector      │
 └───────────────┘         └───────────────┘         └───────────────┘
         │                         │                         │
         └─────────────────────────┼─────────────────────────┘
@@ -443,15 +443,15 @@ docker compose up --build
 
 | Category | Count |
 |----------|------:|
-| Messaging Channels | **22** |
-| Prediction Markets | **9** |
-| Futures Exchanges | **5** |
-| AI Tools | **21** |
-| Skills | **103** |
-| LLM Providers | **6** |
-| Solana DEX Protocols | **5** |
+| Messaging Channels | **21** |
+| Prediction Markets | **10** |
+| Futures Exchanges | **7** |
+| AI Tools | **18** |
+| Skills | **115** |
+| LLM Providers | **8** |
+| Solana DEX Protocols | **7** |
 | Trading Strategies | **4** |
-| Extensions | **7** |
+| Extensions | **9** |
 
 ---
 

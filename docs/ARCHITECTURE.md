@@ -18,8 +18,8 @@ System architecture and design overview for Clodds - the AI trading terminal.
 
 Clodds is a modular AI trading terminal built on three core principles:
 
-1. **Multi-Channel Communication**: Connect through any of 22 messaging platforms
-2. **Multi-Market Integration**: Access 9+ prediction markets and 6 futures exchanges (including on-chain Solana perps)
+1. **Multi-Channel Communication**: Connect through any of 21 messaging platforms
+2. **Multi-Market Integration**: Access 10 prediction markets and 7 futures exchanges (including on-chain Solana perps)
 3. **AI-First Design**: Claude-powered agent with semantic memory and specialized tools
 
 ```
@@ -36,7 +36,7 @@ Clodds is a modular AI trading terminal built on three core principles:
         |               |    |               |    |               |
     +-------+       +-------+            +-------+           +-------+
     |CHANNELS|     | AGENTS |           | FEEDS  |          |TRADING |
-    | (22)   |     |  (4)   |           | (16+)  |          |        |
+    | (21)   |     |  (4)   |           | (20+)  |          |        |
     +-------+       +-------+            +-------+           +-------+
         |               |                    |                   |
     +---+---+       +---+---+            +---+---+           +---+---+
@@ -208,7 +208,7 @@ src/agents/
 | `calendar` | Calendar events |
 | `cron` | Scheduled tasks |
 
-**Skills (110+ Bundled):**
+**Skills (115 Bundled):**
 Skills extend agent capabilities via two complementary systems:
 
 1. **SKILL.md (Prompt Skills)** — Markdown files with YAML frontmatter injected into the AI system prompt. Loaded by `src/skills/loader.ts`.

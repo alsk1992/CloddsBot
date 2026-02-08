@@ -31,5 +31,8 @@ export * from './contracts';
 export * from './uniswap';
 export * from './oneinch';
 
+// PancakeSwap DEX
+export * from './pancakeswap';
+
 // Virtuals Protocol
 export * from './virtuals';

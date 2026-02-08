@@ -5,20 +5,19 @@ chat commands, and common workflows.
 
 ## Quick start
 
-**Option 1: npm install**
 ```bash
-echo "@alsk1992:registry=https://npm.pkg.github.com" >> ~/.npmrc
-npm install -g @alsk1992/clodds
-export ANTHROPIC_API_KEY=sk-ant-...
-clodds start
+npm install -g clodds
+clodds onboard
 ```
 
-**Option 2: From source**
+The wizard sets up your API key, picks a channel, and starts the gateway.
+
+**From source (alternative):**
 ```bash
 git clone https://github.com/alsk1992/CloddsBot.git && cd CloddsBot
-npm install
-cp .env.example .env  # Add ANTHROPIC_API_KEY
-npm run dev
+npm install && cp .env.example .env
+# Add ANTHROPIC_API_KEY to .env
+npm run build && npm start
 ```
 
 The gateway listens on `http://127.0.0.1:18789` by default.
@@ -179,7 +178,7 @@ clodds mcp install              # Auto-configure Claude Desktop & Claude Code
 clodds mcp uninstall            # Remove Clodds from Claude config
 ```
 
-Exposes all 110 skills as MCP tools. After `clodds mcp install`, restart Claude Desktop/Code to use Clodds skills directly from Claude.
+Exposes all 115 skills as MCP tools. After `clodds mcp install`, restart Claude Desktop/Code to use Clodds skills directly from Claude.
 
 ### QMD (Quantitative Market Data) Commands
 

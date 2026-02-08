@@ -1,7 +1,7 @@
 {
-  "name": "@alsk1992/clodds",
-  "version": "1.0.0",
-  "description": "AI trading terminal for 700+ markets. Prediction markets, crypto, futures up to 200x. 22 chat channels, arbitrage, whale tracking, copy trading, MEV protection. Built on Claude.",
+  "name": "clodds",
+  "version": "1.1.0",
+  "description": "Open-source AI trading terminal. Trade Polymarket, Kalshi, Betfair, Binance, Bybit, Hyperliquid, Solana DEXs from Telegram, Discord, Slack or web. Arbitrage detection, whale tracking, copy trading, perpetual futures up to 200x, DeFi swaps, MEV protection. Self-hosted, 115 skills, powered by Claude.",
   "main": "dist/index.js",
   "bin": {
     "clodds": "./dist/cli/index.js"
@@ -17,9 +17,7 @@
     "test": "node --test --import tsx --import ./tests/helpers/test-setup.ts tests/**/*.test.ts",
     "ci": "npm run typecheck && npm run test && npm run build",
     "prepublishOnly": "npm run build",
-    "publish:npm": "npm publish --registry https://registry.npmjs.org",
-    "publish:github": "npm publish --registry https://npm.pkg.github.com",
-    "publish:all": "npm run publish:npm && npm run publish:github"
+    "publish:npm": "npm publish --registry https://registry.npmjs.org"
   },
   "keywords": [
     "trading",
@@ -63,8 +61,7 @@
     "LICENSE"
   ],
   "publishConfig": {
-    "access": "public",
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.73.0",

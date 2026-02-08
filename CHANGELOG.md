@@ -5,6 +5,20 @@ All notable changes to Clodds will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-08
+
+### Added
+
+#### New Exchange & DeFi Integrations
+- **Lighter**: Perpetual futures DEX on Arbitrum — orderbook-based, up to 50x leverage, no KYC
+  - New `src/exchanges/lighter/` module with types, client, and execution
+  - Skill: `/lighter long`, `/lighter short`, `/lighter positions`, `/lighter markets`
+- **PancakeSwap**: Multi-chain DEX swaps on BSC, Ethereum, Arbitrum, Base, zkSync
+  - New `src/evm/pancakeswap.ts` module with V3 smart router integration
+  - Skill: `/pancakeswap swap`, `/pancakeswap quote`, `/pancakeswap pairs`
+- Futures exchanges count: 6 → 7 (added Lighter)
+- Skill count: 113 → 115
+
 ## [1.0.0] - 2026-02-08
 
 ### Added
@@ -512,6 +526,7 @@ Complete agent-to-agent commerce system:
 
 ---
 
+[1.1.0]: https://github.com/alsk1992/CloddsBot/releases/tag/v1.1.0
 [1.0.0]: https://github.com/alsk1992/CloddsBot/releases/tag/v1.0.0
 [0.2.0]: https://github.com/alsk1992/CloddsBot/releases/tag/v0.2.0
 [0.1.0]: https://github.com/alsk1992/CloddsBot/releases/tag/v0.1.0

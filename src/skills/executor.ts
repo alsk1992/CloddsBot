@@ -1,5 +1,5 @@
 /**
- * Skill Executor - Central registry for all 110 bundled CLI skill handlers.
+ * Skill Executor - Central registry for all 115 bundled CLI skill handlers.
  *
  * ARCHITECTURE:
  * - Each skill lives in src/skills/bundled/<name>/index.ts
@@ -76,6 +76,7 @@ const SKILL_MANIFEST: string[] = [
   'jupiter',
   'kamino',
   'ledger',
+  'lighter',
   'market-index',
   'markets',
   'mcp',
@@ -94,6 +95,7 @@ const SKILL_MANIFEST: string[] = [
   'opportunity',
   'orca',
   'pairing',
+  'pancakeswap',
   'percolator',
   'permissions',
   'plugins',
