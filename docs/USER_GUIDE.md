@@ -178,7 +178,7 @@ clodds mcp install              # Auto-configure Claude Desktop & Claude Code
 clodds mcp uninstall            # Remove Clodds from Claude config
 ```
 
-Exposes all 115 skills as MCP tools. After `clodds mcp install`, restart Claude Desktop/Code to use Clodds skills directly from Claude.
+Exposes all 116 skills as MCP tools. After `clodds mcp install`, restart Claude Desktop/Code to use Clodds skills directly from Claude.
 
 ### QMD (Quantitative Market Data) Commands
 

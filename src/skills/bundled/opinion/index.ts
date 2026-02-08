@@ -7,6 +7,8 @@
 import { createOpinionFeed, type OpinionFeed } from '../../../feeds/opinion';
 import { createExecutionService, type ExecutionService } from '../../../execution';
 import { logger } from '../../../utils/logger';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 
 // =============================================================================
 // HELPERS
@@ -454,35 +456,52 @@ const skill = {
 
         case 'help':
         default:
-          return [
-            '**Opinion.trade Commands**',
-            '',
-            '**Market Data:**',
-            '  /op markets [query]   - Search markets',
-            '  /op market <id>       - Market details',
-            '  /op price <id>        - Current prices',
-            '  /op book <tokenId>    - Orderbook',
-            '',
-            '**Trading:**',
-            '  /op buy <id> <outcome> <price> <size>',
-            '  /op sell <id> <outcome> <price> <size>',
-            '  /op orders            - Open orders',
-            '  /op cancel <orderId>  - Cancel order',
-            '  /op cancelall         - Cancel all',
-            '',
-            '**Risk:**',
-            '  /op circuit           - Circuit breaker status',
-            '',
-            '**Examples:**',
-            '  /op markets trump',
-            '  /op buy 813 YES 0.55 100',
-            '  /op sell 813 NO 0.40 50',
-          ].join('\n');
+          return formatHelp({
+            name: 'Opinion.trade',
+            description: 'Prediction market on BNB Chain',
+            sections: [
+              {
+                title: 'Market Data',
+                commands: [
+                  { cmd: '/op markets [query]', description: 'Search markets' },
+                  { cmd: '/op market <id>', description: 'Market details' },
+                  { cmd: '/op price <id>', description: 'Current prices' },
+                  { cmd: '/op book <tokenId>', description: 'Orderbook' },
+                ],
+              },
+              {
+                title: 'Trading',
+                commands: [
+                  { cmd: '/op buy <id> <outcome> <price> <size>', description: 'Buy shares' },
+                  { cmd: '/op sell <id> <outcome> <price> <size>', description: 'Sell shares' },
+                  { cmd: '/op orders', description: 'Open orders' },
+                  { cmd: '/op cancel <orderId>', description: 'Cancel order' },
+                  { cmd: '/op cancelall', description: 'Cancel all orders' },
+                ],
+              },
+              {
+                title: 'Risk',
+                commands: [
+                  { cmd: '/op circuit', description: 'Circuit breaker status' },
+                ],
+              },
+            ],
+            examples: [
+              '/op markets trump',
+              '/op buy 813 YES 0.55 100',
+              '/op sell 813 NO 0.40 50',
+            ],
+            seeAlso: [
+              { cmd: '/poly', description: 'Polymarket trading' },
+              { cmd: '/metaculus', description: 'Metaculus predictions' },
+              { cmd: '/feeds', description: 'Feed registry' },
+            ],
+          });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error({ error: message, args }, 'Opinion command failed');
-      return `Error: ${message}`;
+      return wrapSkillError('Opinion', cmd || 'command', error);
     }
   },
 };

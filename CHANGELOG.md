@@ -17,7 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `src/evm/pancakeswap.ts` module with V3 smart router integration
   - Skill: `/pancakeswap swap`, `/pancakeswap quote`, `/pancakeswap pairs`
 - Futures exchanges count: 6 → 7 (added Lighter)
-- Skill count: 113 → 115
+- Skill count: 113 → 116
+
+#### UX Improvements
+- **Setup wizard**: Added `/setup` onboarding skill for guided configuration of API keys, channels, and trading platforms
+- **Skills directory**: Added `/skills` command with categories, search, and per-skill info (env status, related skills)
+- **Command aliases**: Added shorthand aliases (`/pancakeswap` -> `/cake`, `/start` -> `/setup`, `/hyperliquid` -> `/hl`, etc.)
+- **Standardized help system**: Added `See Also` cross-references between related skills via `SKILL_RELATIONS`
+- **Contextual error messages**: Missing env vars now show descriptions, examples, docs URLs, and troubleshooting tips
+- **Env var documentation**: `ENV_VAR_DOCS` registry provides inline help when skills fail pre-flight checks
 
 ## [1.0.0] - 2026-02-08
 

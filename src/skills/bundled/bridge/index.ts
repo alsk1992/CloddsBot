@@ -8,6 +8,9 @@
  * /bridge routes <token> - Show available routes
  */
 
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
+
 // Resolve destination address from env (same wallet as source)
 function getDestinationAddress(): string {
   // For EVM chains, use EVM_PRIVATE_KEY-derived address
@@ -244,23 +247,50 @@ async function execute(args: string): Promise<string> {
         return helpText();
       }
     }
-  } catch {
-    return helpText();
+  } catch (error) {
+    return wrapSkillError('Bridge', cmd || 'command', error);
   }
 }
 
 function helpText(): string {
-  return `**Bridge Commands**
-
-  /bridge <amount> <token> from <chain> to <chain>  - Bridge tokens
-  /bridge quote <amount> <token> from <chain> to <chain> - Get quote
-  /bridge usdc <amount> from <chain> to <chain>      - USDC via CCTP
-  /bridge redeem <txid> --from <chain> --to <chain>  - Redeem transfer
-  /bridge status <txHash>                            - Check status
-  /bridge routes [token]                             - Available routes
-
-**Supported chains:** Ethereum, Polygon, Base, Solana, Arbitrum, Optimism
-**Protocols:** Wormhole Token Bridge, Circle CCTP`;
+  return formatHelp({
+    name: 'Bridge',
+    emoji: '\u{1F309}',
+    description: 'Cross-chain token transfers using Wormhole and CCTP',
+    sections: [
+      {
+        title: 'Commands',
+        commands: [
+          { cmd: '/bridge <amount> <token> from <chain> to <chain>', description: 'Bridge tokens' },
+          { cmd: '/bridge quote <amount> <token> from <chain> to <chain>', description: 'Get quote without executing' },
+          { cmd: '/bridge usdc <amount> from <chain> to <chain>', description: 'USDC via CCTP (Circle)' },
+          { cmd: '/bridge redeem <txid> --from <chain> --to <chain>', description: 'Redeem a pending transfer' },
+          { cmd: '/bridge status <txHash>', description: 'Check bridge transfer status' },
+          { cmd: '/bridge routes [token]', description: 'Show available routes' },
+        ],
+      },
+    ],
+    examples: [
+      '/bridge 100 USDC from ethereum to base',
+      '/bridge quote 0.5 WETH from ethereum to arbitrum',
+      '/bridge usdc 500 from polygon to base',
+      '/bridge status 0xabc123...',
+    ],
+    envVars: [
+      { name: 'EVM_PRIVATE_KEY', description: 'EVM wallet private key for signing bridge transactions', required: true },
+      { name: 'SOLANA_WALLET_ADDRESS', description: 'Solana wallet address (for Solana bridging)', required: false },
+    ],
+    seeAlso: [
+      { cmd: '/cake', description: 'DEX trading on PancakeSwap' },
+      { cmd: '/trading-evm', description: 'EVM chain trading' },
+      { cmd: '/bags', description: 'View token balances across chains' },
+    ],
+    notes: [
+      'Supported chains: Ethereum, Polygon, Base, Solana, Arbitrum, Optimism',
+      'Protocols: Wormhole Token Bridge, Circle CCTP',
+      'Shortcut: /bridge usdc — skips token arg for USDC-specific CCTP bridging',
+    ],
+  });
 }
 
 export default {

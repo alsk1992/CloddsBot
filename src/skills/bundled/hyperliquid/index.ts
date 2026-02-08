@@ -7,6 +7,8 @@
 import * as hl from '../../../exchanges/hyperliquid';
 import { logger } from '../../../utils/logger';
 import { initDatabase, type HyperliquidTrade, type HyperliquidPosition, type HyperliquidFunding } from '../../../db';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 
 // =============================================================================
 // HELPERS
@@ -1408,53 +1410,97 @@ export const skill = {
 
         case 'help':
         default:
-          return [
-            '**Hyperliquid Commands**',
-            '',
-            '**Market Data:**',
-            '  /hl stats          - HLP stats, funding rates',
-            '  /hl markets [q]    - List markets',
-            '  /hl price <coin>   - Get price',
-            '  /hl book <coin>    - Orderbook',
-            '  /hl candles <coin> - OHLCV data',
-            '  /hl funding [coin] - Funding rates',
-            '',
-            '**Account:**',
-            '  /hl balance        - Positions & balances',
-            '  /hl portfolio      - PnL summary',
-            '  /hl orders         - Open orders',
-            '  /hl fills          - Recent fills',
-            '  /hl history        - Order history',
-            '',
-            '**Trading:**',
-            '  /hl long <coin> <size> [price]',
-            '  /hl short <coin> <size> [price]',
-            '  /hl close <coin>   - Close position',
-            '  /hl closeall       - Close all positions',
-            '  /hl leverage <coin> <x>',
-            '  /hl twap [buy|sell] <coin> <size> <mins>',
-            '',
-            '**Transfers:**',
-            '  /hl transfer spot2perp <amt>',
-            '  /hl transfer send <addr> <amt>',
-            '  /hl transfer withdraw <addr> <amt>',
-            '',
-            '**Other:**',
-            '  /hl hlp [deposit|withdraw]',
-            '  /hl spot [buy|sell]',
-            '  /hl fees, points, referral, lb',
-            '',
-            '**Database/History:**',
-            '  /hl trades [coin] [limit]  - Trade history',
-            '  /hl dbstats [coin] [period] - Win rate, PnL stats',
-            '  /hl dbfunding [coin]       - Funding payments',
-            '  /hl dbpositions [all]      - Position history',
-          ].join('\n');
+          return formatHelp({
+            name: 'Hyperliquid',
+            emoji: '\u{1F537}',
+            description: 'Trade perpetuals and spot on Hyperliquid, the dominant on-chain perps DEX.',
+            sections: [
+              {
+                title: 'Market Data',
+                commands: [
+                  { cmd: '/hl stats', description: 'HLP stats, top funding rates' },
+                  { cmd: '/hl markets [query]', description: 'List perp & spot markets' },
+                  { cmd: '/hl price <coin>', description: 'Current price' },
+                  { cmd: '/hl book <coin>', description: 'Orderbook depth' },
+                  { cmd: '/hl candles <coin> [interval]', description: 'OHLCV candle data' },
+                  { cmd: '/hl funding [coin]', description: 'Funding rates (current or history)' },
+                  { cmd: '/hl lend', description: 'Borrow/lend rates' },
+                ],
+              },
+              {
+                title: 'Account',
+                commands: [
+                  { cmd: '/hl balance', description: 'Positions, balances, points' },
+                  { cmd: '/hl portfolio', description: 'PnL summary (day/week/month/all)' },
+                  { cmd: '/hl orders', description: 'Open orders' },
+                  { cmd: '/hl orders cancel <coin> [id]', description: 'Cancel orders' },
+                  { cmd: '/hl orders cancelall', description: 'Cancel all orders' },
+                  { cmd: '/hl fills [coin]', description: 'Recent fills' },
+                  { cmd: '/hl history', description: 'Order history' },
+                  { cmd: '/hl fees', description: 'Fee tier & rate limits' },
+                  { cmd: '/hl points', description: 'Points & rank' },
+                  { cmd: '/hl referral', description: 'Referral info & rewards' },
+                  { cmd: '/hl claim', description: 'Claim referral rewards' },
+                ],
+              },
+              {
+                title: 'Trading',
+                commands: [
+                  { cmd: '/hl long <coin> <size> [price]', description: 'Open long (market or limit)' },
+                  { cmd: '/hl short <coin> <size> [price]', description: 'Open short (market or limit)' },
+                  { cmd: '/hl close <coin>', description: 'Close position' },
+                  { cmd: '/hl closeall', description: 'Close all positions' },
+                  { cmd: '/hl leverage <coin> <x>', description: 'Set leverage (1-50x)' },
+                  { cmd: '/hl margin <coin> <amount>', description: 'Add/remove isolated margin' },
+                  { cmd: '/hl twap buy|sell <coin> <size> <mins>', description: 'TWAP order' },
+                  { cmd: '/hl spot buy|sell <coin> <amt> [price]', description: 'Spot trade' },
+                ],
+              },
+              {
+                title: 'Advanced',
+                commands: [
+                  { cmd: '/hl hlp [deposit|withdraw] <amt>', description: 'HLP vault deposit/withdraw' },
+                  { cmd: '/hl vaults', description: 'Your vault positions' },
+                  { cmd: '/hl transfer spot2perp|perp2spot <amt>', description: 'Move funds between accounts' },
+                  { cmd: '/hl transfer send <addr> <amt>', description: 'Send USDC on Hyperliquid' },
+                  { cmd: '/hl transfer withdraw <addr> <amt>', description: 'Withdraw to L1' },
+                  { cmd: '/hl sub [create <name>]', description: 'Subaccounts' },
+                  { cmd: '/hl leaderboard [timeframe]', description: 'Top traders' },
+                  { cmd: '/hl trades [coin] [limit]', description: 'Trade history (DB)' },
+                  { cmd: '/hl dbstats [coin] [period]', description: 'Win rate, PnL stats (DB)' },
+                  { cmd: '/hl dbfunding [coin] [limit]', description: 'Funding payments (DB)' },
+                  { cmd: '/hl dbpositions [all]', description: 'Position history (DB)' },
+                ],
+              },
+            ],
+            examples: [
+              '/hl long BTC 0.1          — Market buy 0.1 BTC',
+              '/hl short ETH 1 3000      — Limit short 1 ETH at $3000',
+              '/hl close BTC             — Close BTC position',
+              '/hl twap buy BTC 1 60     — TWAP buy 1 BTC over 60 min',
+              '/hl funding BTC           — 24h funding history for BTC',
+              '/hl dbstats ETH week      — Weekly ETH trade stats',
+            ],
+            envVars: [
+              { name: 'HYPERLIQUID_PRIVATE_KEY', description: 'Wallet private key for signing', required: true },
+              { name: 'HYPERLIQUID_WALLET', description: 'Wallet address (derived if omitted)', required: false },
+              { name: 'DRY_RUN', description: 'Set to "true" to simulate trades', required: false },
+            ],
+            seeAlso: [
+              { cmd: '/lighter', description: 'Lighter DEX perps' },
+              { cmd: '/drift', description: 'Drift Protocol perps (Solana)' },
+              { cmd: '/binance', description: 'Binance CEX trading' },
+              { cmd: '/positions', description: 'Cross-exchange position view' },
+              { cmd: '/copy', description: 'Copy trading' },
+            ],
+            notes: [
+              'Shortcuts: p=price, m=markets, b=balance, l=long, s=short, f=funding, o=orders, h=history, c=candles, ob=book, pf=portfolio, lev=leverage, ref=referral, lb=leaderboard',
+            ],
+          });
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error({ error: message, args }, 'Hyperliquid command failed');
-      return `Error: ${message}`;
+      logger.error({ error: error instanceof Error ? error.message : String(error), args }, 'Hyperliquid command failed');
+      return wrapSkillError('Hyperliquid', cmd || 'command', error);
     }
   },
 };

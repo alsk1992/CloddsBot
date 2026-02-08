@@ -46,7 +46,7 @@ Clodds is a modular AI trading terminal built on three core principles:
     |WhatsApp|     |Alerts |            |Manifold |         |P&L      |
     |Matrix  |      -------             |Crypto   |         |Risk     |
     |Signal  |     |Tools(21)|          |News     |          -------
-    |Teams   |     |Skills(103)|         |External |         |Binance |
+    |Teams   |     |Skills(116)|         |External |         |Binance |
     |WebChat |     |Memory   |           -------            |Bybit   |
     |+14 more|                          |Arbitrage|         |HL      |
     +--------+                          |Detector |         |MEXC    |
@@ -208,7 +208,7 @@ src/agents/
 | `calendar` | Calendar events |
 | `cron` | Scheduled tasks |
 
-**Skills (115 Bundled):**
+**Skills (116 Bundled):**
 Skills extend agent capabilities via two complementary systems:
 
 1. **SKILL.md (Prompt Skills)** — Markdown files with YAML frontmatter injected into the AI system prompt. Loaded by `src/skills/loader.ts`.

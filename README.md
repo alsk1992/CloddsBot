@@ -126,7 +126,7 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 | **Token Security** | GoPlus-powered audits — honeypot detection, rug-pull analysis, holder concentration, risk scoring |
 | **Security Shield** | Code scanning (75 rules), scam DB (70+ addresses), multi-chain address checking, pre-trade tx validation |
 | **Trading** | Order execution on 16+ platforms (prediction markets, futures, Solana DEXs, EVM DEXs), portfolio tracking, P&L, DCA |
-| **MCP Server** | Expose all 115 skills as MCP tools for Claude Desktop and Claude Code |
+| **MCP Server** | Expose all 116 skills as MCP tools for Claude Desktop and Claude Code |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
 | **AI** | 8 LLM providers, 4 specialized agents, semantic memory, 18 tools |
 | **i18n** | 10 languages (EN, ZH, ES, JA, KO, DE, FR, PT, RU, AR) |
@@ -315,7 +315,7 @@ Enable: `clodds config set ledger.enabled true`
 
 ## Skills & Extensions
 
-**115 bundled skills** across trading, data, automation, and infrastructure — lazy-loaded on first use so missing dependencies don't crash the app. Run `/skills` to see status.
+**116 bundled skills** across trading, data, automation, and infrastructure — lazy-loaded on first use so missing dependencies don't crash the app. Run `/skills` to see status.
 
 | Category | Skills |
 |----------|--------|
@@ -348,7 +348,7 @@ Enable: `clodds config set ledger.enabled true`
 │ Slack         │         │ Alerts        │         │ Manifold      │
 │ Teams         │         │               │         │ Crypto (10)   │
 │ Matrix        │         │ Tools (18)    │         │               │
-│ Signal        │         │ Skills (115)  │         │ Arbitrage     │
+│ Signal        │         │ Skills (116)  │         │ Arbitrage     │
 │ +14 more      │         │ Memory        │         │ Detector      │
 └───────────────┘         └───────────────┘         └───────────────┘
         │                         │                         │
@@ -447,7 +447,7 @@ docker compose up --build
 | Prediction Markets | **10** |
 | Futures Exchanges | **7** |
 | AI Tools | **18** |
-| Skills | **115** |
+| Skills | **116** |
 | LLM Providers | **8** |
 | Solana DEX Protocols | **7** |
 | Trading Strategies | **4** |

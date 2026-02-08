@@ -16,6 +16,8 @@ import {
   type EmbeddingConfig,
 } from '../../../embeddings/index';
 import { logger } from '../../../utils/logger';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 
 let service: EmbeddingsService | null = null;
 let serviceInitPromise: Promise<EmbeddingsService | null> | null = null;
@@ -134,58 +136,93 @@ async function handleConfig(): Promise<string> {
 
 export async function execute(args: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
-  const command = parts[0]?.toLowerCase() || 'help';
+  const cmd = parts[0]?.toLowerCase() || 'help';
   const rest = parts.slice(1);
 
-  switch (command) {
-    case 'text':
-    case 'embed':
-      if (rest.length === 0) return 'Usage: /embed text <text>';
-      return handleEmbed(rest.join(' '));
+  try {
+    switch (cmd) {
+      case 'text':
+      case 'embed':
+        if (rest.length === 0) return 'Usage: /embed text <text>';
+        return handleEmbed(rest.join(' '));
 
-    case 'search':
-      if (rest.length === 0) return 'Usage: /embed search <query>';
-      return handleEmbed(rest.join(' ')); // Same as embed for now
+      case 'search':
+        if (rest.length === 0) return 'Usage: /embed search <query>';
+        return handleEmbed(rest.join(' ')); // Same as embed for now
 
-    case 'similarity':
-    case 'compare':
-      if (rest.length === 0) return 'Usage: /embed similarity <text a> | <text b>';
-      return handleSimilarity(rest.join(' '));
+      case 'similarity':
+      case 'compare':
+        if (rest.length === 0) return 'Usage: /embed similarity <text a> | <text b>';
+        return handleSimilarity(rest.join(' '));
 
-    case 'cache':
-      if (rest[0] === 'clear') {
-        const svc = await initService();
-        if (svc) svc.clearCache();
-        return 'Embedding cache cleared.';
-      }
-      return handleCacheStats();
+      case 'cache':
+        if (rest[0] === 'clear') {
+          const svc = await initService();
+          if (svc) svc.clearCache();
+          return 'Embedding cache cleared.';
+        }
+        return handleCacheStats();
 
-    case 'config':
-    case 'status':
-      return handleConfig();
+      case 'config':
+      case 'status':
+        return handleConfig();
 
-    case 'help':
-    default:
-      return `**Embeddings Commands**
-
-**Generate:**
-  /embed text <text>             - Generate embedding vector
-  /embed search <query>          - Semantic search
-
-**Compare:**
-  /embed similarity <a> | <b>   - Compare two texts
-
-**Cache:**
-  /embed cache stats             - Cache statistics
-  /embed cache clear             - Clear cache
-
-**Config:**
-  /embed config                  - Show configuration
-
-**Examples:**
-  /embed text What is prediction market arbitrage?
-  /embed similarity crypto markets | prediction markets
-  /embed config`;
+      case 'help':
+      default:
+        return formatHelp({
+          name: 'Embeddings',
+          emoji: '\u{1F9E0}',
+          description: 'Vector embeddings for semantic search — OpenAI, Voyage, or local transformers.js',
+          sections: [
+            {
+              title: 'Generate',
+              commands: [
+                { cmd: '/embed text <text>', description: 'Generate embedding vector' },
+                { cmd: '/embed search <query>', description: 'Semantic search' },
+              ],
+            },
+            {
+              title: 'Compare',
+              commands: [
+                { cmd: '/embed similarity <a> | <b>', description: 'Compare two texts' },
+              ],
+            },
+            {
+              title: 'Cache',
+              commands: [
+                { cmd: '/embed cache stats', description: 'Cache statistics' },
+                { cmd: '/embed cache clear', description: 'Clear cache' },
+              ],
+            },
+            {
+              title: 'Config',
+              commands: [
+                { cmd: '/embed config', description: 'Show configuration' },
+              ],
+            },
+          ],
+          examples: [
+            '/embed text What is prediction market arbitrage?',
+            '/embed similarity crypto markets | prediction markets',
+            '/embed config',
+          ],
+          envVars: [
+            { name: 'OPENAI_API_KEY', description: 'Use OpenAI text-embedding-3-small', required: false },
+            { name: 'VOYAGE_API_KEY', description: 'Use Voyage AI voyage-2', required: false },
+          ],
+          seeAlso: [
+            { cmd: '/research', description: 'Research with embedded context' },
+            { cmd: '/ai-strategy', description: 'AI-powered strategy discovery' },
+            { cmd: '/search-config', description: 'Configure search settings' },
+          ],
+          notes: [
+            'Shortcuts: /embed is an alias for /embeddings',
+            'No API key needed — falls back to local transformers.js (384 dims)',
+          ],
+        });
+    }
+  } catch (error) {
+    return wrapSkillError('Embeddings', cmd || 'command', error);
   }
 }
 

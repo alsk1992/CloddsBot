@@ -10,17 +10,49 @@
  * /trading-evm approve <token> <spender> - Token approval
  */
 
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
+
 function helpText(): string {
-  return `**EVM Trading Commands**
-
-  /trading-evm swap <token> <amount> [--chain <chain>] - DEX swap (Odos/1inch/Uniswap)
-  /trading-evm balance [chain]       - Check balances
-  /trading-evm transfer <to> <amt> [token] - Transfer tokens
-  /trading-evm wallet                - Wallet info
-  /trading-evm chains                - Supported chains
-  /trading-evm approve <token> <spender> - Token approval
-
-Chains: ethereum, polygon, arbitrum, optimism, base, avalanche, bsc`;
+  return formatHelp({
+    name: 'EVM Trading',
+    description: 'DEX swaps, transfers, and multi-chain balances on EVM chains.',
+    sections: [
+      {
+        title: 'Trading',
+        commands: [
+          { cmd: '/trading-evm swap <token> <amount> [--chain <chain>]', description: 'DEX swap (Odos/1inch/Uniswap)' },
+          { cmd: '/trading-evm approve <token> <spender>', description: 'Token approval' },
+        ],
+      },
+      {
+        title: 'Account',
+        commands: [
+          { cmd: '/trading-evm balance [chain]', description: 'Check balances (single chain or all)' },
+          { cmd: '/trading-evm transfer <to> <amount> [token]', description: 'Transfer tokens' },
+          { cmd: '/trading-evm wallet', description: 'Wallet info' },
+          { cmd: '/trading-evm chains', description: 'Supported chains' },
+        ],
+      },
+    ],
+    examples: [
+      '/trading-evm swap 0xA0b8...3E8 1.5 --chain polygon',
+      '/trading-evm balance all',
+      '/trading-evm transfer 0xDEAD...BEEF 0.1 ETH',
+    ],
+    envVars: [
+      { name: 'EVM_PRIVATE_KEY', description: 'Private key for signing transactions', required: true },
+    ],
+    seeAlso: [
+      { cmd: '/cake', description: 'PancakeSwap trading' },
+      { cmd: '/bridge', description: 'Cross-chain bridging' },
+      { cmd: '/bags', description: 'Portfolio overview' },
+    ],
+    notes: [
+      'Shortcuts: /evm-trade',
+      'Supported chains: ethereum, polygon, arbitrum, optimism, base, avalanche, bsc',
+    ],
+  });
 }
 
 async function execute(args: string): Promise<string> {
@@ -271,7 +303,7 @@ Tx: ${result.txHash || 'N/A'}${result.error ? `\nError: ${result.error}` : ''}`;
     }
   } catch (err: any) {
     if (cmd === 'help' || cmd === '') return helpText();
-    return `Error: ${err?.message || 'Failed to load EVM module'}\n\n${helpText()}`;
+    return wrapSkillError('EVM Trading', cmd || 'command', err);
   }
 }
 

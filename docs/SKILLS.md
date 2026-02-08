@@ -343,7 +343,7 @@ Loaded by `src/skills/loader.ts`. These are markdown files injected into the AI'
 - Lives in: `src/skills/bundled/<name>/SKILL.md`
 - Format: YAML frontmatter + markdown body
 - Loaded by: `SkillManager`
-- 115 skills defined this way
+- 116 skills defined this way
 
 ### 2. TypeScript Handlers (Executor Skills)
 
@@ -352,7 +352,7 @@ Loaded by `src/skills/executor.ts`. These are TypeScript modules with a `handle(
 - Lives in: `src/skills/bundled/<name>/index.ts`
 - Format: TypeScript with `default export { name, commands, handle }`
 - Loaded by: Dynamic `import()` in `initializeSkills()`
-- 115 handlers in the manifest
+- 116 handlers in the manifest
 
 A skill can have both: a SKILL.md for AI instructions and an index.ts for programmatic handling. The TypeScript handler takes precedence for registered commands.
 

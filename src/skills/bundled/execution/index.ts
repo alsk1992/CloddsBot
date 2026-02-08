@@ -9,6 +9,9 @@
  * /exec slippage <market> <size> - Estimate slippage
  */
 
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
+
 async function execute(args: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
   const cmd = parts[0]?.toLowerCase() || 'help';
@@ -304,34 +307,53 @@ async function execute(args: string): Promise<string> {
       }
 
       default:
-        return helpText();
+        return formatHelp({
+          name: 'Execution',
+          description: 'Execute trades on prediction markets with slippage protection, TWAP, bracket orders, and circuit breakers.',
+          sections: [
+            {
+              title: 'Basic Orders',
+              commands: [
+                { cmd: '/exec buy <market> <amount> [--price <p>]', description: 'Place buy order (market or limit)' },
+                { cmd: '/exec sell <market> <amount> [--price <p>]', description: 'Place sell order (market or limit)' },
+                { cmd: '/exec orders', description: 'List open orders' },
+                { cmd: '/exec cancel <id|all>', description: 'Cancel order(s)' },
+                { cmd: '/exec status <id>', description: 'Check order status' },
+                { cmd: '/exec slippage <market> <size>', description: 'Estimate slippage' },
+              ],
+            },
+            {
+              title: 'Advanced Orders',
+              commands: [
+                { cmd: '/exec twap <side> <market> <total> <price> [slices] [interval]', description: 'Time-weighted average price order' },
+                { cmd: '/exec bracket <market> <size> <tp> <sl>', description: 'Bracket order with take-profit and stop-loss' },
+                { cmd: '/exec trigger <side> <market> <size> <price>', description: 'Trigger/conditional order' },
+                { cmd: '/exec redeem [cond-id] [token-id]', description: 'Redeem resolved positions (Polymarket)' },
+              ],
+            },
+            {
+              title: 'Risk',
+              commands: [
+                { cmd: '/exec circuit', description: 'View circuit breaker status' },
+              ],
+            },
+          ],
+          notes: [
+            'Shortcuts: `/exec` is an alias for `/execute`.',
+            'Options: --platform <polymarket|kalshi|opinion|predictfun>, --price <limit>, --slippage <pct>.',
+            'Omit --price for a market order with slippage protection (default 2%).',
+          ],
+          seeAlso: [
+            { cmd: '/hl', description: 'Hyperliquid perps trading' },
+            { cmd: '/lighter', description: 'Lighter DEX trading' },
+            { cmd: '/strategy', description: 'Strategy management' },
+            { cmd: '/copy', description: 'Copy trading' },
+          ],
+        });
     }
-  } catch {
-    return helpText();
+  } catch (error) {
+    return wrapSkillError('Execution', cmd || 'command', error);
   }
-}
-
-function helpText(): string {
-  return `**Execution Commands**
-
-  /exec buy <market> <amount>          - Place buy order
-  /exec sell <market> <amount>         - Place sell order
-  /exec orders                         - List open orders
-  /exec cancel <id|all>                - Cancel order(s)
-  /exec status <id>                    - Check order status
-  /exec slippage <market> <size>       - Estimate slippage
-
-**Advanced Orders:**
-  /exec twap <side> <market> <total> <price> [slices] [interval]
-  /exec bracket <market> <size> <tp> <sl>
-  /exec trigger <side> <market> <size> <price>
-  /exec triggers
-  /exec redeem [cond-id] [token-id]
-
-**Options:**
-  --price <price>                      - Limit price (omit for market order)
-  --platform <name>                    - polymarket, kalshi, opinion, predictfun
-  --slippage <pct>                     - Max slippage % (default: 2)`;
 }
 
 export default {

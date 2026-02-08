@@ -26,6 +26,8 @@ import { createMarketScanner } from '../../../strategies/crypto-hft/market-scann
 import { savePreset, loadPreset, deletePreset, listPresets } from '../../../strategies/crypto-hft/presets.js';
 import type { CryptoFeed } from '../../../feeds/crypto/index.js';
 import type { ExecutionService } from '../../../execution/index.js';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 
 // ── Lazy service instances ──────────────────────────────────────────────────
 
@@ -84,6 +86,7 @@ async function execute(args: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
   const cmd = parts[0]?.toLowerCase() || 'help';
 
+  try {
   switch (cmd) {
     case 'start': {
       if (engine) return 'Already running. `/crypto-hft stop` first.';
@@ -313,31 +316,68 @@ async function execute(args: string): Promise<string> {
     }
 
     default:
-      return [
-        '**Crypto HFT -- 15-min Market Trading**',
-        '',
-        '**Start/Stop:**',
-        '  `/crypto-hft start [BTC,ETH] [--size 20] [--dry-run] [--preset scalper]`',
-        '  `/crypto-hft stop`',
-        '',
-        '**Monitor:**',
-        '  `/crypto-hft status` -- Stats, open positions, round info',
-        '  `/crypto-hft positions` -- Recent closed trades',
-        '  `/crypto-hft markets` -- Active 15-min markets',
-        '  `/crypto-hft round` -- Current round timing',
-        '',
-        '**Configure:**',
-        '  `/crypto-hft config [--tp N] [--sl N] [--ratchet on/off]`',
-        '  `/crypto-hft enable <strategy>` / `disable <strategy>`',
-        '',
-        '**Presets:**',
-        '  `/crypto-hft preset list` -- Show all presets',
-        '  `/crypto-hft preset save <name>` -- Save current config',
-        '  `/crypto-hft preset load <name>` -- Load preset',
-        '',
-        '**Strategies:** momentum, mean_reversion, penny_clipper, expiry_fade',
-        '**Built-in presets:** conservative, aggressive, scalper, momentum_only',
-      ].join('\n');
+      return formatHelp({
+        name: 'Crypto HFT',
+        emoji: '\u26A1',
+        description: 'Trade 15-minute crypto binary markets on Polymarket with 4 automated strategies.',
+        sections: [
+          {
+            title: 'Start/Stop',
+            commands: [
+              { cmd: '/crypto-hft start [BTC,ETH] [--size 20] [--dry-run] [--preset scalper]', description: 'Start the HFT engine' },
+              { cmd: '/crypto-hft stop', description: 'Stop engine and show summary' },
+            ],
+          },
+          {
+            title: 'Monitor',
+            commands: [
+              { cmd: '/crypto-hft status', description: 'Stats, open positions, round info' },
+              { cmd: '/crypto-hft positions', description: 'Recent closed trades' },
+              { cmd: '/crypto-hft markets', description: 'Active 15-min markets' },
+              { cmd: '/crypto-hft round', description: 'Current round timing' },
+            ],
+          },
+          {
+            title: 'Configure',
+            commands: [
+              { cmd: '/crypto-hft config [--tp N] [--sl N] [--ratchet on/off]', description: 'View or update config' },
+              { cmd: '/crypto-hft enable <strategy>', description: 'Enable a strategy' },
+              { cmd: '/crypto-hft disable <strategy>', description: 'Disable a strategy' },
+            ],
+          },
+          {
+            title: 'Presets',
+            commands: [
+              { cmd: '/crypto-hft preset list', description: 'Show all presets' },
+              { cmd: '/crypto-hft preset save <name>', description: 'Save current config as preset' },
+              { cmd: '/crypto-hft preset load <name>', description: 'Load a preset' },
+              { cmd: '/crypto-hft preset delete <name>', description: 'Delete a preset' },
+            ],
+          },
+        ],
+        envVars: [
+          { name: 'POLY_PRIVATE_KEY', description: 'Polymarket wallet private key (or PRIVATE_KEY)', required: true },
+          { name: 'POLY_API_KEY', description: 'Polymarket CLOB API key', required: true },
+          { name: 'POLY_API_SECRET', description: 'Polymarket CLOB API secret', required: true },
+          { name: 'POLY_API_PASSPHRASE', description: 'Polymarket CLOB API passphrase', required: true },
+          { name: 'POLY_FUNDER_ADDRESS', description: 'Polymarket funder wallet address', required: true },
+          { name: 'DRY_RUN', description: 'Set to "true" for paper trading' },
+        ],
+        seeAlso: [
+          { cmd: '/hl', description: 'Hyperliquid perps trading' },
+          { cmd: '/copy', description: 'Copy trading' },
+          { cmd: '/execution', description: 'Execution service controls' },
+          { cmd: '/strategy', description: 'Strategy management' },
+        ],
+        notes: [
+          'Shortcut: `/hft` is an alias for `/crypto-hft`.',
+          'Strategies: momentum, mean_reversion, penny_clipper, expiry_fade.',
+          'Built-in presets: conservative, aggressive, scalper, momentum_only.',
+        ],
+      });
+  }
+  } catch (error) {
+    return wrapSkillError('Crypto HFT', cmd || 'command', error);
   }
 }
 

@@ -5,6 +5,8 @@
  */
 
 import type { PancakeChain } from '../../../evm/pancakeswap.js';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 import { logger } from '../../../utils/logger.js';
 
 // =============================================================================
@@ -197,26 +199,47 @@ export const skill = {
         case '':
         case undefined:
         default:
-          return [
-            '**PancakeSwap Commands**',
-            '',
-            '  /cake swap <from> <to> <amt> [--chain bsc]',
-            '  /cake quote <from> <to> <amt> [--chain bsc]',
-            '  /cake price <tokenA> <tokenB> [--chain bsc]',
-            '  /cake balance <token> [--chain bsc]',
-            '',
-            '**Chains:** bsc (default), eth, arb, base',
-            '',
-            '**Examples:**',
-            '  /cake swap BNB USDT 1',
-            '  /cake quote CAKE USDT 100 --chain eth',
-            '  /cake price WETH USDC --chain arb',
-          ].join('\n');
+          return formatHelp({
+            name: 'PancakeSwap',
+            emoji: '🥞',
+            description: 'Multi-chain AMM DEX — swap tokens on BNB Chain, Ethereum, Arbitrum, and Base.',
+            sections: [
+              {
+                title: 'Commands',
+                commands: [
+                  { cmd: '/cake swap <from> <to> <amount> [--chain bsc]', description: 'Execute a token swap' },
+                  { cmd: '/cake quote <from> <to> <amount> [--chain bsc]', description: 'Get a quote without executing' },
+                  { cmd: '/cake price <tokenA> <tokenB> [--chain bsc]', description: 'Get relative price between tokens' },
+                  { cmd: '/cake balance <token> [--chain bsc]', description: 'Check token balance' },
+                ],
+              },
+            ],
+            examples: [
+              '/cake swap BNB USDT 1',
+              '/cake quote CAKE USDT 100 --chain eth',
+              '/cake price WETH USDC --chain arb',
+              '/cake balance CAKE --chain bsc',
+            ],
+            envVars: [
+              { name: 'EVM_PRIVATE_KEY', description: 'EVM wallet private key', required: true },
+              { name: 'BSC_RPC_URL', description: 'Custom BSC RPC endpoint' },
+              { name: 'ETH_RPC_URL', description: 'Custom Ethereum RPC endpoint' },
+            ],
+            seeAlso: [
+              { cmd: '/trading-evm', description: 'EVM token trading' },
+              { cmd: '/bridge', description: 'Cross-chain bridging' },
+              { cmd: '/bags', description: 'Check all balances' },
+              { cmd: '/slippage', description: 'Slippage analysis' },
+            ],
+            notes: [
+              'Chains: bsc (default), eth, arb, base',
+              'Shortcuts: q=quote, p=price, b/bal=balance',
+            ],
+          });
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error({ error: message, args }, 'PancakeSwap command failed');
-      return `Error: ${message}`;
+      logger.error({ error, args }, 'PancakeSwap command failed');
+      return wrapSkillError('PancakeSwap', cmd || 'command', error);
     }
   },
 };

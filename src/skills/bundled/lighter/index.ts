@@ -6,6 +6,8 @@
 
 import { Wallet } from 'ethers';
 import * as lighter from '../../../exchanges/lighter/index.js';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 import { logger } from '../../../utils/logger.js';
 
 // =============================================================================
@@ -334,32 +336,61 @@ export const skill = {
         case '':
         case undefined:
         default:
-          return [
-            '**Lighter Commands**',
-            '',
-            '**Market Data:**',
-            '  /lighter markets       - List markets',
-            '  /lighter price <mkt>   - Get price',
-            '  /lighter book <mkt>    - Orderbook',
-            '',
-            '**Account:**',
-            '  /lighter balance       - Show balances',
-            '  /lighter positions     - Open positions',
-            '  /lighter orders        - Open orders',
-            '',
-            '**Trading:**',
-            '  /lighter long <mkt> <size> [price]',
-            '  /lighter short <mkt> <size> [price]',
-            '  /lighter close <mkt>   - Close position',
-            '  /lighter closeall      - Close all positions',
-            '  /lighter cancel <id>   - Cancel order',
-            '  /lighter cancelall     - Cancel all orders',
-          ].join('\n');
+          return formatHelp({
+            name: 'Lighter',
+            emoji: '⚡',
+            description: 'Orderbook DEX on Arbitrum — trade perps with on-chain settlement.',
+            sections: [
+              {
+                title: 'Market Data',
+                commands: [
+                  { cmd: '/lighter markets', description: 'List all available markets' },
+                  { cmd: '/lighter price <market>', description: 'Get bid/ask/mid price' },
+                  { cmd: '/lighter book <market>', description: 'View orderbook depth' },
+                ],
+              },
+              {
+                title: 'Account',
+                commands: [
+                  { cmd: '/lighter balance', description: 'Show token balances' },
+                  { cmd: '/lighter positions', description: 'View open positions with PnL' },
+                  { cmd: '/lighter orders', description: 'List open orders' },
+                ],
+              },
+              {
+                title: 'Trading',
+                commands: [
+                  { cmd: '/lighter long <mkt> <size> [price]', description: 'Open long (market or limit)' },
+                  { cmd: '/lighter short <mkt> <size> [price]', description: 'Open short (market or limit)' },
+                  { cmd: '/lighter close <market>', description: 'Close a position' },
+                  { cmd: '/lighter closeall', description: 'Close all positions' },
+                  { cmd: '/lighter cancel <orderId>', description: 'Cancel an order' },
+                  { cmd: '/lighter cancelall', description: 'Cancel all orders' },
+                ],
+              },
+            ],
+            examples: [
+              '/lighter markets',
+              '/lighter long ETH-USD 1 3000',
+              '/lighter short BTC-USD 0.1',
+              '/lighter close ETH-USD',
+            ],
+            envVars: [
+              { name: 'EVM_PRIVATE_KEY', description: 'EVM wallet private key', required: true },
+              { name: 'LIGHTER_API_KEY', description: 'API key for higher rate limits' },
+              { name: 'DRY_RUN', description: 'Set "true" to simulate trades' },
+            ],
+            seeAlso: [
+              { cmd: '/hl', description: 'Hyperliquid perps' },
+              { cmd: '/drift', description: 'Drift Protocol (Solana)' },
+              { cmd: '/positions', description: 'Cross-platform positions' },
+            ],
+            notes: ['Shortcuts: m=markets, p=price, ob=book, b=balance, pos=positions, o=orders, l=long, s=short'],
+          });
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error({ error: message, args }, 'Lighter command failed');
-      return `Error: ${message}`;
+      logger.error({ error, args }, 'Lighter command failed');
+      return wrapSkillError('Lighter', cmd || 'command', error);
     }
   },
 };

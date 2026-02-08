@@ -17,6 +17,8 @@
 
 import { createBetfairFeed, BetfairFeed, BETFAIR_EVENT_TYPES } from '../../../feeds/betfair/index';
 import { logger } from '../../../utils/logger';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 
 interface BetfairConfig {
   appKey: string;
@@ -413,98 +415,133 @@ async function handlePositions(): Promise<string> {
 
 export async function execute(args: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
-  const command = parts[0]?.toLowerCase() || 'help';
+  const cmd = parts[0]?.toLowerCase() || 'help';
   const rest = parts.slice(1);
 
-  switch (command) {
-    case 'markets':
-    case 'search':
-      return handleMarkets(rest.join(' '));
+  try {
+    switch (cmd) {
+      case 'markets':
+      case 'search':
+        return handleMarkets(rest.join(' '));
 
-    case 'market':
-      if (!rest[0]) return 'Usage: /bf market <marketId>';
-      return handleMarket(rest[0]);
+      case 'market':
+        if (!rest[0]) return 'Usage: /bf market <marketId>';
+        return handleMarket(rest[0]);
 
-    case 'prices':
-    case 'price':
-      if (!rest[0]) return 'Usage: /bf prices <marketId>';
-      return handlePrices(rest[0]);
+      case 'prices':
+      case 'price':
+        if (!rest[0]) return 'Usage: /bf prices <marketId>';
+        return handlePrices(rest[0]);
 
-    case 'book':
-    case 'orderbook':
-      if (!rest[0] || !rest[1]) return 'Usage: /bf book <marketId> <selectionId>';
-      return handleBook(rest[0], rest[1]);
+      case 'book':
+      case 'orderbook':
+        if (!rest[0] || !rest[1]) return 'Usage: /bf book <marketId> <selectionId>';
+        return handleBook(rest[0], rest[1]);
 
-    case 'back':
-      if (rest.length < 4) return 'Usage: /bf back <marketId> <selectionId> <odds> <stake>';
-      return handleBack(rest[0], rest[1], rest[2], rest[3]);
+      case 'back':
+        if (rest.length < 4) return 'Usage: /bf back <marketId> <selectionId> <odds> <stake>';
+        return handleBack(rest[0], rest[1], rest[2], rest[3]);
 
-    case 'lay':
-      if (rest.length < 4) return 'Usage: /bf lay <marketId> <selectionId> <odds> <stake>';
-      return handleLay(rest[0], rest[1], rest[2], rest[3]);
+      case 'lay':
+        if (rest.length < 4) return 'Usage: /bf lay <marketId> <selectionId> <odds> <stake>';
+        return handleLay(rest[0], rest[1], rest[2], rest[3]);
 
-    case 'cancel':
-      if (rest.length < 2) return 'Usage: /bf cancel <marketId> <betId>';
-      return handleCancel(rest[0], rest[1]);
+      case 'cancel':
+        if (rest.length < 2) return 'Usage: /bf cancel <marketId> <betId>';
+        return handleCancel(rest[0], rest[1]);
 
-    case 'cancelall':
-      return handleCancelAll(rest[0]);
+      case 'cancelall':
+        return handleCancelAll(rest[0]);
 
-    case 'orders':
-      return handleOrders(rest[0]);
+      case 'orders':
+        return handleOrders(rest[0]);
 
-    case 'balance':
-      return handleBalance();
+      case 'balance':
+        return handleBalance();
 
-    case 'positions':
-      return handlePositions();
+      case 'positions':
+        return handlePositions();
 
-    case 'circuit': {
-      try {
-        const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
-        const cb = getGlobalCircuitBreaker();
-        const state = cb.getState();
-        return `**Circuit Breaker**\n\n` +
-          `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
-          `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
-          `Daily trades: ${state.dailyTrades}\n` +
-          `Consecutive losses: ${state.consecutiveLosses}\n` +
-          `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
-          (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
-          `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
-      } catch (e) {
-        return `Circuit breaker error: ${e instanceof Error ? e.message : String(e)}`;
+      case 'circuit': {
+        try {
+          const { getGlobalCircuitBreaker } = await import('../../../execution/circuit-breaker');
+          const cb = getGlobalCircuitBreaker();
+          const state = cb.getState();
+          return `**Circuit Breaker**\n\n` +
+            `Status: ${state.isTripped ? 'TRIPPED' : 'Armed'}\n` +
+            `Session PnL: $${state.sessionPnL.toFixed(2)}\n` +
+            `Daily trades: ${state.dailyTrades}\n` +
+            `Consecutive losses: ${state.consecutiveLosses}\n` +
+            `Error rate: ${(state.errorRate * 100).toFixed(0)}%\n` +
+            (state.tripReason ? `Trip reason: ${state.tripReason}\n` : '') +
+            `\nUse \`/risk trip\` / \`/risk reset\` to manually control.`;
+        } catch (e) {
+          return `Circuit breaker error: ${e instanceof Error ? e.message : String(e)}`;
+        }
       }
+
+      case 'help':
+      default:
+        return formatHelp({
+          name: 'Betfair',
+          emoji: '🏇',
+          description: 'Betfair Exchange — Market data, orderbook, and trading on Betfair',
+          sections: [
+            {
+              title: 'Market Data',
+              commands: [
+                { cmd: '/bf markets [query]', description: 'Search markets' },
+                { cmd: '/bf market <id>', description: 'Get market details' },
+                { cmd: '/bf prices <id>', description: 'Current prices' },
+                { cmd: '/bf book <id> <selection>', description: 'Show orderbook' },
+              ],
+            },
+            {
+              title: 'Trading',
+              commands: [
+                { cmd: '/bf back <id> <sel> <odds> <stake>', description: 'Place back order' },
+                { cmd: '/bf lay <id> <sel> <odds> <stake>', description: 'Place lay order' },
+                { cmd: '/bf cancel <id> <betId>', description: 'Cancel order' },
+                { cmd: '/bf cancelall [id]', description: 'Cancel all orders' },
+                { cmd: '/bf orders [id]', description: 'List open orders' },
+              ],
+            },
+            {
+              title: 'Account',
+              commands: [
+                { cmd: '/bf balance', description: 'Check balance' },
+                { cmd: '/bf positions', description: 'View positions' },
+              ],
+            },
+            {
+              title: 'Risk',
+              commands: [
+                { cmd: '/bf circuit', description: 'Circuit breaker status' },
+              ],
+            },
+          ],
+          examples: [
+            '/bf markets premier league',
+            '/bf back 1.234 5678 2.0 10',
+            '/bf lay 1.234 5678 2.1 10',
+          ],
+          envVars: [
+            { name: 'BETFAIR_APP_KEY', description: 'Betfair API application key', required: true },
+            { name: 'BETFAIR_SESSION_TOKEN', description: 'Betfair session token for authentication', required: true },
+          ],
+          seeAlso: [
+            { cmd: '/poly', description: 'Polymarket trading' },
+            { cmd: '/kalshi', description: 'Kalshi trading' },
+            { cmd: '/smarkets', description: 'Smarkets trading' },
+            { cmd: '/arbitrage', description: 'Cross-platform arbitrage' },
+          ],
+          notes: [
+            'Shortcuts: search = markets, price = prices, orderbook = book',
+          ],
+        });
     }
-
-    case 'help':
-    default:
-      return `**Betfair Exchange Commands**
-
-**Market Data:**
-  /bf markets [query]           - Search markets
-  /bf market <id>               - Get market details
-  /bf prices <id>               - Current prices
-  /bf book <id> <selection>     - Show orderbook
-
-**Trading:**
-  /bf back <id> <sel> <odds> <stake>  - Place back order
-  /bf lay <id> <sel> <odds> <stake>   - Place lay order
-  /bf cancel <id> <betId>             - Cancel order
-  /bf cancelall [id]                  - Cancel all orders
-  /bf orders [id]                     - List open orders
-
-**Account:**
-  /bf balance                   - Check balance
-  /bf positions                 - View positions
-
-**Risk:**
-  /bf circuit                   - Circuit breaker status
-
-**Examples:**
-  /bf markets premier league
-  /bf back 1.234 5678 2.0 10
-  /bf lay 1.234 5678 2.1 10`;
+  } catch (error) {
+    return wrapSkillError('Betfair', cmd || 'command', error);
   }
 }
 

@@ -22,6 +22,8 @@ import {
 } from '../../../arbitrage/index';
 import { logger } from '../../../utils/logger';
 import type { Platform } from '../../../types';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 
 let arbService: ArbitrageService | null = null;
 
@@ -203,78 +205,108 @@ async function handleStats(): Promise<string> {
 
 export async function execute(args: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
-  const command = parts[0]?.toLowerCase() || 'help';
+  const cmd = parts[0]?.toLowerCase() || 'help';
   const rest = parts.slice(1);
 
-  switch (command) {
-    case 'start':
-      return handleStart();
+  try {
+    switch (cmd) {
+      case 'start':
+        return handleStart();
 
-    case 'stop':
-      return handleStop();
+      case 'stop':
+        return handleStop();
 
-    case 'status':
-      return handleStatus();
+      case 'status':
+        return handleStatus();
 
-    case 'check':
-    case 'scan':
-      return handleCheck(rest.join(' '));
+      case 'check':
+      case 'scan':
+        return handleCheck(rest.join(' '));
 
-    case 'compare':
-      if (rest.length < 2) return 'Usage: /arb compare <market-a> <market-b>';
-      return handleCompare(rest[0], rest[1]);
+      case 'compare':
+        if (rest.length < 2) return 'Usage: /arb compare <market-a> <market-b>';
+        return handleCompare(rest[0], rest[1]);
 
-    case 'opportunities':
-    case 'opps':
-      return handleOpportunities();
+      case 'opportunities':
+      case 'opps':
+        return handleOpportunities();
 
-    case 'link':
-      if (rest.length < 2) return 'Usage: /arb link <market-a> <market-b>';
-      return handleLink(rest[0], rest[1]);
+      case 'link':
+        if (rest.length < 2) return 'Usage: /arb link <market-a> <market-b>';
+        return handleLink(rest[0], rest[1]);
 
-    case 'unlink':
-      if (!rest[0]) return 'Usage: /arb unlink <match-id>';
-      return handleUnlink(rest[0]);
+      case 'unlink':
+        if (!rest[0]) return 'Usage: /arb unlink <match-id>';
+        return handleUnlink(rest[0]);
 
-    case 'links':
-    case 'matches':
-      return handleLinks();
+      case 'links':
+      case 'matches':
+        return handleLinks();
 
-    case 'auto-match':
-    case 'automatch':
-      if (!rest[0]) return 'Usage: /arb auto-match <query>';
-      return handleAutoMatch(rest.join(' '));
+      case 'auto-match':
+      case 'automatch':
+        if (!rest[0]) return 'Usage: /arb auto-match <query>';
+        return handleAutoMatch(rest.join(' '));
 
-    case 'stats':
-      return handleStats();
+      case 'stats':
+        return handleStats();
 
-    case 'help':
-    default:
-      return `**Arbitrage Commands**
-
-**Monitoring:**
-  /arb start                          - Start monitoring
-  /arb stop                           - Stop monitoring
-  /arb status                         - Check status
-
-**Scanning:**
-  /arb check [query]                  - One-time scan
-  /arb compare <market-a> <market-b>  - Compare two markets
-  /arb opportunities                  - List opportunities
-
-**Market Linking:**
-  /arb link <market-a> <market-b>     - Link markets manually
-  /arb unlink <match-id>              - Remove link
-  /arb links                          - View all links
-  /arb auto-match <query>             - Auto-detect matches
-
-**Statistics:**
-  /arb stats                          - View statistics
-
-**Examples:**
-  /arb check "trump election"
-  /arb compare poly:12345 kalshi:TRUMP
-  /arb link poly:abc123 kalshi:XYZ`;
+      case 'help':
+      default:
+        return formatHelp({
+          name: 'Arbitrage',
+          description: 'Automated cross-platform arbitrage detection and monitoring',
+          sections: [
+            {
+              title: 'Monitoring',
+              commands: [
+                { cmd: '/arb start', description: 'Start monitoring' },
+                { cmd: '/arb stop', description: 'Stop monitoring' },
+                { cmd: '/arb status', description: 'Check status' },
+              ],
+            },
+            {
+              title: 'Scanning',
+              commands: [
+                { cmd: '/arb check [query]', description: 'One-time scan' },
+                { cmd: '/arb compare <market-a> <market-b>', description: 'Compare two markets' },
+                { cmd: '/arb opportunities', description: 'List opportunities' },
+              ],
+            },
+            {
+              title: 'Market Linking',
+              commands: [
+                { cmd: '/arb link <market-a> <market-b>', description: 'Link markets manually' },
+                { cmd: '/arb unlink <match-id>', description: 'Remove link' },
+                { cmd: '/arb links', description: 'View all links' },
+                { cmd: '/arb auto-match <query>', description: 'Auto-detect matches' },
+              ],
+            },
+            {
+              title: 'Statistics',
+              commands: [
+                { cmd: '/arb stats', description: 'View statistics' },
+              ],
+            },
+          ],
+          examples: [
+            '/arb check "trump election"',
+            '/arb compare poly:12345 kalshi:TRUMP',
+            '/arb link poly:abc123 kalshi:XYZ',
+          ],
+          seeAlso: [
+            { cmd: '/poly', description: 'Polymarket trading' },
+            { cmd: '/bf', description: 'Betfair trading' },
+            { cmd: '/feeds', description: 'Market data feeds' },
+            { cmd: '/signals', description: 'Trading signals' },
+          ],
+          notes: [
+            'Shortcuts: scan = check, opps = opportunities, matches = links, automatch = auto-match',
+          ],
+        });
+    }
+  } catch (error) {
+    return wrapSkillError('Arbitrage', cmd || 'command', error);
   }
 }
 

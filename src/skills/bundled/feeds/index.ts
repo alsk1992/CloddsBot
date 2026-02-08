@@ -24,6 +24,8 @@ import {
   type FeedCategory,
 } from '../../../feeds/registry';
 import { registerAllFeeds } from '../../../feeds/descriptors';
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
 
 // Ensure feeds are registered on first use
 let registered = false;
@@ -339,7 +341,7 @@ async function execute(args: string): Promise<string> {
         if (price != null) output += `Current price: $${price.toFixed(3)}`;
         return output;
       } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+        return wrapSkillError('Feeds', 'subscribe', e);
       }
     }
 
@@ -377,7 +379,7 @@ async function execute(args: string): Promise<string> {
         }
         return output;
       } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+        return wrapSkillError('Feeds', 'search-markets', e);
       }
     }
 
@@ -390,7 +392,7 @@ async function execute(args: string): Promise<string> {
         if (price == null) return `Could not fetch price for \`${parts[2]}\` on **${parts[1]}**.`;
         return `**${parts[1]}** \`${parts[2]}\`: $${price.toFixed(4)}`;
       } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+        return wrapSkillError('Feeds', 'price', e);
       }
     }
 
@@ -405,33 +407,51 @@ async function execute(args: string): Promise<string> {
         const stats = fm.getCacheStats();
         return `**Cache:** ${stats.size} entries | ${(stats.hitRate * 100).toFixed(1)}% hit rate (${stats.hits}/${stats.hits + stats.misses})`;
       } catch (e) {
-        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+        return wrapSkillError('Feeds', 'cache', e);
       }
     }
 
     case 'help':
     default:
-      return `**Feed Registry Commands**
-
-**Discovery:**
-  /feeds list [category]        - Browse all feeds (or filter: weather, crypto, ...)
-  /feeds info <id>              - Detailed info, env vars, CLI command
-  /feeds search <query>         - Search by name, description, or capability
-  /feeds caps                   - Group feeds by capability
-  /feeds cats                   - Group feeds by category
-  /feeds ready                  - Feeds ready to activate now
-  /feeds active                 - Currently running feeds
-  /feeds env <id>               - Required/optional env vars for a feed
-
-**Market Data:**
-  /feeds status                 - Registry stats + cache
-  /feeds search-markets <query> - Search markets across platforms
-  /feeds price <platform> <id>  - Get current price
-  /feeds sub <platform> <id>    - Subscribe to price updates
-  /feeds unsub <platform> <id>  - Unsubscribe
-
-**Categories:** prediction_market, crypto, news, weather, economics, geopolitical
-**Legend:** [ON] active  [--] ready  [!!] missing env  [~~] planned`;
+      return formatHelp({
+        name: 'Feed Registry',
+        description: 'Discover, browse, and connect to data sources',
+        sections: [
+          {
+            title: 'Discovery',
+            commands: [
+              { cmd: '/feeds list [category]', description: 'Browse all feeds (or filter: weather, crypto, ...)' },
+              { cmd: '/feeds info <id>', description: 'Detailed info, env vars, CLI command' },
+              { cmd: '/feeds search <query>', description: 'Search by name, description, or capability' },
+              { cmd: '/feeds caps', description: 'Group feeds by capability' },
+              { cmd: '/feeds cats', description: 'Group feeds by category' },
+              { cmd: '/feeds ready', description: 'Feeds ready to activate now' },
+              { cmd: '/feeds active', description: 'Currently running feeds' },
+              { cmd: '/feeds env <id>', description: 'Required/optional env vars for a feed' },
+            ],
+          },
+          {
+            title: 'Market Data',
+            commands: [
+              { cmd: '/feeds status', description: 'Registry stats + cache' },
+              { cmd: '/feeds search-markets <query>', description: 'Search markets across platforms' },
+              { cmd: '/feeds price <platform> <id>', description: 'Get current price' },
+              { cmd: '/feeds sub <platform> <id>', description: 'Subscribe to price updates' },
+              { cmd: '/feeds unsub <platform> <id>', description: 'Unsubscribe' },
+            ],
+          },
+        ],
+        notes: [
+          'Categories: prediction_market, crypto, news, weather, economics, geopolitical',
+          'Legend: [ON] active  [--] ready  [!!] missing env  [~~] planned',
+        ],
+        seeAlso: [
+          { cmd: '/markets', description: 'Market browser' },
+          { cmd: '/signals', description: 'Trading signals' },
+          { cmd: '/news', description: 'News feeds' },
+          { cmd: '/ticks', description: 'Real-time ticks' },
+        ],
+      });
   }
 }
 

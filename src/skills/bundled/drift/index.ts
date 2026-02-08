@@ -4,6 +4,9 @@
  * Perpetual futures and prediction markets on Solana
  */
 
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
+
 const getSolanaModules = async () => {
   const [wallet, drift] = await Promise.all([
     import('../../../solana/wallet'),
@@ -324,10 +327,11 @@ async function handleHealth(): Promise<string> {
 
 export async function execute(args: string): Promise<string> {
   const parts = args.trim().split(/\s+/);
-  const command = parts[0]?.toLowerCase() || 'help';
+  const cmd = parts[0]?.toLowerCase() || 'help';
   const rest = parts.slice(1);
 
-  switch (command) {
+  try {
+  switch (cmd) {
     case 'long':
     case 'l':
       return handleLong(rest[0], rest[1], rest[2]);
@@ -365,28 +369,55 @@ export async function execute(args: string): Promise<string> {
 
     case 'help':
     default:
-      return `**Drift Protocol** (9 commands)
-
-**Trading:**
-  /drift long <market> <size> [price]   Open long
-  /drift short <market> <size> [price]  Open short
-  /drift cancel [orderId]               Cancel order(s)
-  /drift modify <orderId> [price] [size] Modify order
-
-**Account:**
-  /drift positions                      View positions
-  /drift orders                         View orders
-  /drift balance                        Check balance
-  /drift leverage <market> <amount>     Set leverage
-  /drift health                         Account health & liq risk
-
-**Markets:** SOL-PERP, BTC-PERP, ETH-PERP (or use index)
-
-**Examples:**
-  /drift long SOL-PERP 0.5
-  /drift short BTC-PERP 0.01 95000
-  /drift modify 123 96000
-  /drift health`;
+      return formatHelp({
+        name: 'Drift Protocol',
+        emoji: '\u{1F30A}',
+        description: 'Perpetual futures and prediction markets on Solana',
+        sections: [
+          {
+            title: 'Trading',
+            commands: [
+              { cmd: '/drift long <market> <size> [price]', description: 'Open long' },
+              { cmd: '/drift short <market> <size> [price]', description: 'Open short' },
+              { cmd: '/drift cancel [orderId]', description: 'Cancel order(s)' },
+              { cmd: '/drift modify <orderId> [price] [size]', description: 'Modify order' },
+            ],
+          },
+          {
+            title: 'Account',
+            commands: [
+              { cmd: '/drift positions', description: 'View positions' },
+              { cmd: '/drift orders', description: 'View orders' },
+              { cmd: '/drift balance', description: 'Check balance' },
+              { cmd: '/drift leverage <market> <amount>', description: 'Set leverage' },
+              { cmd: '/drift health', description: 'Account health & liq risk' },
+            ],
+          },
+        ],
+        examples: [
+          '/drift long SOL-PERP 0.5',
+          '/drift short BTC-PERP 0.01 95000',
+          '/drift modify 123 96000',
+          '/drift health',
+        ],
+        envVars: [
+          { name: 'SOLANA_PRIVATE_KEY', description: 'Solana wallet private key', required: true },
+          { name: 'SOLANA_KEYPAIR_PATH', description: 'Path to Solana keypair JSON file (alternative to private key)', required: false },
+        ],
+        seeAlso: [
+          { cmd: '/hl', description: 'Hyperliquid perps trading' },
+          { cmd: '/lighter', description: 'Lighter DEX trading' },
+          { cmd: '/trading-solana', description: 'Solana spot trading' },
+          { cmd: '/positions', description: 'Cross-exchange position viewer' },
+        ],
+        notes: [
+          'Shortcuts: l=long, s=short, p/pos=positions, o=orders, b/bal=balance, lev=leverage',
+          'Markets: SOL-PERP, BTC-PERP, ETH-PERP (or use numeric index)',
+        ],
+      });
+  }
+  } catch (error) {
+    return wrapSkillError('Drift', cmd || 'command', error);
   }
 }
 
