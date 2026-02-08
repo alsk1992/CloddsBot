@@ -24,6 +24,9 @@
  * /kamino help                              - Show this help
  */
 
+import { formatHelp } from '../../help.js';
+import { wrapSkillError } from '../../errors.js';
+
 const getSolanaModules = async () => {
   const [wallet, kamino, tokenlist] = await Promise.all([
     import('../../../solana/wallet'),
@@ -78,7 +81,7 @@ async function handleDeposit(args: string[]): Promise<string> {
       `Deposited: ${amount} ${result.symbol || token}\n` +
       `TX: \`${result.signature}\``;
   } catch (error) {
-    return `Deposit failed: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'deposit', error);
   }
 }
 
@@ -120,7 +123,7 @@ async function handleWithdraw(args: string[]): Promise<string> {
       `Withdrew: ${withdrawAll ? 'ALL' : amount} ${result.symbol || token}\n` +
       `TX: \`${result.signature}\``;
   } catch (error) {
-    return `Withdraw failed: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'withdraw', error);
   }
 }
 
@@ -160,7 +163,7 @@ async function handleBorrow(args: string[]): Promise<string> {
       `Borrowed: ${amount} ${result.symbol || token}\n` +
       `TX: \`${result.signature}\``;
   } catch (error) {
-    return `Borrow failed: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'borrow', error);
   }
 }
 
@@ -202,7 +205,7 @@ async function handleRepay(args: string[]): Promise<string> {
       `Repaid: ${repayAll ? 'ALL' : amount} ${result.symbol || token}\n` +
       `TX: \`${result.signature}\``;
   } catch (error) {
-    return `Repay failed: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'repay', error);
   }
 }
 
@@ -244,7 +247,7 @@ async function handleObligation(): Promise<string> {
 
     return output;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'fetch obligation', error);
   }
 }
 
@@ -280,7 +283,7 @@ async function handleHealth(): Promise<string> {
       `Total Deposits: $${parseFloat(obligation.totalDepositValue).toFixed(2)}\n` +
       `Total Borrows: $${parseFloat(obligation.totalBorrowValue).toFixed(2)}`;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'health check', error);
   }
 }
 
@@ -309,7 +312,7 @@ async function handleReserves(): Promise<string> {
 
     return output;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'fetch reserves', error);
   }
 }
 
@@ -334,7 +337,7 @@ async function handleRates(): Promise<string> {
 
     return output;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'fetch rates', error);
   }
 }
 
@@ -359,7 +362,7 @@ async function handleMarkets(): Promise<string> {
 
     return output;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'fetch markets', error);
   }
 }
 
@@ -392,7 +395,7 @@ async function handleStrategies(): Promise<string> {
 
     return output;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'fetch strategies', error);
   }
 }
 
@@ -421,7 +424,7 @@ async function handleStrategy(args: string[]): Promise<string> {
       `TVL: $${strategy.tvl}\n` +
       `Status: ${strategy.status}`;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'fetch strategy', error);
   }
 }
 
@@ -455,7 +458,7 @@ async function handleVaultDeposit(args: string[]): Promise<string> {
       (result.tokenBAmount ? `Amount B: ${result.tokenBAmount}\n` : '') +
       `TX: \`${result.signature}\``;
   } catch (error) {
-    return `Vault deposit failed: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'vault deposit', error);
   }
 }
 
@@ -488,7 +491,7 @@ async function handleVaultWithdraw(args: string[]): Promise<string> {
       `Shares: ${withdrawAll ? 'ALL' : result.shares}\n` +
       `TX: \`${result.signature}\``;
   } catch (error) {
-    return `Vault withdraw failed: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'vault withdraw', error);
   }
 }
 
@@ -518,7 +521,7 @@ async function handleShares(): Promise<string> {
 
     return output;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'fetch shares', error);
   }
 }
 
@@ -539,7 +542,7 @@ async function handleSharePrice(args: string[]): Promise<string> {
       `Strategy: \`${strategyAddress.slice(0, 8)}...\`\n` +
       `Share Price: ${price}`;
   } catch (error) {
-    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    return wrapSkillError('Kamino', 'fetch share price', error);
   }
 }
 
@@ -595,34 +598,60 @@ export async function execute(args: string): Promise<string> {
 
     case 'help':
     default:
-      return `**Kamino Finance** (15 Commands)
-
-**Lending:**
-  /kamino deposit <amount> <token>     Deposit collateral
-  /kamino withdraw <amount|all> <token> Withdraw collateral
-  /kamino borrow <amount> <token>      Borrow assets
-  /kamino repay <amount|all> <token>   Repay borrowed assets
-  /kamino obligation                   View your positions
-  /kamino health                       Check health factor
-  /kamino reserves                     List available reserves
-  /kamino rates                        View supply/borrow rates
-
-**Liquidity Vaults:**
-  /kamino strategies                   List all strategies
-  /kamino strategy <address>           Get strategy details
-  /kamino vault-deposit <strat> <amtA> [amtB]  Deposit to vault
-  /kamino vault-withdraw <strat> [shares|all]  Withdraw from vault
-  /kamino shares                       View your vault shares
-  /kamino share-price <strategy>       Get strategy share price
-
-**Info:**
-  /kamino markets                      List lending markets
-
-**Examples:**
-  /kamino deposit 100 USDC
-  /kamino borrow 50 SOL
-  /kamino health
-  /kamino vault-deposit ABC123... 1000 500`;
+      return formatHelp({
+        name: 'Kamino Finance',
+        emoji: '🌀',
+        description: 'Solana lending, borrowing, and liquidity vaults (15 commands)',
+        sections: [
+          {
+            title: 'Lending',
+            commands: [
+              { cmd: '/kamino deposit <amount> <token>', description: 'Deposit collateral' },
+              { cmd: '/kamino withdraw <amount|all> <token>', description: 'Withdraw collateral' },
+              { cmd: '/kamino borrow <amount> <token>', description: 'Borrow assets' },
+              { cmd: '/kamino repay <amount|all> <token>', description: 'Repay borrowed assets' },
+              { cmd: '/kamino obligation', description: 'View your positions' },
+              { cmd: '/kamino health', description: 'Check health factor & liquidation risk' },
+              { cmd: '/kamino reserves', description: 'List available reserves with rates' },
+              { cmd: '/kamino rates', description: 'View supply/borrow APYs' },
+            ],
+          },
+          {
+            title: 'Liquidity Vaults',
+            commands: [
+              { cmd: '/kamino strategies', description: 'List all vault strategies' },
+              { cmd: '/kamino strategy <address>', description: 'Get strategy details' },
+              { cmd: '/kamino vault-deposit <strat> <amtA> [amtB]', description: 'Deposit to vault' },
+              { cmd: '/kamino vault-withdraw <strat> [shares|all]', description: 'Withdraw from vault' },
+              { cmd: '/kamino shares', description: 'View your vault shares' },
+              { cmd: '/kamino share-price <strategy>', description: 'Get strategy share price' },
+            ],
+          },
+          {
+            title: 'Info',
+            commands: [
+              { cmd: '/kamino markets', description: 'List lending markets' },
+            ],
+          },
+        ],
+        examples: [
+          '/kamino deposit 100 USDC',
+          '/kamino borrow 50 SOL',
+          '/kamino health',
+          '/kamino rates',
+          '/kamino vault-deposit ABC123... 1000 500',
+        ],
+        envVars: [
+          { name: 'SOLANA_PRIVATE_KEY', description: 'Solana wallet private key', required: true },
+          { name: 'SOLANA_RPC_URL', description: 'Custom RPC endpoint', required: false },
+        ],
+        seeAlso: [
+          { cmd: '/marginfi', description: 'MarginFi lending' },
+          { cmd: '/solend', description: 'Solend lending' },
+          { cmd: '/jup', description: 'Jupiter DEX aggregator' },
+          { cmd: '/bags', description: 'Portfolio overview' },
+        ],
+      });
   }
 }
 

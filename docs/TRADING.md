@@ -1912,6 +1912,141 @@ const shares = await getKaminoUserShares(connection, keypair);
 
 ---
 
+## MarginFi (Solana)
+
+MarginFi is a lending and borrowing protocol on Solana with competitive rates and broad asset support.
+
+### CLI Commands
+
+**Lending:**
+```
+/marginfi deposit <amount> <token>      Deposit collateral
+/marginfi withdraw <amount|all> <token> Withdraw collateral
+/marginfi borrow <amount> <token>       Borrow assets
+/marginfi repay <amount|all> <token>    Repay borrowed assets
+/marginfi account                       View positions (deposits & borrows)
+/marginfi health                        Check health factor & liquidation risk
+```
+
+**Markets:**
+```
+/marginfi banks                         List all lending pools with APY
+/marginfi rates                         View supply/borrow interest rates table
+```
+
+### Examples
+
+```
+/marginfi deposit 100 USDC       Deposit 100 USDC as collateral
+/marginfi borrow 1 SOL           Borrow 1 SOL against collateral
+/marginfi health                  Check liquidation risk
+/marginfi repay all SOL           Repay all borrowed SOL
+/marginfi rates                   View current APYs
+```
+
+### SDK Usage
+
+```typescript
+import {
+  marginfiDeposit,
+  marginfiBorrow,
+  getMarginfiAccount,
+  getMarginfiBanks,
+} from 'clodds/solana/marginfi';
+
+// Deposit collateral
+const deposit = await marginfiDeposit(connection, keypair, {
+  bankMint: usdcMint,
+  amount: '100000000', // 100 USDC (6 decimals)
+});
+
+// Borrow against collateral
+const borrow = await marginfiBorrow(connection, keypair, {
+  bankMint: solMint,
+  amount: '1000000000', // 1 SOL (9 decimals)
+});
+
+// Check health factor
+const account = await getMarginfiAccount(connection, keypair);
+console.log(`Health: ${account.healthFactor}`);
+
+// Get bank rates
+const banks = await getMarginfiBanks(connection);
+for (const b of banks) {
+  console.log(`${b.symbol}: Supply ${b.depositRate}% / Borrow ${b.borrowRate}%`);
+}
+```
+
+---
+
+## Solend (Solana)
+
+Solend is a decentralized lending and borrowing protocol on Solana with multiple lending markets.
+
+### CLI Commands
+
+**Lending:**
+```
+/solend deposit <amount> <token>        Deposit collateral
+/solend withdraw <amount|all> <token>   Withdraw collateral
+/solend borrow <amount> <token>         Borrow assets
+/solend repay <amount|all> <token>      Repay borrowed assets
+/solend obligation                      View positions (deposits & borrows)
+/solend health                          Check health factor & liquidation risk
+```
+
+**Markets:**
+```
+/solend reserves                        List reserves with APY & utilization
+/solend rates                           View supply/borrow interest rates table
+/solend markets                         List available lending markets
+```
+
+### Examples
+
+```
+/solend deposit 100 USDC          Deposit 100 USDC as collateral
+/solend borrow 1 SOL              Borrow 1 SOL against collateral
+/solend health                    Check liquidation risk
+/solend repay all SOL             Repay all borrowed SOL
+/solend reserves                  View current reserves and APYs
+```
+
+### SDK Usage
+
+```typescript
+import {
+  solendDeposit,
+  solendBorrow,
+  getSolendObligation,
+  getSolendReserves,
+} from 'clodds/solana/solend';
+
+// Deposit collateral
+const deposit = await solendDeposit(connection, keypair, {
+  reserveMint: usdcMint,
+  amount: '100000000', // 100 USDC (6 decimals)
+});
+
+// Borrow against collateral
+const borrow = await solendBorrow(connection, keypair, {
+  reserveMint: solMint,
+  amount: '1000000000', // 1 SOL (9 decimals)
+});
+
+// Check health factor
+const obligation = await getSolendObligation(connection, keypair);
+console.log(`Health: ${obligation.healthFactor}`);
+
+// Get reserve rates
+const reserves = await getSolendReserves(connection);
+for (const r of reserves) {
+  console.log(`${r.symbol}: Supply ${r.depositRate}% / Borrow ${r.borrowRate}%`);
+}
+```
+
+---
+
 ## Pump.fun (Solana)
 
 Pump.fun is a token launchpad on Solana for trading new memecoins.

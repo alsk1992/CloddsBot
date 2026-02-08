@@ -960,6 +960,52 @@ Trade on Solana DEXes via unified interface or direct DEX commands:
 /met pools SOL                   List DLMM pools
 ```
 
+### Solana Lending Protocols
+
+Lend, borrow, and earn yield on Solana lending protocols. Requires `SOLANA_PRIVATE_KEY`.
+
+**Kamino Finance (15 commands):**
+```
+/kamino deposit 100 USDC         Deposit collateral
+/kamino withdraw all USDC        Withdraw collateral
+/kamino borrow 1 SOL             Borrow assets
+/kamino repay all SOL            Repay borrowed
+/kamino obligation               View positions (deposits & borrows)
+/kamino health                   Check health factor & liquidation risk
+/kamino reserves                 List reserves with APY
+/kamino rates                    Interest rates table
+/kamino strategies               List liquidity vault strategies
+/kamino vault-deposit <strat> <amtA> [amtB]  Deposit to vault
+/kamino vault-withdraw <strat> [shares|all]  Withdraw from vault
+/kamino shares                   View your vault shares
+/kamino markets                  List lending markets
+```
+
+**MarginFi:**
+```
+/marginfi deposit 100 USDC       Deposit collateral
+/marginfi withdraw all USDC      Withdraw collateral
+/marginfi borrow 1 SOL           Borrow assets
+/marginfi repay all SOL          Repay borrowed
+/marginfi account                View positions (deposits & borrows)
+/marginfi health                 Check health factor & liquidation risk
+/marginfi banks                  List lending pools with APY
+/marginfi rates                  Interest rates table
+```
+
+**Solend:**
+```
+/solend deposit 100 USDC         Deposit collateral
+/solend withdraw all USDC        Withdraw collateral
+/solend borrow 1 SOL             Borrow assets
+/solend repay all SOL            Repay borrowed
+/solend obligation               View positions (deposits & borrows)
+/solend health                   Check health factor & liquidation risk
+/solend reserves                 List reserves with APY
+/solend rates                    Interest rates table
+/solend markets                  List lending markets
+```
+
 **Pump.fun:**
 ```
 /pump buy <mint> 0.1             Buy with 0.1 SOL

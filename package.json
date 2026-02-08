@@ -40,7 +40,11 @@
     "claude",
     "telegram-bot",
     "discord-bot",
-    "trading-bot"
+    "trading-bot",
+    "lending",
+    "marginfi",
+    "solend",
+    "kamino"
   ],
   "author": "alsk1992",
   "homepage": "https://cloddsbot.com",
