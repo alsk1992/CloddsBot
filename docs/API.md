@@ -16,6 +16,10 @@ http://127.0.0.1:18789
 - WebChat supports an optional token. Set `WEBCHAT_TOKEN` and send it in the WebSocket auth message.
 - Webhooks require HMAC signatures by default. See the webhook section below.
 
+## What is this API for?
+
+Skills and agents running *inside* Clodds call services directly — no HTTP needed. The REST API is for **everything external**: dashboards, mobile apps, automation scripts, Telegram/Discord bots, monitoring (Grafana/Datadog), AI agent integrations (MCP tools, LangChain), multi-instance orchestration, and copy trading platforms. See [API_REFERENCE.md](API_REFERENCE.md#what-can-you-build-with-this-api) for detailed examples.
+
 ## HTTP endpoints
 
 ### GET /health
@@ -35,7 +39,7 @@ Response:
 ```
 {
   "name": "clodds",
-  "version": "0.1.0",
+  "version": "0.3.10",
   "description": "AI assistant for prediction markets",
   "endpoints": { "websocket": "/ws", "webchat": "/chat", "health": "/health" }
 }
@@ -454,7 +458,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "0.1.0",
+  "version": "0.3.10",
   "timestamp": "2026-01-29T...",
   "services": {
     "telegram": true,
@@ -999,6 +1003,465 @@ console.log(`Half Kelly: $${kelly.halfKelly}`);
 
 ---
 
+## Percolator Endpoints
+
+On-chain Solana perpetual futures via Percolator protocol. Requires `PERCOLATOR_ENABLED=true`.
+
+### GET /api/percolator/status
+
+Get current market state (oracle price, open interest, funding rate, spread).
+
+**Response:**
+```json
+{
+  "oraclePrice": 142.50,
+  "totalOpenInterest": 1250000,
+  "vault": 5000000,
+  "insuranceFund": 250000,
+  "fundingRate": 3,
+  "bestBid": { "lpIndex": 0, "priceUsd": 142.29 },
+  "bestAsk": { "lpIndex": 0, "priceUsd": 142.71 },
+  "spreadBps": 29.5,
+  "lastCrankSlot": 298456123
+}
+```
+
+### GET /api/percolator/positions
+
+Get user's open Percolator positions.
+
+**Response:**
+```json
+{
+  "positions": [
+    {
+      "accountIndex": 5,
+      "side": "LONG",
+      "size": 100.00,
+      "entryPrice": 140.50,
+      "capital": 500.00,
+      "pnl": 14.28
+    }
+  ]
+}
+```
+
+### POST /api/percolator/trade
+
+Execute a Percolator trade (long/short).
+
+**Request:**
+```json
+{
+  "direction": "long",
+  "size": 100
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "signature": "5UxM...",
+  "slot": 298456200
+}
+```
+
+### POST /api/percolator/deposit
+
+Deposit USDC collateral.
+
+**Request:** `{ "amount": 500 }`
+
+### POST /api/percolator/withdraw
+
+Withdraw USDC collateral.
+
+**Request:** `{ "amount": 100 }`
+
+---
+
+## Security Shield Endpoints
+
+Code scanning, address safety checks, and transaction validation. Always available (no env vars required).
+
+### POST /api/shield/scan
+
+Scan code or plugin for malicious patterns.
+
+**Request:**
+```json
+{
+  "code": "const x = require('child_process').exec(userInput);"
+}
+```
+
+**Response:**
+```json
+{
+  "riskScore": 85,
+  "findings": [
+    { "category": "shell_exec", "severity": "critical", "pattern": "child_process.exec with user input" }
+  ],
+  "entropy": 4.2
+}
+```
+
+### POST /api/shield/check
+
+Check address safety (auto-detects Solana/EVM).
+
+**Request:** `{ "address": "0x..." }`
+
+**Response:**
+```json
+{
+  "safe": false,
+  "chain": "ethereum",
+  "flags": ["known_drainer", "inferno_drainer"],
+  "riskLevel": "critical"
+}
+```
+
+### POST /api/shield/validate
+
+Pre-flight transaction validation.
+
+**Request:**
+```json
+{
+  "destination": "0x...",
+  "amount": 1000,
+  "token": "USDC"
+}
+```
+
+### GET /api/shield/stats
+
+Scanner statistics (total scans, threats blocked, scam DB size).
+
+---
+
+## Token Audit Endpoints
+
+GoPlus-powered token security analysis.
+
+### GET /api/audit/:address
+
+Audit a token contract. Auto-detects chain (base58 = Solana, 0x = EVM).
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `chain` | string | No | Override chain: `ethereum`, `bsc`, `polygon`, `arbitrum`, `base`, `solana`, etc. |
+
+**Response:**
+```json
+{
+  "address": "0x...",
+  "chain": "ethereum",
+  "riskScore": 35,
+  "flags": {
+    "isHoneypot": false,
+    "hasMintFunction": true,
+    "hasBlacklist": false,
+    "isProxy": false,
+    "topHolderConcentration": 0.42
+  },
+  "liquidity": 1250000,
+  "holders": 5420
+}
+```
+
+### GET /api/audit/:address/safe
+
+Quick boolean safety check. Returns `{ "address": "...", "chain": "...", "safe": true }`.
+
+---
+
+## DCA Endpoints
+
+Dollar-cost averaging across 16 platforms.
+
+### GET /api/dca/orders
+
+List active DCA orders.
+
+**Response:**
+```json
+{
+  "orders": [
+    {
+      "id": "dca_abc123",
+      "platform": "polymarket",
+      "status": "active",
+      "totalAmount": 1000,
+      "amountPerCycle": 50,
+      "intervalSec": 3600,
+      "cyclesCompleted": 8,
+      "cyclesRemaining": 12,
+      "totalSpent": 400,
+      "createdAt": 1706500000000
+    }
+  ]
+}
+```
+
+### GET /api/dca/:id
+
+Get a single DCA order by ID.
+
+### POST /api/dca/create
+
+Create a new DCA order.
+
+**Request:**
+```json
+{
+  "platform": "polymarket",
+  "tokenId": "0x...",
+  "totalAmount": 1000,
+  "amountPerCycle": 50,
+  "intervalSec": 3600,
+  "price": 0.55,
+  "side": "buy"
+}
+```
+
+### POST /api/dca/:id/pause
+
+Pause a running DCA order.
+
+### POST /api/dca/:id/resume
+
+Resume a paused DCA order.
+
+### DELETE /api/dca/:id
+
+Cancel a DCA order.
+
+## TWAP Endpoints
+
+All endpoints require auth. Prefix: `/api/twap`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/twap/orders | List all TWAP orders |
+| GET | /api/twap/:id | Get specific TWAP order |
+| POST | /api/twap/create | Create TWAP order |
+| POST | /api/twap/:id/pause | Pause a TWAP order |
+| POST | /api/twap/:id/resume | Resume a TWAP order |
+| DELETE | /api/twap/:id | Cancel a TWAP order |
+
+## Bracket Order Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/bracket/orders | List all bracket orders |
+| GET | /api/bracket/:id | Get specific bracket order |
+| POST | /api/bracket/create | Create bracket order (entry + TP + SL) |
+| POST | /api/bracket/:id/cancel | Cancel bracket order |
+| GET | /api/bracket/stats | Get bracket statistics |
+
+## Trigger Order Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/triggers/orders | List all trigger orders |
+| GET | /api/triggers/:id | Get specific trigger order |
+| POST | /api/triggers/create | Create trigger order |
+| DELETE | /api/triggers/:id | Cancel trigger order |
+| POST | /api/triggers/:id/pause | Pause trigger order |
+| POST | /api/triggers/:id/resume | Resume trigger order |
+
+## Copy Trading Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/copy-trading/leaders | List tracked leaders |
+| POST | /api/copy-trading/leaders | Add leader wallet |
+| DELETE | /api/copy-trading/leaders/:address | Remove leader |
+| GET | /api/copy-trading/positions | List copied positions |
+| GET | /api/copy-trading/leaders/:address/positions | Leader's positions |
+| GET | /api/copy-trading/leaders/:address/stats | Leader performance |
+| POST | /api/copy-trading/start | Start copy trading |
+| POST | /api/copy-trading/stop | Stop copy trading |
+| GET | /api/copy-trading/status | Service status |
+| GET | /api/copy-trading/stats | Aggregate stats |
+| PUT | /api/copy-trading/config | Update config |
+
+## Opportunity Finder Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/opportunities | List opportunities |
+| GET | /api/opportunities/:id | Get specific opportunity |
+| GET | /api/opportunities/history | Past opportunities |
+| GET | /api/opportunities/stats | Finder statistics |
+| GET | /api/opportunities/linked-markets | Linked markets |
+| POST | /api/opportunities/scan | Manual scan |
+| POST | /api/opportunities/start | Start scanning |
+| POST | /api/opportunities/stop | Stop scanning |
+| PUT | /api/opportunities/config | Update config |
+| GET | /api/opportunities/platforms | Available platforms |
+| POST | /api/opportunities/:id/execute | Execute opportunity |
+| POST | /api/opportunities/:id/simulate | Simulate execution |
+| GET | /api/opportunities/executions | Execution results |
+| POST | /api/opportunities/auto-execute/start | Start auto-execute |
+
+## Whale Tracker Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/whales/wallets | List tracked wallets |
+| POST | /api/whales/wallets | Add wallet |
+| DELETE | /api/whales/wallets/:address | Remove wallet |
+| GET | /api/whales/:address/positions | Wallet positions |
+| GET | /api/whales/:address/history | Wallet history |
+| POST | /api/whales/:address/record-close | Record closed position |
+| GET | /api/whales/stats | Tracker statistics |
+| GET | /api/whales/leaderboard | Performance leaderboard |
+| POST | /api/whales/start | Start tracking |
+| POST | /api/whales/stop | Stop tracking |
+| GET | /api/whales/status | Service status |
+| PUT | /api/whales/config | Update config |
+| GET | /api/whales/activity | Recent activity |
+
+## Risk Engine Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/risk/assess | Assess trade risk |
+| GET | /api/risk/limits/:userId | Get user risk limits |
+| PUT | /api/risk/limits/:userId | Update user limits |
+| POST | /api/risk/pnl | Record PnL entry |
+| GET | /api/risk/report/:userId | Full risk report |
+| GET | /api/risk/stats | Engine statistics |
+
+## Smart Router Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/routing/quote | Find best route |
+| POST | /api/routing/quotes | Get all quotes |
+| POST | /api/routing/compare | Compare routes |
+| PUT | /api/routing/config | Update config |
+
+## Feeds Manager Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/feeds/cache-stats | Cache statistics |
+| POST | /api/feeds/cache/clear | Clear cache |
+| GET | /api/feeds/search | Search markets |
+| GET | /api/feeds/news | Latest news |
+| GET | /api/feeds/news/search | Search news |
+| GET | /api/feeds/market/:marketId | Market data |
+| GET | /api/feeds/price/:platform/:marketId | Current price |
+| GET | /api/feeds/orderbook/:platform/:marketId | Orderbook |
+| POST | /api/feeds/analyze-edge | Analyze edge |
+| POST | /api/feeds/kelly | Kelly criterion |
+
+## Monitoring Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/monitoring/health | System health |
+| GET | /api/monitoring/providers | Provider health |
+| GET | /api/monitoring/process | Process info |
+
+## Alt Data Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/alt-data/signals | Recent signals |
+| GET | /api/alt-data/sentiment/:marketId | Market sentiment |
+| GET | /api/alt-data/stats | Service stats |
+
+## Alerts Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/alerts | List alerts |
+| GET | /api/alerts/:id | Get alert |
+| POST | /api/alerts/price | Create price alert |
+| POST | /api/alerts/price-change | Create price-change alert |
+| POST | /api/alerts/volume | Create volume alert |
+| PUT | /api/alerts/:id/enable | Enable alert |
+| PUT | /api/alerts/:id/disable | Disable alert |
+| DELETE | /api/alerts/:id | Delete alert |
+| POST | /api/alerts/start-monitoring | Start monitoring |
+| POST | /api/alerts/stop-monitoring | Stop monitoring |
+
+## Execution Queue Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/queue/jobs/:id | Job status |
+| POST | /api/queue/jobs/:id/wait | Wait for job |
+
+## Webhooks Management Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/webhooks | List webhooks |
+| GET | /api/webhooks/:id | Get webhook |
+| PUT | /api/webhooks/:id/enable | Enable webhook |
+| PUT | /api/webhooks/:id/disable | Disable webhook |
+| DELETE | /api/webhooks/:id | Delete webhook |
+| POST | /api/webhooks/:id/regenerate-secret | Regenerate secret |
+
+## Payments (x402) Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/payments/status | Payment configuration status |
+| GET | /api/payments/history | Payment history |
+| GET | /api/payments/balance/:network | Network balance |
+| GET | /api/payments/address/:network | Wallet address |
+
+## Embeddings Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/embeddings/embed | Embed single text |
+| POST | /api/embeddings/embed-batch | Embed multiple texts |
+| POST | /api/embeddings/similarity | Cosine similarity |
+| POST | /api/embeddings/search | Semantic search |
+| POST | /api/embeddings/cache/clear | Clear cache |
+
+## Cron Service Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/cron/status | Service status |
+| GET | /api/cron/jobs | List jobs |
+| GET | /api/cron/jobs/:id | Get job |
+| POST | /api/cron/jobs | Create job |
+| PATCH | /api/cron/jobs/:id | Update job |
+| DELETE | /api/cron/jobs/:id | Remove job |
+| POST | /api/cron/jobs/:id/run | Run job immediately |
+
+## Position Manager Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /api/positions/managed | List managed positions + stats |
+| GET | /api/positions/managed/:id | Get position |
+| GET | /api/positions/managed/by-platform/:platform | Positions by platform |
+| POST | /api/positions/managed | Create/update position |
+| POST | /api/positions/managed/:id/close | Close position |
+| POST | /api/positions/managed/:id/stop-loss | Set stop-loss |
+| POST | /api/positions/managed/:id/take-profit | Set take-profit |
+| DELETE | /api/positions/managed/:id/stop-loss | Remove stop-loss |
+| DELETE | /api/positions/managed/:id/take-profit | Remove take-profit |
+| PUT | /api/positions/managed/:id/price | Update price |
+| PUT | /api/positions/managed/prices | Batch update prices |
+| POST | /api/positions/managed/start | Start monitoring |
+| POST | /api/positions/managed/stop | Stop monitoring |
+
+---
+
 # Clodds Compute API
 
 The Compute API allows agents to pay for compute resources with USDC. No API keys needed - just a wallet.
@@ -1255,7 +1718,7 @@ Get status of an async compute job.
   "status": "completed",
   "result": {
     "content": "The weather is sunny.",
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-opus-4-6",
     "usage": { "inputTokens": 10, "outputTokens": 5 },
     "stopReason": "end_turn"
   },
@@ -1295,7 +1758,7 @@ Cancel a pending job and refund the reserved balance.
 
 ### POST /v1/compute/:service
 
-Submit a compute request. Replace `:service` with: `llm`, `code`, `web`, `trade`, `data`, or `storage`.
+Submit a compute request. Replace `:service` with: `llm`, `code`, `web`, `trade`, `data`, `storage`, `gpu`, `ml`, or `security`.
 
 **Request body:**
 ```json
@@ -1333,7 +1796,7 @@ Submit a compute request. Replace `:service` with: `llm`, `code`, `web`, `trade`
 {
   "wallet": "0x...",
   "payload": {
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-opus-4-6",
     "messages": [
       { "role": "user", "content": "What's the weather?" }
     ],
@@ -1345,9 +1808,9 @@ Submit a compute request. Replace `:service` with: `llm`, `code`, `web`, `trade`
 ```
 
 **Available models:**
-- `claude-sonnet-4-20250514`
-- `claude-3-5-haiku-latest`
-- `claude-opus-4-20250514`
+- `claude-opus-4-6` (latest, most capable)
+- `claude-sonnet-4-5-20250929`
+- `claude-haiku-4-5-20251001`
 - `gpt-4o`
 - `gpt-4o-mini`
 - `llama-3.1-70b`
@@ -1403,7 +1866,65 @@ Submit a compute request. Replace `:service` with: `llm`, `code`, `web`, `trade`
 }
 ```
 
-**Data types:** `price`, `orderbook`, `candles`, `trades`, `markets`, `positions`, `balance`, `news`, `sentiment`
+**Data types:** `price`, `orderbook`, `candles`, `trades`, `markets`, `positions`, `balance`, `news`, `sentiment`, `percolator_state`
+
+### Trade Service
+
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "platform": "polymarket",
+    "action": "buy",
+    "marketId": "0x...",
+    "size": 100,
+    "price": 0.55
+  }
+}
+```
+
+**Supported platforms:** `polymarket`, `kalshi`, `hyperliquid`, `binance`, `bybit`, `mexc`, `jupiter`, `raydium`, `orca`, `percolator`
+
+**Percolator-specific payload:**
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "platform": "percolator",
+    "action": "long",
+    "size": 100,
+    "slabAddress": "A7wQtRT9DhFqYho8wTVqQCDc7kYPTUXGPATiyVbZKVFs"
+  }
+}
+```
+
+### Security Service
+
+Scan code or addresses for security risks.
+
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "type": "code_scan",
+    "code": "const x = eval(input);"
+  }
+}
+```
+
+**Security types:** `code_scan`, `address_check`, `token_audit`, `tx_validate`
+
+**Token audit payload:**
+```json
+{
+  "wallet": "0x...",
+  "payload": {
+    "type": "token_audit",
+    "address": "0x...",
+    "chain": "ethereum"
+  }
+}
+```
 
 ### Storage Service
 
@@ -1483,7 +2004,7 @@ Stream LLM responses via Server-Sent Events (SSE). This endpoint streams text ch
 {
   "wallet": "0x...",
   "payload": {
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-opus-4-6",
     "messages": [
       { "role": "user", "content": "Write a poem about coding" }
     ],
@@ -1511,7 +2032,7 @@ data: {"type": "text", "text": "code..."}
 
 data: {"type": "usage", "usage": {"inputTokens": 25, "outputTokens": 150}}
 
-data: {"type": "done", "response": {"content": "In the realm of code...", "model": "claude-sonnet-4-20250514", "usage": {"inputTokens": 25, "outputTokens": 150}, "stopReason": "end_turn"}}
+data: {"type": "done", "response": {"content": "In the realm of code...", "model": "claude-opus-4-6", "usage": {"inputTokens": 25, "outputTokens": 150}, "stopReason": "end_turn"}}
 ```
 
 **Event types:**
@@ -1529,7 +2050,7 @@ const response = await fetch('https://api.cloddsbot.com/v1/stream/llm', {
   body: JSON.stringify({
     wallet: '0x...',
     payload: {
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-6',
       messages: [{ role: 'user', content: 'Hello' }]
     }
   })

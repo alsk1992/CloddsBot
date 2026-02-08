@@ -58,6 +58,51 @@ Rate limit headers:
 
 ---
 
+## What Can You Build With This API?
+
+The HTTP API turns Clodds from a CLI chatbot into a **headless trading platform** that any software can control. Skills and agents running inside Clodds call services directly in-process — the HTTP API is for everything external.
+
+### Trading Dashboards / UIs
+
+Build a React, Next.js, or mobile frontend on top of Clodds. Show live positions, PnL charts, and portfolio stats. Let users manage TP/SL visually, monitor whale activity, and act on arbitrage opportunities — all powered by the REST endpoints below.
+
+### Automation Scripts
+
+Write a Python or Node script that chains endpoints together:
+
+```
+GET /api/feeds/price/polymarket/:id   →  get current price
+POST /api/risk/assess                 →  check if trade is safe
+POST /api/routing/quote               →  find best execution route
+POST /api/positions/managed/:id/stop-loss  →  set risk controls
+```
+
+### Multi-Bot Orchestration
+
+Run multiple Clodds instances. A master controller queries each one via HTTP — one instance scans for opportunities, another executes trades, a third monitors risk.
+
+### Telegram / Discord Bots
+
+Build a lightweight bot that proxies user commands to the API. User types `/whales` in Telegram, bot calls `GET /api/whales/activity`, formats the response, and sends it back.
+
+### Copy Trading Platform
+
+Build a social trading site: users browse the whale leaderboard (`GET /api/whales/leaderboard`), pick leaders to follow (`POST /api/copy-trading/leaders`), and monitor copied positions (`GET /api/copy-trading/positions`).
+
+### Monitoring & Alerting (Grafana, Datadog)
+
+Scrape `GET /api/monitoring/health` and `GET /api/monitoring/process` for system metrics. Set up alerts on memory usage, provider outages, or queue backlogs. Wire price alerts via `POST /api/alerts/price`.
+
+### AI Agent Integration
+
+Other AI agents (AutoGPT, CrewAI, LangChain, etc.) can use Clodds as a "trading tool" by calling the REST API. Wrap endpoints as MCP tools so Claude or other LLMs can trade, check positions, and manage risk through function calling.
+
+### Scheduled Jobs & Workflows
+
+Use the Cron API (`POST /api/cron/jobs`) to schedule recurring tasks: daily portfolio rebalancing, periodic market scans, automated stop-loss sweeps, or daily digest reports — all without writing external cron jobs.
+
+---
+
 ## Gateway HTTP Endpoints
 
 ### GET /health
@@ -80,7 +125,7 @@ API info and available endpoints.
 ```json
 {
   "name": "clodds",
-  "version": "0.3.4",
+  "version": "0.3.10",
   "description": "AI assistant for prediction markets",
   "endpoints": {
     "websocket": "/ws",
@@ -358,6 +403,96 @@ Get all computed features for tracked markets.
 ### GET /api/features/stats
 
 Feature engineering service statistics.
+
+---
+
+## Percolator Endpoints
+
+On-chain Solana perpetual futures. Requires `PERCOLATOR_ENABLED=true`.
+
+### GET /api/percolator/status
+
+Market state: oracle price, open interest, funding rate, LP bid/ask spread.
+
+### GET /api/percolator/positions
+
+User's open positions with PnL, entry price, capital.
+
+### POST /api/percolator/trade
+
+Execute long/short trade. Body: `{ "direction": "long"|"short", "size": <usd> }`
+
+### POST /api/percolator/deposit
+
+Deposit USDC collateral. Body: `{ "amount": <usd> }`
+
+### POST /api/percolator/withdraw
+
+Withdraw USDC collateral. Body: `{ "amount": <usd> }`
+
+---
+
+## Security Shield Endpoints
+
+### POST /api/shield/scan
+
+Scan code for malicious patterns (75 rules, 9 categories). Body: `{ "code": "..." }`
+
+### POST /api/shield/check
+
+Check address safety (auto-detects Solana/EVM). Body: `{ "address": "..." }`
+
+### POST /api/shield/validate
+
+Pre-flight transaction validation. Body: `{ "destination": "...", "amount": 100, "token": "USDC" }`
+
+### GET /api/shield/stats
+
+Scanner statistics — code scans, address checks, threats blocked, scam DB size.
+
+---
+
+## Token Audit Endpoints
+
+### GET /api/audit/:address
+
+GoPlus-powered token security analysis. Auto-detects chain (base58 = Solana, 0x = EVM).
+
+Query: `?chain=ethereum` (optional override)
+
+Returns: risk score (0-100), 16 risk flags, honeypot detection, liquidity, holder concentration.
+
+### GET /api/audit/:address/safe
+
+Quick boolean safety check. Returns `{ "address": "...", "chain": "...", "safe": true|false }`.
+
+---
+
+## DCA Endpoints
+
+### GET /api/dca/orders
+
+List active DCA orders across all platforms. Query: `?userId=default`
+
+### GET /api/dca/:id
+
+Get a single DCA order by ID.
+
+### POST /api/dca/create
+
+Create DCA order. Body: `{ "platform": "polymarket", "marketId": "...", "totalAmount": 1000, "amountPerCycle": 50, "intervalSec": 3600, "side": "buy" }`
+
+### POST /api/dca/:id/pause
+
+Pause a running DCA order.
+
+### POST /api/dca/:id/resume
+
+Resume a paused DCA order.
+
+### DELETE /api/dca/:id
+
+Cancel and delete a DCA order.
 
 ---
 
@@ -712,7 +847,7 @@ Deposit credits.
 
 Submit compute request.
 
-**Services:** `llm`, `code`, `web`, `trade`, `data`, `storage`
+**Services:** `llm`, `code`, `web`, `trade`, `data`, `storage`, `gpu`, `ml`, `security`
 
 **Request:**
 ```json
@@ -745,7 +880,7 @@ Streaming LLM inference via Server-Sent Events.
 {
   "wallet": "0x...",
   "payload": {
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-opus-4-6",
     "messages": [
       { "role": "user", "content": "Write a poem" }
     ],
@@ -780,7 +915,7 @@ Get job status.
   "status": "completed",
   "result": {
     "content": "The weather is sunny.",
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-opus-4-6",
     "usage": { "inputTokens": 10, "outputTokens": 5 },
     "stopReason": "end_turn"
   },
@@ -808,7 +943,7 @@ Cancel a pending job.
 {
   "wallet": "0x...",
   "payload": {
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-opus-4-6",
     "messages": [
       { "role": "user", "content": "What's the weather?" }
     ],
@@ -820,9 +955,9 @@ Cancel a pending job.
 ```
 
 **Available Models:**
-- `claude-sonnet-4-20250514`
-- `claude-3-5-haiku-latest`
-- `claude-opus-4-20250514`
+- `claude-opus-4-6` (latest, most capable)
+- `claude-sonnet-4-5-20250929`
+- `claude-haiku-4-5-20251001`
 - `gpt-4o`
 - `gpt-4o-mini`
 - `llama-3.1-70b`
@@ -878,7 +1013,7 @@ Cancel a pending job.
 }
 ```
 
-**Data Types:** `price`, `orderbook`, `candles`, `trades`, `markets`, `positions`, `balance`, `news`, `sentiment`
+**Data Types:** `price`, `orderbook`, `candles`, `trades`, `markets`, `positions`, `balance`, `news`, `sentiment`, `percolator_state`
 
 ### Storage Service
 
@@ -896,6 +1031,789 @@ Cancel a pending job.
 ```
 
 **Operations:** `put`, `get`, `delete`, `list`
+
+---
+
+## TWAP Endpoints
+
+### GET /api/twap/orders
+
+List all TWAP orders.
+
+### GET /api/twap/:id
+
+Get a specific TWAP order by ID.
+
+### POST /api/twap/create
+
+Create a new TWAP order.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `platform` | string | Yes | Trading platform |
+| `marketId` | string | Yes | Market identifier |
+| `tokenId` | string | Yes | Token identifier |
+| `side` | string | Yes | `buy` or `sell` |
+| `totalSize` | number | Yes | Total order size |
+| `slices` | number | Yes | Number of slices |
+| `intervalSec` | number | Yes | Seconds between slices |
+| `priceLimit` | number | No | Max/min price limit |
+
+### POST /api/twap/:id/pause
+
+Pause a running TWAP order.
+
+### POST /api/twap/:id/resume
+
+Resume a paused TWAP order.
+
+### DELETE /api/twap/:id
+
+Cancel a TWAP order.
+
+---
+
+## Bracket Order Endpoints
+
+### GET /api/bracket/orders
+
+List all bracket orders.
+
+### GET /api/bracket/:id
+
+Get a specific bracket order by ID.
+
+### POST /api/bracket/create
+
+Create a bracket order (entry + take-profit + stop-loss).
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `platform` | string | Yes | Trading platform |
+| `marketId` | string | Yes | Market identifier |
+| `tokenId` | string | Yes | Token identifier |
+| `side` | string | Yes | `buy` or `sell` |
+| `size` | number | Yes | Order size |
+| `entryPrice` | number | Yes | Entry price |
+| `takeProfit` | number | Yes | Take-profit price |
+| `stopLoss` | number | Yes | Stop-loss price |
+
+### POST /api/bracket/:id/cancel
+
+Cancel a bracket order.
+
+### GET /api/bracket/stats
+
+Get bracket order statistics.
+
+---
+
+## Trigger Order Endpoints
+
+### GET /api/triggers/orders
+
+List all trigger orders.
+
+### GET /api/triggers/:id
+
+Get a specific trigger order by ID.
+
+### POST /api/triggers/create
+
+Create a trigger order.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `platform` | string | Yes | Trading platform |
+| `marketId` | string | Yes | Market identifier |
+| `tokenId` | string | Yes | Token identifier |
+| `side` | string | Yes | `buy` or `sell` |
+| `size` | number | Yes | Order size |
+| `triggerPrice` | number | Yes | Price to trigger at |
+| `triggerCondition` | string | Yes | `above` or `below` |
+| `expiresAt` | string | No | ISO 8601 expiry time |
+
+### DELETE /api/triggers/:id
+
+Cancel a trigger order.
+
+### POST /api/triggers/:id/pause
+
+Pause a trigger order.
+
+### POST /api/triggers/:id/resume
+
+Resume a paused trigger order.
+
+---
+
+## Copy Trading Endpoints
+
+### GET /api/copy-trading/leaders
+
+List tracked leader wallets.
+
+### POST /api/copy-trading/leaders
+
+Add a leader wallet to track.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `address` | string | Yes | Leader wallet address |
+| `platform` | string | Yes | Platform to track on |
+| `allocation` | number | No | Max allocation |
+| `maxPositionSize` | number | No | Max per-position size |
+
+### DELETE /api/copy-trading/leaders/:address
+
+Remove a leader wallet.
+
+### GET /api/copy-trading/positions
+
+List all copied positions.
+
+### GET /api/copy-trading/leaders/:address/positions
+
+List positions copied from a specific leader.
+
+### GET /api/copy-trading/leaders/:address/stats
+
+Get copy performance stats for a leader.
+
+### POST /api/copy-trading/start
+
+Start copy trading.
+
+### POST /api/copy-trading/stop
+
+Stop copy trading.
+
+### GET /api/copy-trading/status
+
+Get copy trading service status.
+
+### GET /api/copy-trading/stats
+
+Get aggregate copy trading statistics.
+
+### PUT /api/copy-trading/config
+
+Update copy trading configuration.
+
+---
+
+## Opportunity Finder Endpoints
+
+### GET /api/opportunities
+
+List detected cross-platform arbitrage opportunities.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `minSpread` | number | Minimum spread filter |
+| `platforms` | string | Comma-separated platform filter |
+| `limit` | number | Max results |
+
+### GET /api/opportunities/:id
+
+Get a specific opportunity by ID.
+
+### GET /api/opportunities/history
+
+Get historical opportunities.
+
+### GET /api/opportunities/stats
+
+Get opportunity finder statistics.
+
+### GET /api/opportunities/linked-markets
+
+Get linked markets across platforms.
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `marketKey` | string | Yes | Market key to look up |
+
+### POST /api/opportunities/scan
+
+Trigger a manual opportunity scan.
+
+### POST /api/opportunities/start
+
+Start continuous opportunity scanning.
+
+### POST /api/opportunities/stop
+
+Stop opportunity scanning.
+
+### PUT /api/opportunities/config
+
+Update opportunity finder configuration.
+
+### GET /api/opportunities/platforms
+
+Get available platform information.
+
+### POST /api/opportunities/:id/execute
+
+Execute an arbitrage opportunity.
+
+### POST /api/opportunities/:id/simulate
+
+Simulate executing an opportunity.
+
+### GET /api/opportunities/executions
+
+Get past execution results.
+
+### POST /api/opportunities/auto-execute/start
+
+Start auto-execution of opportunities.
+
+---
+
+## Whale Tracker Endpoints
+
+### GET /api/whales/wallets
+
+List all tracked wallets.
+
+### POST /api/whales/wallets
+
+Add a wallet to track.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `address` | string | Yes | Wallet address |
+| `label` | string | No | Display label |
+| `platforms` | string[] | No | Platforms to track |
+
+### DELETE /api/whales/wallets/:address
+
+Remove a tracked wallet.
+
+### GET /api/whales/:address/positions
+
+Get positions for a specific wallet.
+
+### GET /api/whales/:address/history
+
+Get transaction history for a wallet.
+
+### POST /api/whales/:address/record-close
+
+Record a closed position for a wallet.
+
+### GET /api/whales/stats
+
+Get whale tracker statistics.
+
+### GET /api/whales/leaderboard
+
+Get whale performance leaderboard.
+
+### POST /api/whales/start
+
+Start whale tracking.
+
+### POST /api/whales/stop
+
+Stop whale tracking.
+
+### GET /api/whales/status
+
+Get whale tracker service status.
+
+### PUT /api/whales/config
+
+Update whale tracker configuration.
+
+### GET /api/whales/activity
+
+Get recent whale activity across all wallets.
+
+---
+
+## Risk Engine Endpoints
+
+### POST /api/risk/assess
+
+Assess risk for a proposed trade.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `userId` | string | Yes | User identifier |
+| `platform` | string | Yes | Trading platform |
+| `marketId` | string | Yes | Market identifier |
+| `side` | string | Yes | `buy` or `sell` |
+| `size` | number | Yes | Order size |
+| `price` | number | Yes | Order price |
+
+### GET /api/risk/limits/:userId
+
+Get risk limits for a user.
+
+### PUT /api/risk/limits/:userId
+
+Update risk limits for a user.
+
+### POST /api/risk/pnl
+
+Record a PnL entry.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `userId` | string | Yes | User identifier |
+| `pnlUsd` | number | Yes | PnL in USD |
+| `pnlPct` | number | Yes | PnL percentage |
+
+### GET /api/risk/report/:userId
+
+Get a full risk report for a user.
+
+### GET /api/risk/stats
+
+Get risk engine statistics.
+
+---
+
+## Smart Router Endpoints
+
+### POST /api/routing/quote
+
+Find the best route for an order.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `platform` | string | Yes | Source platform |
+| `marketId` | string | Yes | Market identifier |
+| `side` | string | Yes | `buy` or `sell` |
+| `size` | number | Yes | Order size |
+
+### POST /api/routing/quotes
+
+Get quotes from all available routes.
+
+### POST /api/routing/compare
+
+Compare routes across platforms.
+
+### PUT /api/routing/config
+
+Update smart router configuration.
+
+---
+
+## Feeds Manager Endpoints
+
+### GET /api/feeds/cache-stats
+
+Get feed cache statistics.
+
+### POST /api/feeds/cache/clear
+
+Clear the feed cache.
+
+### GET /api/feeds/search
+
+Search for markets across feeds.
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `q` | string | Yes | Search query |
+| `limit` | number | No | Max results |
+
+### GET /api/feeds/news
+
+Get latest news from all feeds.
+
+### GET /api/feeds/news/search
+
+Search news articles.
+
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `q` | string | Yes | Search query |
+| `limit` | number | No | Max results |
+
+### GET /api/feeds/market/:marketId
+
+Get market data from feeds.
+
+### GET /api/feeds/price/:platform/:marketId
+
+Get current price for a market.
+
+### GET /api/feeds/orderbook/:platform/:marketId
+
+Get orderbook for a market.
+
+### POST /api/feeds/analyze-edge
+
+Analyze edge for a market opportunity.
+
+### POST /api/feeds/kelly
+
+Calculate Kelly criterion for a bet.
+
+---
+
+## Monitoring Endpoints
+
+### GET /api/monitoring/health
+
+System health check (hostname, memory, CPU, uptime).
+
+### GET /api/monitoring/providers
+
+LLM provider health status.
+
+### GET /api/monitoring/process
+
+Node.js process info (pid, uptime, memory, CPU usage).
+
+---
+
+## Alt Data Endpoints
+
+### GET /api/alt-data/signals
+
+Get recent alternative data signals.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | number | Max results |
+
+### GET /api/alt-data/sentiment/:marketId
+
+Get market-specific sentiment data.
+
+### GET /api/alt-data/stats
+
+Get alt data service statistics.
+
+---
+
+## Alerts Endpoints
+
+### GET /api/alerts
+
+List alerts for a user.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `userId` | string | User ID (default: `default`) |
+
+### GET /api/alerts/:id
+
+Get a specific alert.
+
+### POST /api/alerts/price
+
+Create a price alert (above/below threshold).
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `platform` | string | Yes | Trading platform |
+| `marketId` | string | Yes | Market identifier |
+| `type` | string | Yes | `price_above` or `price_below` |
+| `threshold` | number | Yes | Price threshold |
+| `userId` | string | No | User ID |
+| `deliveryChannel` | string | No | `http`, `telegram`, etc. |
+| `oneTime` | boolean | No | Delete after triggered |
+
+### POST /api/alerts/price-change
+
+Create a price change alert (% change in time window).
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `platform` | string | Yes | Trading platform |
+| `marketId` | string | Yes | Market identifier |
+| `changePct` | number | Yes | Change percentage threshold |
+| `timeWindowSecs` | number | Yes | Time window in seconds |
+
+### POST /api/alerts/volume
+
+Create a volume spike alert.
+
+### PUT /api/alerts/:id/enable
+
+Enable an alert.
+
+### PUT /api/alerts/:id/disable
+
+Disable an alert.
+
+### DELETE /api/alerts/:id
+
+Delete an alert.
+
+### POST /api/alerts/start-monitoring
+
+Start alert monitoring.
+
+### POST /api/alerts/stop-monitoring
+
+Stop alert monitoring.
+
+---
+
+## Execution Queue Endpoints
+
+### GET /api/queue/jobs/:id
+
+Get status of a queued execution job.
+
+### POST /api/queue/jobs/:id/wait
+
+Wait for a job to complete (with timeout).
+
+**Request Body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `timeoutMs` | number | Max wait time (default: 30000) |
+
+---
+
+## Webhooks Management Endpoints
+
+### GET /api/webhooks
+
+List all registered webhooks.
+
+### GET /api/webhooks/:id
+
+Get a specific webhook.
+
+### PUT /api/webhooks/:id/enable
+
+Enable a webhook.
+
+### PUT /api/webhooks/:id/disable
+
+Disable a webhook.
+
+### DELETE /api/webhooks/:id
+
+Delete a webhook.
+
+### POST /api/webhooks/:id/regenerate-secret
+
+Regenerate the HMAC secret for a webhook.
+
+---
+
+## Payments (x402) Endpoints
+
+### GET /api/payments/status
+
+Check if payments are configured.
+
+### GET /api/payments/history
+
+Get payment history.
+
+### GET /api/payments/balance/:network
+
+Get balance for a network (`base`, `base-sepolia`, `solana`, `solana-devnet`).
+
+### GET /api/payments/address/:network
+
+Get wallet address for a network.
+
+---
+
+## Embeddings Endpoints
+
+### POST /api/embeddings/embed
+
+Generate embedding for a single text.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `text` | string | Yes | Text to embed |
+
+### POST /api/embeddings/embed-batch
+
+Generate embeddings for multiple texts.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `texts` | string[] | Yes | Texts to embed |
+
+### POST /api/embeddings/similarity
+
+Compute cosine similarity between two vectors.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `a` | number[] | Yes | First vector |
+| `b` | number[] | Yes | Second vector |
+
+### POST /api/embeddings/search
+
+Semantic search over a list of items.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Search query |
+| `items` | string[] | Yes | Items to search |
+| `topK` | number | No | Max results |
+
+### POST /api/embeddings/cache/clear
+
+Clear the embedding cache.
+
+---
+
+## Cron Service Endpoints
+
+### GET /api/cron/status
+
+Get cron service status (running, job count, next job).
+
+### GET /api/cron/jobs
+
+List all scheduled jobs.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `includeDisabled` | boolean | Include disabled jobs |
+
+### GET /api/cron/jobs/:id
+
+Get a specific scheduled job.
+
+### POST /api/cron/jobs
+
+Create a new scheduled job.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Job name |
+| `schedule` | object | Yes | Schedule config (`{ kind: 'every', everyMs: 60000 }` or `{ kind: 'cron', expr: '*/5 * * * *' }`) |
+| `payload` | object | Yes | Job payload (`{ kind: 'systemEvent', text: '...' }`, etc.) |
+| `enabled` | boolean | No | Enabled (default: true) |
+
+### PATCH /api/cron/jobs/:id
+
+Update a scheduled job.
+
+### DELETE /api/cron/jobs/:id
+
+Remove a scheduled job.
+
+### POST /api/cron/jobs/:id/run
+
+Run a job immediately.
+
+**Request Body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `mode` | string | `force` (default) or `due` |
+
+---
+
+## Position Manager Endpoints
+
+### GET /api/positions/managed
+
+List all managed positions with stats.
+
+### GET /api/positions/managed/:id
+
+Get a specific managed position.
+
+### GET /api/positions/managed/by-platform/:platform
+
+Get managed positions filtered by platform.
+
+### POST /api/positions/managed
+
+Create or update a managed position.
+
+### POST /api/positions/managed/:id/close
+
+Close a managed position.
+
+**Request Body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `price` | number | Close price (default: current price) |
+
+### POST /api/positions/managed/:id/stop-loss
+
+Set stop-loss on a position.
+
+**Request Body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `price` | number | Absolute stop-loss price |
+| `percentFromEntry` | number | Stop-loss as % from entry |
+| `trailingPercent` | number | Trailing stop percentage |
+
+### POST /api/positions/managed/:id/take-profit
+
+Set take-profit on a position.
+
+**Request Body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `price` | number | Absolute take-profit price |
+| `percentFromEntry` | number | Take-profit as % from entry |
+| `partialLevels` | array | Partial TP levels `[{ percent, sizePercent }]` |
+
+### DELETE /api/positions/managed/:id/stop-loss
+
+Remove stop-loss from a position.
+
+### DELETE /api/positions/managed/:id/take-profit
+
+Remove take-profit from a position.
+
+### PUT /api/positions/managed/:id/price
+
+Update current price for a position (triggers TP/SL checks).
+
+### PUT /api/positions/managed/prices
+
+Batch update prices for multiple positions.
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `updates` | array | Yes | `[{ positionId, price }]` |
+
+### POST /api/positions/managed/start
+
+Start position monitoring (TP/SL checker).
+
+### POST /api/positions/managed/stop
+
+Stop position monitoring.
 
 ---
 

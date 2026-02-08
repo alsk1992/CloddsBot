@@ -679,6 +679,101 @@ export function createTradingApiRouter(deps: TradingApiDeps): Router {
     } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to close position' }); }
   });
 
+  router.get('/positions/managed/:id', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      const position = positionManager.getPosition(req.params.id);
+      if (!position) { res.status(404).json({ error: `Position ${req.params.id} not found` }); return; }
+      res.json({ position });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to get position' }); }
+  });
+
+  router.get('/positions/managed/by-platform/:platform', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      const positions = positionManager.getPositionsByPlatform(req.params.platform as any);
+      res.json({ positions, count: positions.length });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to get positions by platform' }); }
+  });
+
+  router.post('/positions/managed', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      const position = positionManager.updatePosition(req.body);
+      res.json({ success: true, position });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to create/update position' }); }
+  });
+
+  router.post('/positions/managed/:id/stop-loss', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      const { price, percentFromEntry, trailingPercent } = req.body ?? {};
+      positionManager.setStopLoss(req.params.id, { price, percentFromEntry, trailingPercent });
+      res.json({ success: true, positionId: req.params.id });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to set stop-loss' }); }
+  });
+
+  router.post('/positions/managed/:id/take-profit', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      const { price, percentFromEntry, partialLevels } = req.body ?? {};
+      positionManager.setTakeProfit(req.params.id, { price, percentFromEntry, partialLevels });
+      res.json({ success: true, positionId: req.params.id });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to set take-profit' }); }
+  });
+
+  router.delete('/positions/managed/:id/stop-loss', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      positionManager.removeStopLoss(req.params.id);
+      res.json({ success: true, positionId: req.params.id });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to remove stop-loss' }); }
+  });
+
+  router.delete('/positions/managed/:id/take-profit', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      positionManager.removeTakeProfit(req.params.id);
+      res.json({ success: true, positionId: req.params.id });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to remove take-profit' }); }
+  });
+
+  router.put('/positions/managed/:id/price', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      const { price } = req.body ?? {};
+      if (typeof price !== 'number') { res.status(400).json({ error: 'Required: price (number)' }); return; }
+      positionManager.updatePrice(req.params.id, price);
+      res.json({ success: true, positionId: req.params.id, price });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to update price' }); }
+  });
+
+  router.put('/positions/managed/prices', (req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      const { updates } = req.body ?? {};
+      if (!Array.isArray(updates)) { res.status(400).json({ error: 'Required: updates (array)' }); return; }
+      positionManager.updatePrices(updates);
+      res.json({ success: true, count: updates.length });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to update prices' }); }
+  });
+
+  router.post('/positions/managed/start', (_req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      positionManager.start();
+      res.json({ success: true, monitoring: true });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to start monitoring' }); }
+  });
+
+  router.post('/positions/managed/stop', (_req: Request, res: Response) => {
+    if (!positionManager) { res.status(404).json({ error: 'Position manager not available' }); return; }
+    try {
+      positionManager.stop();
+      res.json({ success: true, monitoring: false });
+    } catch (err: any) { res.status(500).json({ error: err?.message || 'Failed to stop monitoring' }); }
+  });
+
   // ══════════════════════════════════════════════════════════════════════════
   // FEATURE ENGINE — Market indicators
   // ══════════════════════════════════════════════════════════════════════════

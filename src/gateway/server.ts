@@ -38,6 +38,27 @@ export interface GatewayServer {
   setFeatureEngineering(service: FeatureEngineering | null): void;
   setBittensorRouter(router: Router | null): void;
   setTradingApiRouter(router: Router | null): void;
+  setPercolatorRouter(router: Router | null): void;
+  setShieldRouter(router: Router | null): void;
+  setAuditRouter(router: Router | null): void;
+  setDCARouter(router: Router | null): void;
+  setTwapRouter(router: Router | null): void;
+  setBracketRouter(router: Router | null): void;
+  setTriggerRouter(router: Router | null): void;
+  setCopyTradingRouter(router: Router | null): void;
+  setOpportunityRouter(router: Router | null): void;
+  setWhaleRouter(router: Router | null): void;
+  setRiskRouter(router: Router | null): void;
+  setRoutingRouter(router: Router | null): void;
+  setFeedsRouter(router: Router | null): void;
+  setMonitoringRouter(router: Router | null): void;
+  setAltDataRouter(router: Router | null): void;
+  setAlertsRouter(router: Router | null): void;
+  setQueueRouter(router: Router | null): void;
+  setWebhooksRouter(router: Router | null): void;
+  setPaymentsRouter(router: Router | null): void;
+  setEmbeddingsRouter(router: Router | null): void;
+  setCronRouter(router: Router | null): void;
   setCommandListHandler(handler: CommandListHandler | null): void;
 }
 
@@ -574,8 +595,12 @@ export function createServer(
     }
   });
 
-  // ── Static webchat files ──
-  app.use('/webchat', express.static(join(__dirname, '../../public/webchat')));
+  // ── Static webchat files (no-cache to ensure updates propagate immediately) ──
+  app.use('/webchat', express.static(join(__dirname, '../../public/webchat'), {
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    },
+  }));
 
   // Legacy inline WebChat HTML client
   app.get('/webchat/legacy', (_req, res) => {
@@ -2278,7 +2303,7 @@ export function createServer(
         httpServer = createHttpServer(app);
 
         // WebSocket server - handles both /ws and /chat
-        wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+        wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
         // Handle upgrade requests
         httpServer.on('upgrade', (request: IncomingMessage, socket, head) => {
@@ -2406,6 +2431,111 @@ export function createServer(
     setTradingApiRouter(router: Router | null): void {
       if (router) {
         app.use('/api', requireAuth, router);
+      }
+    },
+    setPercolatorRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/percolator', requireAuth, router);
+      }
+    },
+    setShieldRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/shield', requireAuth, router);
+      }
+    },
+    setAuditRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/audit', requireAuth, router);
+      }
+    },
+    setDCARouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/dca', requireAuth, router);
+      }
+    },
+    setTwapRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/twap', requireAuth, router);
+      }
+    },
+    setBracketRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/bracket', requireAuth, router);
+      }
+    },
+    setTriggerRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/triggers', requireAuth, router);
+      }
+    },
+    setCopyTradingRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/copy-trading', requireAuth, router);
+      }
+    },
+    setOpportunityRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/opportunities', requireAuth, router);
+      }
+    },
+    setWhaleRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/whales', requireAuth, router);
+      }
+    },
+    setRiskRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/risk', requireAuth, router);
+      }
+    },
+    setRoutingRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/routing', requireAuth, router);
+      }
+    },
+    setFeedsRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/feeds', requireAuth, router);
+      }
+    },
+    setMonitoringRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/monitoring', requireAuth, router);
+      }
+    },
+    setAltDataRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/alt-data', requireAuth, router);
+      }
+    },
+    setAlertsRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/alerts', requireAuth, router);
+      }
+    },
+    setQueueRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/queue', requireAuth, router);
+      }
+    },
+    setWebhooksRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/webhooks', requireAuth, router);
+      }
+    },
+    setPaymentsRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/payments', requireAuth, router);
+      }
+    },
+    setEmbeddingsRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/embeddings', requireAuth, router);
+      }
+    },
+    setCronRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/cron', requireAuth, router);
       }
     },
     setCommandListHandler(handler: CommandListHandler | null): void {

@@ -539,7 +539,28 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   if (config.feeds?.percolator?.enabled) {
     const { createPercolatorService } = await import('../percolator/index.js');
     percolatorService = createPercolatorService(config.feeds.percolator);
+    // Wire Percolator HTTP API router
+    const { createPercolatorRouter } = await import('./percolator-routes.js');
+    httpGateway.setPercolatorRouter(createPercolatorRouter(percolatorService));
     logger.info({ slab: config.feeds.percolator.slabAddress }, 'Percolator service created');
+  }
+
+  // Wire Shield HTTP API router (always available — no credentials needed)
+  {
+    const { createShieldRouter } = await import('./shield-routes.js');
+    httpGateway.setShieldRouter(createShieldRouter());
+  }
+
+  // Wire Token Audit HTTP API router (always available — GoPlus is free)
+  {
+    const { createAuditRouter } = await import('./audit-routes.js');
+    httpGateway.setAuditRouter(createAuditRouter());
+  }
+
+  // Wire DCA HTTP API router (DCA persistence already initialized above)
+  {
+    const { createDCARouter } = await import('./dca-routes.js');
+    httpGateway.setDCARouter(createDCARouter());
   }
 
   // Create alt-data sentiment pipeline if enabled
@@ -714,6 +735,132 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         allowSplitting: config.smartRouting?.allowSplitting ?? false,
       })
     : null;
+
+  // Wire TWAP + Bracket + Trigger order routers (require executionService)
+  if (executionService) {
+    const { createTwapRouter } = await import('./twap-routes.js');
+    httpGateway.setTwapRouter(createTwapRouter({ execution: executionService }));
+
+    const { createBracketRouter } = await import('./bracket-routes.js');
+    httpGateway.setBracketRouter(createBracketRouter({ execution: executionService }));
+
+    const { createTriggerOrderManager } = await import('../execution/trigger-orders.js');
+    const triggerManager = createTriggerOrderManager(executionService, feeds as any);
+    const { createTriggerRouter } = await import('./trigger-routes.js');
+    httpGateway.setTriggerRouter(createTriggerRouter({ manager: triggerManager }));
+    triggerManager.start();
+    logger.info('TWAP, Bracket, Trigger order APIs wired');
+  }
+
+  // Wire Copy Trading router (requires copyTrading service)
+  if (copyTrading) {
+    const { createCopyTradingRouter } = await import('./copy-trading-routes.js');
+    httpGateway.setCopyTradingRouter(createCopyTradingRouter({ service: copyTrading }));
+    logger.info('Copy Trading API wired');
+  }
+
+  // Wire Opportunity Finder router
+  if (opportunityFinder) {
+    const { createOpportunityRouter } = await import('./opportunity-routes.js');
+    httpGateway.setOpportunityRouter(createOpportunityRouter({ finder: opportunityFinder }));
+    logger.info('Opportunity Finder API wired');
+  }
+
+  // Wire Whale Tracker router
+  if (whaleTracker) {
+    const { createWhaleRouter } = await import('./whale-routes.js');
+    httpGateway.setWhaleRouter(createWhaleRouter({ tracker: whaleTracker }));
+    logger.info('Whale Tracker API wired');
+  }
+
+  // Wire Risk Engine router (requires safetyManager for risk context)
+  if (executionService && safetyManager) {
+    const { createRiskEngine } = await import('../risk/engine.js');
+    const riskContext = {
+      tradingContext: { maxOrderSize: config.trading?.maxOrderSize ?? 1000 },
+      db: {
+        getUser: (userId: string) => db.getUser(userId),
+        getPositions: (userId: string) => db.getPositions(userId),
+      },
+    };
+    const riskEngine = createRiskEngine(
+      { initialBankroll: 10000 },
+      { riskContext, safetyManager },
+    );
+    const { createRiskRouter } = await import('./risk-routes.js');
+    httpGateway.setRiskRouter(createRiskRouter({ engine: riskEngine }));
+    logger.info('Risk Engine API wired');
+  }
+
+  // Wire Smart Router API (requires smartRouter)
+  if (smartRouter) {
+    const { createRoutingRouter } = await import('./routing-routes.js');
+    httpGateway.setRoutingRouter(createRoutingRouter({ router: smartRouter }));
+    logger.info('Smart Router API wired');
+  }
+
+  // Wire Feeds Manager API (always available)
+  {
+    const { createFeedsRouter } = await import('./feeds-routes.js');
+    httpGateway.setFeedsRouter(createFeedsRouter({ feeds: feeds as any }));
+    logger.info('Feeds Manager API wired');
+  }
+
+  // Wire Monitoring API (providerHealth may be null)
+  {
+    const { createMonitoringRouter } = await import('./monitoring-routes.js');
+    httpGateway.setMonitoringRouter(createMonitoringRouter({ providerHealth }));
+    logger.info('Monitoring API wired');
+  }
+
+  // Wire Alt Data API (lazy — altDataService created later in start())
+  {
+    const { createAltDataRouter } = await import('./alt-data-routes.js');
+    httpGateway.setAltDataRouter(createAltDataRouter({ getService: () => altDataService }));
+    logger.info('Alt Data API wired');
+  }
+
+  // Wire Alerts API (lazy — alertService may not be instantiated)
+  {
+    const { createAlertsRouter } = await import('./alerts-routes.js');
+    httpGateway.setAlertsRouter(createAlertsRouter({ getService: () => null }));
+    logger.info('Alerts API wired (service injected when available)');
+  }
+
+  // Wire Execution Queue API (requires Redis / executionProducer)
+  if (executionProducer) {
+    const { createQueueRouter } = await import('./queue-routes.js');
+    httpGateway.setQueueRouter(createQueueRouter({ producer: executionProducer }));
+    logger.info('Execution Queue API wired');
+  }
+
+  // Wire Webhooks API
+  {
+    const { createWebhooksRouter } = await import('./webhooks-routes.js');
+    httpGateway.setWebhooksRouter(createWebhooksRouter({ manager: webhookManager as any }));
+    logger.info('Webhooks API wired');
+  }
+
+  // Wire Payments/x402 API (lazy — x402Client created later)
+  {
+    const { createPaymentsRouter } = await import('./payments-routes.js');
+    httpGateway.setPaymentsRouter(createPaymentsRouter({ getClient: () => x402Client }));
+    logger.info('Payments API wired');
+  }
+
+  // Wire Embeddings API (always available)
+  {
+    const { createEmbeddingsRouter } = await import('./embeddings-routes.js');
+    httpGateway.setEmbeddingsRouter(createEmbeddingsRouter({ embeddings }));
+    logger.info('Embeddings API wired');
+  }
+
+  // Wire Cron Service API (lazy — cronService created in startCronService())
+  {
+    const { createCronRouter } = await import('./cron-routes.js');
+    httpGateway.setCronRouter(createCronRouter({ getService: () => cronService }));
+    logger.info('Cron Service API wired');
+  }
 
   // Realtime alerts service (created after sendMessage is defined)
   let realtimeAlerts: RealtimeAlertsService | null = null;
