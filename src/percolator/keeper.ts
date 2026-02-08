@@ -7,6 +7,7 @@ import { Connection, PublicKey, Keypair } from '@solana/web3.js';
 import { logger } from '../utils/logger.js';
 import { loadSolanaKeypair } from '../solana/wallet.js';
 import type { PercolatorConfig } from './types.js';
+import { DEFAULT_RPC_URL } from './types.js';
 import { ACCOUNTS_KEEPER_CRANK, buildAccountMetas, WELL_KNOWN } from './accounts.js';
 import { encodeKeeperCrank } from './instructions.js';
 import { buildIx, simulateOrSend } from './tx.js';
@@ -18,7 +19,7 @@ export interface PercolatorKeeper {
 }
 
 export function createPercolatorKeeper(config: PercolatorConfig): PercolatorKeeper {
-  const rpcUrl = config.rpcUrl ?? process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
+  const rpcUrl = config.rpcUrl ?? process.env.SOLANA_RPC_URL ?? DEFAULT_RPC_URL;
   const programId = new PublicKey(config.programId ?? '2SSnp35m7FQ7cRLNKGdW5UzjYFF6RBUNq7d3m5mqNByp');
   const slabAddress = config.slabAddress ? new PublicKey(config.slabAddress) : null;
   const oracleAddress = config.oracleAddress ? new PublicKey(config.oracleAddress) : null;

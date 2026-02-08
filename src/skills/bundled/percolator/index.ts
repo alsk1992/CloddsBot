@@ -86,15 +86,20 @@ async function loadExecution() {
 }
 
 function getConfigFromEnv() {
+  const slabAddress = process.env.PERCOLATOR_SLAB;
+  if (!slabAddress) {
+    throw new Error('PERCOLATOR_SLAB env var is required');
+  }
   return {
     enabled: true,
     rpcUrl: process.env.PERCOLATOR_RPC_URL || process.env.SOLANA_RPC_URL,
     programId: process.env.PERCOLATOR_PROGRAM_ID || '2SSnp35m7FQ7cRLNKGdW5UzjYFF6RBUNq7d3m5mqNByp',
-    slabAddress: process.env.PERCOLATOR_SLAB,
+    slabAddress,
     matcherProgram: process.env.PERCOLATOR_MATCHER_PROGRAM,
     matcherContext: process.env.PERCOLATOR_MATCHER_CONTEXT,
     oracleAddress: process.env.PERCOLATOR_ORACLE,
     lpIndex: process.env.PERCOLATOR_LP_INDEX ? parseInt(process.env.PERCOLATOR_LP_INDEX, 10) : 0,
+    spreadBps: process.env.PERCOLATOR_SPREAD_BPS ? parseInt(process.env.PERCOLATOR_SPREAD_BPS, 10) : 50,
     dryRun: process.env.PERCOLATOR_DRY_RUN !== 'false',
     pollIntervalMs: 2000,
   };

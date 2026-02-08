@@ -387,6 +387,9 @@ export function parseAccount(data: Buffer, idx: number): Account {
     throw new Error('Slab data too short for account');
   }
   const kindByte = data.readUInt8(base + ACCT_KIND_OFF);
+  if (kindByte !== 0 && kindByte !== 1) {
+    throw new Error(`Unknown account kind byte ${kindByte} at index ${idx}`);
+  }
   const kind = kindByte === 1 ? AccountKind.LP : AccountKind.User;
 
   return {

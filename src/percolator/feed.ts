@@ -7,6 +7,7 @@ import { EventEmitter } from 'events';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { logger } from '../utils/logger.js';
 import type { PercolatorConfig, PercolatorMarketState, PercolatorPosition } from './types.js';
+import { DEFAULT_RPC_URL } from './types.js';
 import { fetchSlab, parseHeader, parseConfig, parseEngine, parseAllAccounts, AccountKind, type Account } from './slab.js';
 
 export interface PercolatorFeed extends EventEmitter {
@@ -20,11 +21,12 @@ export interface PercolatorFeed extends EventEmitter {
 export function createPercolatorFeed(config: PercolatorConfig): PercolatorFeed {
   const feed = new EventEmitter() as PercolatorFeed;
   const pollInterval = config.pollIntervalMs ?? 2000;
-  const rpcUrl = config.rpcUrl ?? process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
+  const rpcUrl = config.rpcUrl ?? process.env.SOLANA_RPC_URL ?? DEFAULT_RPC_URL;
+  const configSpreadBps = BigInt(config.spreadBps ?? 50);
+  const POLL_TIMEOUT_MS = 10_000;
 
   let connection: Connection | null = null;
   let slabPubkey: PublicKey | null = null;
-  let oraclePubkey: PublicKey | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let lastState: PercolatorMarketState | null = null;
   let lastSlabData: Buffer | null = null;
@@ -33,7 +35,10 @@ export function createPercolatorFeed(config: PercolatorConfig): PercolatorFeed {
   async function poll(): Promise<void> {
     if (!connection || !slabPubkey) return;
     try {
-      const data = await fetchSlab(connection, slabPubkey);
+      const data = await Promise.race([
+        fetchSlab(connection, slabPubkey),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('RPC poll timeout')), POLL_TIMEOUT_MS)),
+      ]);
       lastSlabData = data;
 
       const header = parseHeader(data);
@@ -55,10 +60,9 @@ export function createPercolatorFeed(config: PercolatorConfig): PercolatorFeed {
         if (account.kind !== AccountKind.LP) continue;
         if (account.capital === 0n) continue;
 
-        // Passive matcher LP: quote = oracle ± spread (typically 50bps)
-        const spreadBps = 50n;
-        const bidPriceE6 = oraclePriceE6 - (oraclePriceE6 * spreadBps / 10000n);
-        const askPriceE6 = oraclePriceE6 + (oraclePriceE6 * spreadBps / 10000n);
+        // Passive matcher LP: quote = oracle ± spread
+        const bidPriceE6 = oraclePriceE6 - (oraclePriceE6 * configSpreadBps / 10000n);
+        const askPriceE6 = oraclePriceE6 + (oraclePriceE6 * configSpreadBps / 10000n);
 
         if (!bestBid || bidPriceE6 > bestBid.price) {
           bestBid = { lpIndex: idx, price: bidPriceE6, priceUsd: Number(bidPriceE6) / 1_000_000 };
@@ -122,9 +126,6 @@ export function createPercolatorFeed(config: PercolatorConfig): PercolatorFeed {
     }
     connection = new Connection(rpcUrl, 'confirmed');
     slabPubkey = new PublicKey(config.slabAddress);
-    if (config.oracleAddress) {
-      oraclePubkey = new PublicKey(config.oracleAddress);
-    }
 
     logger.info({
       slab: config.slabAddress,

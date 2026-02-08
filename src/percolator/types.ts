@@ -17,7 +17,11 @@ export interface PercolatorConfig {
   keeperEnabled?: boolean;              // default: false
   keeperIntervalMs?: number;            // default: 5000 (5s)
   dryRun?: boolean;                     // default: true
+  spreadBps?: number;                   // LP spread in bps, default: 50
 }
+
+/** Default RPC URL when none configured (devnet) */
+export const DEFAULT_RPC_URL = 'https://api.devnet.solana.com';
 
 export interface PercolatorMarketState {
   oraclePrice: bigint;

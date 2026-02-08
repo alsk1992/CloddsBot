@@ -17,6 +17,7 @@ function deriveAta(owner: PublicKey, mint: PublicKey): PublicKey {
 }
 import { loadSolanaKeypair } from '../solana/wallet.js';
 import type { PercolatorConfig, PercolatorPosition } from './types.js';
+import { DEFAULT_RPC_URL } from './types.js';
 import { fetchSlab, parseConfig, parseEngine, parseAllAccounts, AccountKind } from './slab.js';
 import { ACCOUNTS_TRADE_CPI, ACCOUNTS_DEPOSIT_COLLATERAL, ACCOUNTS_WITHDRAW_COLLATERAL, buildAccountMetas, WELL_KNOWN } from './accounts.js';
 import { encodeTradeCpi, encodeDepositCollateral, encodeWithdrawCollateral } from './instructions.js';
@@ -47,7 +48,7 @@ export interface PercolatorExecutionService {
 }
 
 export function createPercolatorExecution(config: PercolatorConfig): PercolatorExecutionService {
-  const rpcUrl = config.rpcUrl ?? process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
+  const rpcUrl = config.rpcUrl ?? process.env.SOLANA_RPC_URL ?? DEFAULT_RPC_URL;
   const programId = new PublicKey(config.programId ?? '2SSnp35m7FQ7cRLNKGdW5UzjYFF6RBUNq7d3m5mqNByp');
   const slabAddress = config.slabAddress ? new PublicKey(config.slabAddress) : null;
   const matcherProgram = config.matcherProgram ? new PublicKey(config.matcherProgram) : null;
@@ -257,7 +258,8 @@ export function createPercolatorExecution(config: PercolatorConfig): PercolatorE
             fundingIndex: account.fundingIndex,
             owner: account.owner,
           }));
-      } catch {
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Percolator getPositions failed');
         return [];
       }
     },
@@ -269,7 +271,8 @@ export function createPercolatorExecution(config: PercolatorConfig): PercolatorE
         const kp = getKeypair();
         const data = await fetchSlab(conn, slabAddress);
         return findUserIndex(data, kp.publicKey);
-      } catch {
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Percolator getUserIndex failed');
         return null;
       }
     },

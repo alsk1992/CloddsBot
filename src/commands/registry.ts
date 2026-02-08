@@ -121,7 +121,8 @@ export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
   router: 'EVM DeFi', routing: 'EVM DeFi', mev: 'EVM DeFi',
   clanker: 'EVM DeFi', endaoment: 'EVM DeFi', onchainkit: 'EVM DeFi',
   erc8004: 'EVM DeFi', ens: 'EVM DeFi', qrcoin: 'EVM DeFi',
-  percolator: 'EVM DeFi', bankr: 'EVM DeFi', acp: 'EVM DeFi',
+  bankr: 'EVM DeFi', acp: 'EVM DeFi',
+  percolator: 'Solana DeFi',
 
   // ── Virtuals & Agents ──
   virtuals: 'Virtuals & Agents', agents: 'Virtuals & Agents', agent: 'Virtuals & Agents',
