@@ -75,9 +75,9 @@ export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
   weather: 'Market Data', stream: 'Market Data',
 
   // ── Cross-platform commands → appear under each platform they support ──
-  opportunity: ['Market Data', 'Polymarket', 'Kalshi', 'Prediction Markets', 'Sportsbooks'],
+  opportunity: ['Market Data', 'Polymarket', 'Kalshi', 'Sportsbooks'],
   edge: ['Market Data', 'Polymarket', 'Kalshi'],
-  arbitrage: ['Polymarket', 'Kalshi', 'Prediction Markets', 'Sportsbooks'],
+  arbitrage: ['Polymarket', 'Kalshi', 'Sportsbooks'],
   execution: ['Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures'],
   portfolio: ['Portfolio', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures', 'Solana DeFi'],
   positions: ['Portfolio', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures', 'Solana DeFi'],
@@ -103,10 +103,10 @@ export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
   betfair: 'Sportsbooks', smarkets: 'Sportsbooks',
 
   // ── Other Prediction Markets ──
-  'trading-manifold': 'Prediction Markets', opinion: 'Prediction Markets',
-  predictit: 'Prediction Markets', predictfun: 'Prediction Markets',
-  metaculus: 'Prediction Markets', veil: 'Prediction Markets',
-  agentbets: 'Prediction Markets',
+  'trading-manifold': 'Manifold', opinion: 'Opinion',
+  predictit: 'PredictIt', predictfun: 'Predict.fun',
+  metaculus: 'Metaculus', veil: 'Veil',
+  agentbets: 'AgentBets',
 
   // ── Solana DeFi ──
   drift: 'Solana DeFi', 'drift-sdk': 'Solana DeFi',
@@ -165,6 +165,10 @@ export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
 
   // ── Bittensor ──
   tao: 'Bittensor',
+
+  // ── New features (Feb 2026) ──
+  'token-security': ['Solana DeFi', 'EVM DeFi'],
+  dca: ['Solana DeFi', 'Polymarket', 'Kalshi', 'Hyperliquid', 'CEX Futures', 'EVM DeFi'],
 
   // ── Skills with non-standard casing in their name field ──
   'Features': 'Market Data', 'Tick Data': 'Market Data',

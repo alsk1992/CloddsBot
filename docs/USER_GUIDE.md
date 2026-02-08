@@ -171,6 +171,16 @@ clodds skills info <slug>       # Show skill details
 clodds skills check-updates     # Check for skill updates
 ```
 
+### MCP Server Commands
+
+```bash
+clodds mcp                      # Start MCP server (stdio JSON-RPC)
+clodds mcp install              # Auto-configure Claude Desktop & Claude Code
+clodds mcp uninstall            # Remove Clodds from Claude config
+```
+
+Exposes all 110 skills as MCP tools. After `clodds mcp install`, restart Claude Desktop/Code to use Clodds skills directly from Claude.
+
 ### QMD (Quantitative Market Data) Commands
 
 ```bash
@@ -414,6 +424,7 @@ Supported platforms:
 - Orca (Solana Whirlpools)
 - Meteora (Solana DLMM)
 - Pump.fun (Solana launchpad)
+- Percolator (On-chain Solana perpetual futures)
 
 These are stored encrypted in the database and loaded at runtime.
 
@@ -426,6 +437,7 @@ These are stored encrypted in the database and loaded at runtime.
 | AI Strategy | `SOLANA_PRIVATE_KEY` |
 | Weather Betting | `POLY_API_KEY`, `POLY_API_SECRET` |
 | Pump.fun Swarm | `SOLANA_PRIVATE_KEY`, optionally `SOLANA_SWARM_KEY_1..20` |
+| Percolator | `SOLANA_PRIVATE_KEY`, `PERCOLATOR_SLAB`, `PERCOLATOR_ORACLE` |
 
 ## Risk management
 
@@ -955,6 +967,38 @@ Trade on Solana DEXes via unified interface or direct DEX commands:
 /pump sell <mint> 1000           Sell 1000 tokens
 ```
 
+**Token Security Audit:**
+```
+/audit <address>                 Auto-detect chain, full security audit
+/audit <address> --chain eth     Specify chain (eth, bsc, polygon, arb, base, solana...)
+/audit help                      Show usage
+```
+
+**DCA (Dollar-Cost Averaging):**
+```
+/dca poly <token-id> <total-$> --per <$> --every <interval> [--price <p>]     Polymarket DCA
+/dca kalshi <ticker> <total-$> --per <$> --every <interval> [--price <p>]     Kalshi DCA
+/dca pump <mint> <total-SOL> --per <SOL> --every <interval> [--slippage <bps>] [--pool pump|raydium|auto]  PumpFun DCA
+/dca hl <coin> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>]  Hyperliquid DCA
+/dca bf <symbol> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>] Binance Futures DCA
+/dca bb <symbol> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>] Bybit DCA
+/dca mexc <symbol> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>] MEXC Futures DCA
+/dca drift <idx> <total-$> --per <$> --every <interval> [--type perp|spot] [--side long|short] Drift DCA
+/dca opinion <market-id> <total-$> --per <$> --every <interval> [--price <p>]  Opinion.trade DCA
+/dca predict <market-id> <total-$> --per <$> --every <interval> [--price <p>]  Predict.fun DCA
+/dca orca <pool> <input-mint> <total> --per <amt> --every <interval> [--slippage <bps>]  Orca DCA
+/dca raydium <input> to <output> <total> --per <amt> --every <interval> [--slippage <bps>]  Raydium DCA
+/dca virtuals <agent-token> <total-VIRTUAL> --per <VIRTUAL> --every <interval> [--slippage <bps>]  Virtuals DCA (Base)
+/dca base <input> to <output> <total> --per <amt> --every <interval> [--slippage <bps>]  Base chain swap DCA
+/dca evm <chain> <input> to <output> <total> --per <amt> --every <interval> [--slippage <bps>]  EVM swap DCA (Odos)
+/dca sol <total> <from> to <to> --per <amt> --every <secs>   Jupiter DCA (Solana)
+/dca list                        List active DCA orders
+/dca info <id>                   Show order details and progress
+/dca pause <id>                  Pause a running DCA order
+/dca resume <id>                 Resume a paused DCA order
+/dca cancel <id>                 Cancel a DCA order
+```
+
 **Drift Protocol (Perpetuals):**
 ```
 /drift long SOL-PERP 0.5         Open long position
@@ -964,6 +1008,18 @@ Trade on Solana DEXes via unified interface or direct DEX commands:
 /drift balance                   Check balance
 /drift leverage SOL 5            Set 5x leverage
 ```
+
+**Percolator (On-Chain Solana Perps):**
+```
+/percolator status               Market state (oracle price, OI, funding, spread)
+/percolator positions            Your open positions
+/percolator long 100             Open $100 long position
+/percolator short 50             Open $50 short position
+/percolator deposit 500          Deposit USDC collateral
+/percolator withdraw 100         Withdraw USDC collateral
+/percolator help                 Show all commands
+```
+Also available via `/perc` alias.
 
 **Bags.fm (Token Launchpad - Complete):**
 ```

@@ -503,6 +503,36 @@ const polymarketRtds: FeedDescriptor = {
 };
 
 // =============================================================================
+// PERPETUAL FUTURES
+// =============================================================================
+
+const percolator: FeedDescriptor = {
+  id: 'percolator',
+  name: 'Percolator',
+  version: '1.0.0',
+  description: 'On-chain Solana perpetual futures by Anatoly Yakovenko — leveraged perps with pluggable matchers',
+  status: 'available',
+  skillCommand: '/percolator',
+  category: 'crypto',
+  capabilities: [
+    FeedCapability.MARKET_DATA,
+    FeedCapability.ORDERBOOK,
+    FeedCapability.REALTIME_PRICES,
+    FeedCapability.TRADING,
+  ],
+  dataTypes: ['markets', 'orderbooks', 'prices', 'positions'],
+  connectionType: 'polling',
+  requiredEnv: [],
+  optionalEnv: ['PERCOLATOR_PROGRAM_ID', 'PERCOLATOR_SLAB', 'SOLANA_RPC_URL', 'SOLANA_PRIVATE_KEY'],
+  configKey: 'percolator',
+  docsUrl: 'https://github.com/aeyakovenko/percolator-cli',
+  create: async (config) => {
+    const { createPercolatorFeed } = await import('../percolator/feed.js');
+    return createPercolatorFeed(config as any) as any;
+  },
+};
+
+// =============================================================================
 // REGISTER ALL FEEDS
 // =============================================================================
 
@@ -528,6 +558,7 @@ export function registerAllFeeds(): void {
   registry.register(hedgehog);
   registry.register(virtuals);
   registry.register(polymarketRtds);
+  registry.register(percolator);
 
   // Data feeds
   registry.register(crypto);
@@ -545,6 +576,6 @@ export function registerAllFeeds(): void {
 export const allDescriptors: FeedDescriptor[] = [
   polymarket, kalshi, manifold, metaculus, predictit, drift, agentbets,
   betfair, smarkets, opinion, predictfunDesc, hedgehog, virtuals,
-  polymarketRtds, crypto, news, externalData,
+  polymarketRtds, percolator, crypto, news, externalData,
   weatherOpenMeteo, weatherNWS, acledConflict, fredEconomics,
 ];

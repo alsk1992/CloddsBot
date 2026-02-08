@@ -10,7 +10,13 @@ const CAT_ICONS = {
   'Hyperliquid': '\uD83D\uDFE2',
   'CEX Futures': '\uD83D\uDCC8',
   'Sportsbooks': '\u26BD',
-  'Prediction Markets': '\uD83C\uDFB2',
+  'Manifold': '\uD83C\uDFB2',
+  'Metaculus': '\uD83D\uDD2E',
+  'PredictIt': '\uD83C\uDFDB\uFE0F',
+  'Predict.fun': '\uD83C\uDFAE',
+  'Opinion': '\uD83D\uDCAC',
+  'Veil': '\uD83D\uDD12',
+  'AgentBets': '\uD83E\uDD16',
   'Solana DeFi': '\uD83D\uDFE1',
   'EVM DeFi': '\uD83D\uDD37',
   'Virtuals & Agents': '\uD83E\uDD16',
@@ -24,6 +30,49 @@ const CAT_ICONS = {
   'Bittensor': '\uD83E\uDDE0',
   'Other': '\uD83D\uDCE6',
 };
+
+// Display order for categories in the palette
+const CAT_ORDER = [
+  'Core',
+  'Market Data',
+  'Polymarket',
+  'Kalshi',
+  'Sportsbooks',
+  'Manifold',
+  'Metaculus',
+  'PredictIt',
+  'Predict.fun',
+  'Opinion',
+  'AgentBets',
+  'Veil',
+  'Hyperliquid',
+  'CEX Futures',
+  'Solana DeFi',
+  'EVM DeFi',
+  'Virtuals & Agents',
+  'Portfolio',
+  'Strategy',
+  'Wallet',
+  'Bots & Execution',
+  'Automation',
+  'Tools',
+  'Bittensor',
+  'Config',
+  'Other',
+];
+
+// Super-categories group multiple categories under a section header
+const SUPER_CATEGORIES = {
+  'Prediction Markets': ['Polymarket', 'Kalshi', 'Sportsbooks', 'Manifold', 'Metaculus', 'PredictIt', 'Predict.fun', 'Opinion', 'AgentBets', 'Veil'],
+  'Futures & Perps': ['Hyperliquid', 'CEX Futures'],
+  'DeFi': ['Solana DeFi', 'EVM DeFi', 'Virtuals & Agents'],
+};
+
+// Reverse lookup: category → super-category
+const CAT_TO_SUPER = {};
+for (const [superCat, cats] of Object.entries(SUPER_CATEGORIES)) {
+  for (const cat of cats) CAT_TO_SUPER[cat] = superCat;
+}
 
 export class CommandPalette {
   constructor(paletteEl, inputEl, sendBtnEl) {
@@ -89,7 +138,21 @@ export class CommandPalette {
       + '</div>';
 
     let idx = 0;
-    for (const [category, cmds] of Object.entries(groups)) {
+    const sortedCategories = Object.keys(groups).sort((a, b) => {
+      const ai = CAT_ORDER.indexOf(a);
+      const bi = CAT_ORDER.indexOf(b);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+    let lastSuperCat = null;
+    for (const category of sortedCategories) {
+      // Insert super-category header when entering a new group
+      const superCat = CAT_TO_SUPER[category] || null;
+      if (superCat && superCat !== lastSuperCat) {
+        html += '<div class="cmd-super-header">' + this._esc(superCat) + '</div>';
+      }
+      lastSuperCat = superCat;
+
+      const cmds = groups[category];
       const icon = CAT_ICONS[category] || '\uD83D\uDCE6';
       html += '<div class="cmd-category">'
         + '<div class="cmd-category-label">'

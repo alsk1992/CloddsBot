@@ -1,5 +1,5 @@
 /**
- * Skill Executor - Central registry for all 103 bundled CLI skill handlers.
+ * Skill Executor - Central registry for all 110 bundled CLI skill handlers.
  *
  * ARCHITECTURE:
  * - Each skill lives in src/skills/bundled/<name>/index.ts
@@ -30,7 +30,7 @@
 import { logger } from '../utils/logger';
 
 // =============================================================================
-// SKILL MANIFEST - all 103 bundled skill directory names
+// SKILL MANIFEST - all bundled skill directory names
 // =============================================================================
 
 const SKILL_MANIFEST: string[] = [
@@ -92,6 +92,7 @@ const SKILL_MANIFEST: string[] = [
   'opportunity',
   'orca',
   'pairing',
+  'percolator',
   'permissions',
   'plugins',
   'portfolio',
@@ -141,6 +142,9 @@ const SKILL_MANIFEST: string[] = [
   'webhooks',
   'whale-tracking',
   'yoink',
+  // ── New features (Feb 2026) ──
+  'token-security',
+  'dca',
 ];
 
 // =============================================================================
@@ -372,6 +376,14 @@ export interface SkillExecutionResult {
   response?: string;
   error?: string;
   skill?: string;
+}
+
+/**
+ * Get the full skill manifest (list of all bundled skill directory names).
+ * Used by MCP server to expose skills as tools.
+ */
+export function getSkillManifest(): string[] {
+  return [...SKILL_MANIFEST];
 }
 
 /**

@@ -156,6 +156,7 @@ const PLATFORM_RISK_SCORES: Record<Platform, number> = {
   binance: 15,      // Largest CEX
   bybit: 20,        // Major CEX
   mexc: 30,         // Mid-tier CEX
+  percolator: 45,   // Solana on-chain perps, devnet — newer protocol
 };
 
 // =============================================================================

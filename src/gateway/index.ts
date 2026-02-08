@@ -24,6 +24,7 @@ import { createDatabase, initDatabase } from '../db';
 import { createMigrationRunner } from '../db/migrations';
 import { initACP } from '../acp';
 import { initOrderPersistence } from '../execution/order-persistence';
+import { initDCAPersistence } from '../execution/dca-persistence';
 import { createFeedManager } from '../feeds';
 import { createSessionManager } from '../sessions';
 import { createAgentManager } from '../agents';
@@ -435,6 +436,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
 
   // Initialize order persistence for TWAP and bracket orders
   initOrderPersistence(db);
+  initDCAPersistence(db);
 
   let feeds = await createFeedManager(config.feeds);
   const sessions = createSessionManager(db, config.session);

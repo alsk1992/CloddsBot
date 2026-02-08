@@ -12,9 +12,13 @@
     <!-- Sidebar -->
     <aside class="sidebar" aria-label="Chat history">
       <div class="sidebar-header">
-        <img class="sidebar-header-logo" src="https://cloddsbot.com/logo.png" alt="C" onerror="this.style.display='none'" />
+        <button class="sidebar-icon-btn" id="sidebar-toggle" title="Toggle sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
+          </svg>
+        </button>
         <span class="sidebar-header-title">Clodds</span>
-        <button class="new-chat-btn" id="new-chat-btn" title="New chat">
+        <button class="sidebar-icon-btn" id="new-chat-btn" title="New chat">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z"/>
           </svg>
@@ -29,9 +33,9 @@
     <div class="sidebar-backdrop"></div>
 
     <!-- Main -->
-    <main class="main" aria-label="Chat">
+    <main class="main welcome-mode" aria-label="Chat">
       <div class="chat-header">
-        <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button>
+        <button class="sidebar-toggle-mobile" id="sidebar-toggle-mobile" title="Toggle sidebar">&#9776;</button>
         <div class="chat-header-title" id="header-title">Clodds</div>
         <div class="status-dot" id="status-dot" title="Connecting..."></div>
       </div>
@@ -41,39 +45,7 @@
 
       <div id="messages" role="log" aria-label="Messages" aria-live="polite">
         <div class="welcome" id="welcome">
-          <img class="welcome-logo" src="https://cloddsbot.com/logo.png" alt="" onerror="this.style.display='none'" />
-          <h2>What can I help you with?</h2>
-          <p>Trade prediction markets, analyze crypto, manage positions across 700+ markets on Polymarket, Kalshi, Hyperliquid and more.</p>
-          <div class="welcome-grid">
-            <div class="welcome-card" data-msg="What markets are trending right now? Show me the top movers.">
-              <span class="welcome-card-icon">&#x1F4CA;</span>
-              <div class="welcome-card-text">
-                <span class="welcome-card-title">Trending markets</span>
-                <span class="welcome-card-desc">Top movers across Polymarket, Kalshi &amp; more</span>
-              </div>
-            </div>
-            <div class="welcome-card" data-msg="/positions">
-              <span class="welcome-card-icon">&#x1F4BC;</span>
-              <div class="welcome-card-text">
-                <span class="welcome-card-title">My positions</span>
-                <span class="welcome-card-desc">View open trades, P&amp;L, and exit signals</span>
-              </div>
-            </div>
-            <div class="welcome-card" data-msg="Find me high-conviction arbitrage opportunities right now">
-              <span class="welcome-card-icon">&#x26A1;</span>
-              <div class="welcome-card-text">
-                <span class="welcome-card-title">Find arbitrage</span>
-                <span class="welcome-card-desc">Cross-platform price gaps and mispriced odds</span>
-              </div>
-            </div>
-            <div class="welcome-card" data-msg="/help">
-              <span class="welcome-card-icon">&#x1F680;</span>
-              <div class="welcome-card-text">
-                <span class="welcome-card-title">Get started</span>
-                <span class="welcome-card-desc">See all commands, skills, and what I can do</span>
-              </div>
-            </div>
-          </div>
+          <h1 class="welcome-greeting" id="welcome-greeting">Good afternoon</h1>
         </div>
       </div>
 
@@ -104,7 +76,7 @@
             </svg>
           </button>
           <input type="file" id="file-input" hidden accept="image/*,.pdf,.txt,.csv,.json" />
-          <textarea id="input" placeholder="Ask anything... (type / for commands)" autocomplete="off" rows="1" aria-label="Message input"></textarea>
+          <textarea id="input" placeholder="How can I help you today?" autocomplete="off" rows="1" aria-label="Message input"></textarea>
           <button id="send-btn" title="Send">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -112,9 +84,14 @@
             </svg>
           </button>
         </div>
+        <div class="welcome-chips" id="welcome-chips">
+          <button class="welcome-chip" data-msg="What markets are trending right now? Show me the top movers.">&#x1F4CA; Markets</button>
+          <button class="welcome-chip" data-msg="/positions">&#x1F4CB; Positions</button>
+          <button class="welcome-chip" data-msg="Find me high-conviction arbitrage opportunities right now">&#x26A1; Arbitrage</button>
+          <button class="welcome-chip" data-msg="/help">&#x1F680; Get started</button>
+        </div>
         <div class="input-hint">
-          <span>Try: <kbd>/help</kbd> <kbd>/markets</kbd> <kbd>/positions</kbd></span>
-          <span><kbd>Enter</kbd> send &middot; <kbd>Shift+Enter</kbd> new line</span>
+          <span><kbd>Enter</kbd> send &middot; <kbd>Shift+Enter</kbd> new line &middot; <kbd>/</kbd> commands</span>
         </div>
       </div>
     </main>

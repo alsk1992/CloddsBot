@@ -27,7 +27,7 @@
 
 ---
 
-**Clodds** is a personal AI trading terminal for prediction markets, crypto spot, and **perpetual futures with leverage**. Run it on your own machine, chat via any of **22 messaging platforms**, trade across **10 prediction markets + 5 futures exchanges**, and manage your portfolio — all through natural conversation.
+**Clodds** is a personal AI trading terminal for prediction markets, crypto spot, and **perpetual futures with leverage**. Run it on your own machine, chat via any of **22 messaging platforms**, trade across **10 prediction markets + 6 futures exchanges** (including on-chain Solana perps via Percolator), and manage your portfolio — all through natural conversation.
 
 Built on Claude with arbitrage detection algorithms based on [arXiv:2508.03474](https://arxiv.org/abs/2508.03474), which documented arbitrage patterns on Polymarket. See [Arbitrage Limitations](#arbitrage-limitations) for practical considerations.
 
@@ -109,6 +109,8 @@ clodds repl        # Interactive REPL
 clodds doctor      # System diagnostics
 clodds secure      # Harden security
 clodds locale set zh  # Change language
+clodds mcp         # Start MCP server (for Claude Desktop/Code)
+clodds mcp install # Auto-configure Claude Desktop/Code
 ```
 
 See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
@@ -123,8 +125,11 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 |----------|-----------------|
 | **Messaging** | 22 platforms (Telegram, Discord, WhatsApp, Slack, Teams, Signal, Matrix, iMessage, LINE, Nostr, and more) |
 | **Prediction Markets** | 9 platforms (Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt) |
-| **Perpetual Futures** | 4 exchanges (Binance, Bybit, Hyperliquid, MEXC) with up to 200x leverage, database tracking, A/B testing |
-| **Trading** | Order execution on 5 platforms, portfolio tracking, P&L, trade logging |
+| **Perpetual Futures** | 5 exchanges (Binance, Bybit, Hyperliquid, MEXC, Percolator) with up to 200x leverage, database tracking, A/B testing |
+| **On-Chain Perps** | Percolator protocol — Solana-native perpetual futures with pluggable matchers, keeper cranking, real-time slab polling |
+| **Token Security** | GoPlus-powered audits — honeypot detection, rug-pull analysis, holder concentration, risk scoring |
+| **Trading** | Order execution on 5 platforms, portfolio tracking, P&L, trade logging, DCA on 16 platforms |
+| **MCP Server** | Expose all 110 skills as MCP tools for Claude Desktop and Claude Code |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
 | **AI** | 6 LLM providers, 4 specialized agents, semantic memory, 21 tools |
 | **i18n** | 10 languages (EN, ZH, ES, JA, KO, DE, FR, PT, RU, AR) |
@@ -178,14 +183,15 @@ Supports limit/market orders, maker rebates, real-time orderbooks, P&L tracking,
 
 ---
 
-## Perpetual Futures (4 Exchanges)
+## Perpetual Futures (5 Exchanges)
 
-| Exchange | Max Leverage | KYC |
-|----------|--------------|-----|
-| Binance | 125x | Yes |
-| Bybit | 100x | Yes |
-| Hyperliquid | 50x | No |
-| MEXC | 200x | No |
+| Exchange | Max Leverage | KYC | Type |
+|----------|--------------|-----|------|
+| Binance | 125x | Yes | CEX |
+| Bybit | 100x | Yes | CEX |
+| Hyperliquid | 50x | No | DEX |
+| MEXC | 200x | No | CEX |
+| Percolator | Varies | No | On-chain (Solana) |
 
 Long/short, cross/isolated margin, TP/SL, liquidation alerts, funding tracking, database logging.
 
@@ -193,6 +199,21 @@ Long/short, cross/isolated margin, TP/SL, liquidation alerts, funding tracking, 
 /futures long BTCUSDT 0.1 10x
 /futures sl BTCUSDT 95000
 ```
+
+### Percolator (On-Chain Solana Perps)
+
+Trade perpetual futures directly on Solana via Anatoly Yakovenko's Percolator protocol — no KYC, no intermediaries, fully on-chain.
+
+```
+/percolator status          # Oracle price, OI, funding, spread
+/percolator positions       # Your open positions
+/percolator long 100        # Open $100 long
+/percolator short 50        # Open $50 short
+/percolator deposit 500     # Deposit USDC collateral
+/percolator withdraw 100    # Withdraw USDC collateral
+```
+
+Configure: `PERCOLATOR_ENABLED=true PERCOLATOR_SLAB=<pubkey> PERCOLATOR_ORACLE=<pubkey>`
 
 ---
 
@@ -293,12 +314,12 @@ Enable: `clodds config set ledger.enabled true`
 
 ## Skills & Extensions
 
-**103 bundled skills** across trading, data, automation, and infrastructure — lazy-loaded on first use so missing dependencies don't crash the app. Run `/skills` to see status.
+**110 bundled skills** across trading, data, automation, and infrastructure — lazy-loaded on first use so missing dependencies don't crash the app. Run `/skills` to see status.
 
 | Category | Skills |
 |----------|--------|
-| Trading | Polymarket, Kalshi, Betfair, Hyperliquid, Binance, Bybit, MEXC, Jupiter, Raydium |
-| Analysis | Arbitrage detection, edge finding, whale tracking, copy trading |
+| Trading | Polymarket, Kalshi, Betfair, Hyperliquid, Binance, Bybit, MEXC, Jupiter, Raydium, Orca, Percolator, DCA (16 platforms) |
+| Analysis | Arbitrage detection, edge finding, whale tracking, copy trading, token security audits |
 | Automation | Cron jobs, triggers, bots, webhooks |
 | AI | Memory, embeddings, multi-agent routing |
 
@@ -326,7 +347,7 @@ Enable: `clodds config set ledger.enabled true`
 │ Slack         │         │ Alerts        │         │ Manifold      │
 │ Teams         │         │               │         │ Crypto (10)   │
 │ Matrix        │         │ Tools (21)    │         │               │
-│ Signal        │         │ Skills (103)  │         │ Arbitrage     │
+│ Signal        │         │ Skills (110)  │         │ Arbitrage     │
 │ +15 more      │         │ Memory        │         │ Detector      │
 └───────────────┘         └───────────────┘         └───────────────┘
         │                         │                         │
@@ -353,6 +374,15 @@ Enable: `clodds config set ledger.enabled true`
                           │ Subnet Mining │
                           │ Earnings      │
                           │ Chutes (SN64) │
+                          └───────────────┘
+                                  │
+                          ┌───────────────┐
+                          │  PERCOLATOR   │
+                          ├───────────────┤
+                          │ Slab Parser   │
+                          │ Trade CPI     │
+                          │ Keeper Crank  │
+                          │ Oracle Feed   │
                           └───────────────┘
 ```
 
@@ -414,6 +444,7 @@ docker compose up --build
 |----------|------:|
 | Messaging Channels | **22** |
 | Prediction Markets | **9** |
+| Futures Exchanges | **5** |
 | AI Tools | **21** |
 | Skills | **103** |
 | LLM Providers | **6** |

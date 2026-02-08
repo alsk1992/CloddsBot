@@ -62,6 +62,7 @@ export function createWebChatChannel(
     // Evict any existing connection using this sessionId
     const existing = sessions.get(sessionId);
     if (existing && existing.ws !== ws && existing.ws.readyState === WebSocket.OPEN) {
+      logger.info({ sessionId }, 'WebChat: Evicting existing connection');
       existing.ws.close(4001, 'Session taken by another connection');
     }
 
@@ -271,10 +272,10 @@ export function createWebChatChannel(
       }
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code: number, reason: Buffer) => {
       // Use session.id (not the closure's sessionId) since it may have been updated by switch
       const currentId = session.id;
-      logger.info({ sessionId: currentId }, 'WebChat: Connection closed');
+      logger.info({ sessionId: currentId, code, reason: reason?.toString() || '' }, 'WebChat: Connection closed');
 
       // Only clean up if this session still owns the map entry (not evicted by a replacement)
       const mapped = sessions.get(currentId);

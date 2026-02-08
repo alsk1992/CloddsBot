@@ -5,9 +5,54 @@ All notable changes to Clodds will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.10] - 2026-02-08
+
+### Added
+
+#### Token Security Auditing
+- `/audit <address>` command for EVM and Solana token security analysis via GoPlus API
+- Auto-detect chain (base58 = Solana, 0x = EVM) or specify with `--chain`
+- Honeypot detection, rug-pull analysis, holder concentration, liquidity scoring
+- Risk score 0-100 with 16 risk flags (mint function, blacklist, proxy contract, etc.)
+- Supports: Ethereum, BSC, Polygon, Arbitrum, Optimism, Avalanche, Fantom, Base, Linea, Scroll, zkSync, Mantle, Blast, Solana
+
+#### MCP Server Mode
+- `clodds mcp` command to expose all 110 skills as MCP tools via stdio JSON-RPC
+- `clodds mcp install` auto-configures Claude Desktop and Claude Code
+- `clodds mcp uninstall` removes configuration
+- Protocol version 2024-11-05, lazy skill loading, all tools named `clodds_<skill>`
+
+#### DCA (Dollar-Cost Averaging) — 16 Platform Adapters
+- Platform-specific subcommands, each using native SDK directly:
+  - **Prediction Markets:** `/dca poly`, `/dca kalshi`, `/dca opinion`, `/dca predict`
+  - **CEX Futures:** `/dca bf` (Binance), `/dca bb` (Bybit), `/dca mexc` (MEXC)
+  - **Perps DEX:** `/dca hl` (Hyperliquid), `/dca drift` (Drift Protocol)
+  - **Solana DeFi:** `/dca pump` (PumpFun), `/dca orca`, `/dca raydium`, `/dca sol` (Jupiter)
+  - **EVM DeFi:** `/dca virtuals` (Base bonding curves), `/dca base`, `/dca evm` (Odos multi-chain)
+- Buy/sell dispatch fix — `sellLimit` used when side is sell (was hardcoded to `buyLimit`)
+- `extra_config` column in persistence for platform-specific params (slippage, leverage, pool)
+- Pause/resume/cancel support with database persistence (survives restarts)
+- EventEmitter-based progress tracking with cycle/complete/error events
+- Legacy `/dca create` retained for backwards compatibility
+
 ## [0.3.9] - 2026-02-06
 
 ### Added
+
+#### Percolator — On-Chain Solana Perpetual Futures
+- Full integration of Anatoly Yakovenko's Percolator perpetual futures protocol
+- New `src/percolator/` module with 11 files: types, slab parser, encode, accounts, pda, instructions, tx, feed, execution, keeper, index
+- Slab binary parser for on-chain account state (positions, prices, funding, OI)
+- Trade via CPI (Cross-Program Invocation) — only needs user signature
+- Real-time market data via slab polling (configurable interval, default 2s)
+- Execution service: `marketBuy`, `marketSell`, `deposit`, `withdraw`, `getPositions`
+- Optional permissionless keeper crank bot (background service)
+- New `/percolator` skill with 7 subcommands: `status`, `positions`, `long`, `short`, `deposit`, `withdraw`, `help`
+- Also accessible via `/perc` alias
+- Feed descriptor registered with market data, orderbook, real-time prices, and trading capabilities
+- Gateway wired: feed lifecycle (connect/disconnect), keeper start/stop, hot-reload support
+- Devnet-first approach with dry-run mode (default: simulated)
+- Config via env: `PERCOLATOR_ENABLED`, `PERCOLATOR_SLAB`, `PERCOLATOR_ORACLE`, `PERCOLATOR_MATCHER_PROGRAM`, etc.
 
 #### Bittensor Subnet Mining
 - Full Bittensor integration: wallet management, subnet registration, earnings tracking

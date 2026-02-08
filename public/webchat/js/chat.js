@@ -69,6 +69,14 @@ export class Chat {
     return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
   }
 
+  _createTimestamp(date) {
+    const ts = document.createElement('div');
+    ts.className = 'msg-time';
+    const d = date || new Date();
+    ts.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return ts;
+  }
+
   hideWelcome() {
     if (this.welcomeEl && !this.hasMessages) {
       this.welcomeEl.style.display = 'none';
@@ -91,7 +99,7 @@ export class Chat {
     this.hasMessages = false;
   }
 
-  addMessage(text, role, messageId) {
+  addMessage(text, role, messageId, timestamp) {
     this.hideWelcome();
 
     if (role === 'system') {
@@ -124,6 +132,7 @@ export class Chat {
       editBtn.innerHTML = this._editSvg;
       actions.appendChild(editBtn);
       content.appendChild(actions);
+      content.appendChild(this._createTimestamp(timestamp));
       row.appendChild(avatar);
       row.appendChild(content);
       this.messagesEl.appendChild(row);
@@ -139,6 +148,7 @@ export class Chat {
       bubble.innerHTML = this.renderMarkdown(text);
       content.appendChild(bubble);
       content.appendChild(this._createActions());
+      content.appendChild(this._createTimestamp(timestamp));
       row.appendChild(avatar);
       row.appendChild(content);
       this.messagesEl.appendChild(row);
@@ -161,6 +171,7 @@ export class Chat {
     this._appendAttachments(bubble, attachments);
     content.appendChild(bubble);
     content.appendChild(this._createActions());
+    content.appendChild(this._createTimestamp());
 
     row.appendChild(avatar);
     row.appendChild(content);
@@ -219,7 +230,7 @@ export class Chat {
     }
     this.hideWelcome();
     for (const msg of messages) {
-      this.addMessage(msg.content, msg.role);
+      this.addMessage(msg.content, msg.role, undefined, msg.timestamp ? new Date(msg.timestamp) : undefined);
     }
   }
 

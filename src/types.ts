@@ -491,6 +491,8 @@ export interface Session {
   accountId?: string;
   chatId: string;
   chatType: 'dm' | 'group';
+  /** Session title (auto-generated from first message) */
+  title?: string;
   context: SessionContext;
   /** Conversation history (Clawdbot compatibility) */
   history: ConversationMessage[];

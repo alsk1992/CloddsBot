@@ -104,6 +104,25 @@ console.log(`Win rate: ${stats.winRate}%`);
 | `/backtest <strategy>` | Backtest a strategy |
 | `/account list` | List accounts |
 | `/abtest create` | Create A/B test |
+| `/audit <address>` | Token security audit (GoPlus) |
+| `/dca poly <token-id> ...` | Polymarket DCA |
+| `/dca kalshi <ticker> ...` | Kalshi DCA |
+| `/dca pump <mint> ...` | PumpFun DCA |
+| `/dca hl <coin> ...` | Hyperliquid perps DCA |
+| `/dca bf <symbol> ...` | Binance Futures DCA |
+| `/dca bb <symbol> ...` | Bybit DCA |
+| `/dca mexc <symbol> ...` | MEXC Futures DCA |
+| `/dca drift <index> ...` | Drift DCA (Solana) |
+| `/dca opinion <market> ...` | Opinion.trade DCA |
+| `/dca predict <market> ...` | Predict.fun DCA |
+| `/dca orca <pool> ...` | Orca Whirlpool DCA |
+| `/dca raydium <input> to <output> ...` | Raydium DCA |
+| `/dca virtuals <agent-token> ...` | Virtuals DCA (Base) |
+| `/dca base <input> to <output> ...` | Base chain swap DCA |
+| `/dca evm <chain> ...` | EVM swap DCA (Odos) |
+| `/dca sol ...` | Jupiter DCA (Solana) |
+| `/dca list` | List active DCA orders |
+| `/dca cancel <id>` | Cancel a DCA order |
 
 ## Modules
 
@@ -2548,6 +2567,232 @@ const price = await feed.getBondingCurvePrice('0x...');
 1. **Bonding Curves**: Price increases with demand
 2. **Graduation**: ~42K VIRTUAL triggers migration to Uniswap
 3. **Chain**: Base (chainId 8453)
+
+---
+
+## DCA (Dollar-Cost Averaging)
+
+Split large investments across multiple timed cycles to reduce timing risk. Each platform uses its native SDK directly.
+
+**Intervals:** `30s`, `1m`, `5m`, `15m`, `1h`, `4h`, `1d`
+
+### Polymarket
+
+```bash
+/dca poly <token-id> <total-$> --per <$> --every <interval> [--price <p>]
+```
+
+**Example:**
+```bash
+/dca poly 0x1234...cond 100 --per 10 --every 1h --price 0.45
+# Invests $10 every hour until $100 total, buying at 0.45 or better
+```
+
+### Kalshi
+
+```bash
+/dca kalshi <ticker> <total-$> --per <$> --every <interval> [--price <p>]
+```
+
+**Example:**
+```bash
+/dca kalshi KXBTC-25FEB 500 --per 25 --every 4h
+```
+
+### PumpFun
+
+```bash
+/dca pump <mint> <total-SOL> --per <SOL> --every <interval> [--slippage <bps>] [--pool pump|raydium|auto]
+```
+
+**Example:**
+```bash
+/dca pump 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU 5 --per 0.5 --every 5m
+# Buys 0.5 SOL worth every 5 minutes, 5 SOL total
+```
+
+### Hyperliquid
+
+```bash
+/dca hl <coin> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>]
+```
+
+**Example:**
+```bash
+/dca hl BTC 1000 --per 100 --every 4h --side long --leverage 5
+# Opens $100 long every 4 hours, $1000 total at 5x leverage
+```
+
+### Binance Futures
+
+```bash
+/dca bf <symbol> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>]
+```
+
+**Example:**
+```bash
+/dca bf BTCUSDT 1000 --per 100 --every 4h --side long --leverage 10
+```
+
+### Bybit
+
+```bash
+/dca bb <symbol> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>]
+```
+
+**Example:**
+```bash
+/dca bb BTCUSDT 1000 --per 100 --every 4h --side short --leverage 3
+```
+
+### MEXC Futures
+
+```bash
+/dca mexc <symbol> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>]
+```
+
+**Example:**
+```bash
+/dca mexc BTC_USDT 1000 --per 100 --every 4h --side long --leverage 20
+```
+
+Requires: `MEXC_API_KEY`, `MEXC_API_SECRET`
+
+### Drift Protocol (Solana)
+
+```bash
+/dca drift <market-index> <total-$> --per <$> --every <interval> [--type perp|spot] [--side long|short]
+```
+
+**Example:**
+```bash
+/dca drift 0 500 --per 50 --every 4h --type perp --side long
+# DCA into SOL-PERP (index 0) long, $50 every 4h
+```
+
+Requires: `SOLANA_PRIVATE_KEY`
+
+### Opinion.trade (BNB Chain)
+
+```bash
+/dca opinion <market-id> <total-$> --per <$> --every <interval> [--price <p>]
+```
+
+**Example:**
+```bash
+/dca opinion 12345 100 --per 10 --every 1h --price 0.40
+```
+
+Requires: `OPINION_API_KEY`, `OPINION_API_SECRET`
+
+### Predict.fun (BNB Chain)
+
+```bash
+/dca predict <market-id> <total-$> --per <$> --every <interval> [--price <p>]
+```
+
+**Example:**
+```bash
+/dca predict abc-market 100 --per 10 --every 1h
+```
+
+Requires: `PREDICTFUN_PRIVATE_KEY`
+
+### Orca Whirlpool (Solana)
+
+```bash
+/dca orca <pool-address> <input-mint> <total> --per <amt> --every <interval> [--slippage <bps>]
+```
+
+**Example:**
+```bash
+/dca orca HJPjoWUrhoZzkNfRpHuieeFk9WGRBBmfcxDGU9wmjEQp So11...1112 10 --per 1 --every 1h
+```
+
+Requires: `SOLANA_PRIVATE_KEY`
+
+### Raydium (Solana)
+
+```bash
+/dca raydium <input-mint> to <output-mint> <total> --per <amt> --every <interval> [--slippage <bps>]
+```
+
+**Example:**
+```bash
+/dca raydium SOL to USDC 10 --per 1 --every 1h
+```
+
+Requires: `SOLANA_PRIVATE_KEY`
+
+### Virtuals (Base Chain)
+
+```bash
+/dca virtuals <agent-token-address> <total-VIRTUAL> --per <VIRTUAL> --every <interval> [--slippage <bps>]
+```
+
+**Example:**
+```bash
+/dca virtuals 0xABC...token 1000 --per 100 --every 1h --slippage 200
+# Buys 100 VIRTUAL worth of agent token every hour, 1000 total
+```
+
+Requires: `EVM_PRIVATE_KEY`
+
+### Base Chain Swaps
+
+```bash
+/dca base <input-token> to <output-token> <total> --per <amt> --every <interval> [--slippage <bps>]
+```
+
+**Example:**
+```bash
+/dca base ETH to 0xABC...token 1 --per 0.1 --every 1h
+# Swaps 0.1 ETH to token every hour on Base, 1 ETH total
+```
+
+Requires: `EVM_PRIVATE_KEY`
+
+### EVM Swaps (Odos — Multi-Chain)
+
+```bash
+/dca evm <chain> <input-token> to <output-token> <total> --per <amt> --every <interval> [--slippage <bps>]
+```
+
+**Chains:** `ethereum`, `base`, `polygon`, `arbitrum`, `bsc`, `optimism`, `avalanche`
+
+**Example:**
+```bash
+/dca evm base ETH to 0xABC...token 1 --per 0.1 --every 1h
+# Swaps 0.1 ETH to token every hour on Base, 1 ETH total
+```
+
+Requires: `EVM_PRIVATE_KEY`
+
+### Solana (Jupiter DCA)
+
+```bash
+/dca sol <total> <from-mint> to <to-mint> --per <amt> --every <secs>
+```
+
+**Example:**
+```bash
+/dca sol 100 USDC to SOL --per 10 --every 3600
+# Swaps $10 USDC to SOL every hour, $100 total
+```
+
+### Management
+
+```bash
+/dca list                  # List active DCA orders (shows platform)
+/dca info <id>             # Show progress
+/dca pause <id>            # Pause
+/dca resume <id>           # Resume
+/dca cancel <id>           # Cancel
+```
+
+### Persistence
+
+DCA orders are persisted to SQLite and resume automatically on restart. Platform-specific config (slippage, leverage, pool) is stored in the `extra_config` column.
 
 ---
 

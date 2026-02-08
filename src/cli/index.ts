@@ -423,6 +423,55 @@ skills
     await skillsCommands.checkUpdates();
   });
 
+// MCP server commands
+const mcp = program
+  .command('mcp')
+  .description('MCP (Model Context Protocol) server for Claude Desktop/Code');
+
+mcp
+  .command('serve', { isDefault: true })
+  .description('Start the MCP stdio server')
+  .action(async () => {
+    process.env.LOG_LEVEL = 'silent';
+    const { startMcpServer } = await import('../mcp/server');
+    await startMcpServer();
+  });
+
+mcp
+  .command('install')
+  .description('Auto-configure Claude Desktop and Claude Code to use Clodds MCP')
+  .action(async () => {
+    const { installMcpServer } = await import('../mcp/installer');
+    const result = installMcpServer();
+    if (result.installed.length > 0) {
+      console.log('\nInstalled Clodds MCP server:\n');
+      for (const path of result.installed) console.log(`  + ${path}`);
+    }
+    if (result.skipped.length > 0) {
+      console.log('\nSkipped:\n');
+      for (const msg of result.skipped) console.log(`  - ${msg}`);
+    }
+    if (result.installed.length > 0) {
+      console.log('\nRestart Claude Desktop/Code to activate.');
+    }
+  });
+
+mcp
+  .command('uninstall')
+  .description('Remove Clodds MCP config from Claude Desktop/Code')
+  .action(async () => {
+    const { uninstallMcpServer } = await import('../mcp/installer');
+    const result = uninstallMcpServer();
+    if (result.removed.length > 0) {
+      console.log('\nRemoved Clodds MCP server:\n');
+      for (const path of result.removed) console.log(`  - ${path}`);
+    }
+    if (result.skipped.length > 0) {
+      console.log('\nSkipped:\n');
+      for (const msg of result.skipped) console.log(`  - ${msg}`);
+    }
+  });
+
 // Security hardening command
 program
   .command('secure')

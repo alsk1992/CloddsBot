@@ -19,7 +19,7 @@ System architecture and design overview for Clodds - the AI trading terminal.
 Clodds is a modular AI trading terminal built on three core principles:
 
 1. **Multi-Channel Communication**: Connect through any of 22 messaging platforms
-2. **Multi-Market Integration**: Access 9+ prediction markets and 5 futures exchanges
+2. **Multi-Market Integration**: Access 9+ prediction markets and 6 futures exchanges (including on-chain Solana perps)
 3. **AI-First Design**: Claude-powered agent with semantic memory and specialized tools
 
 ```
@@ -36,7 +36,7 @@ Clodds is a modular AI trading terminal built on three core principles:
         |               |    |               |    |               |
     +-------+       +-------+            +-------+           +-------+
     |CHANNELS|     | AGENTS |           | FEEDS  |          |TRADING |
-    | (22)   |     |  (4)   |           | (15+)  |          |        |
+    | (22)   |     |  (4)   |           | (16+)  |          |        |
     +-------+       +-------+            +-------+           +-------+
         |               |                    |                   |
     +---+---+       +---+---+            +---+---+           +---+---+
@@ -50,7 +50,8 @@ Clodds is a modular AI trading terminal built on three core principles:
     |WebChat |     |Memory   |           -------            |Bybit   |
     |+14 more|                          |Arbitrage|         |HL      |
     +--------+                          |Detector |         |MEXC    |
-                                        +---------+         +--------+
+                                        +---------+         |Percolator|
+                                                            +--------+
         |                    |                    |              |
     ----+--------------------+--------------------+--------------+----
                                     |
@@ -229,7 +230,7 @@ directory names. On first command invocation, `initializeSkills()` loads them
 in parallel via `Promise.allSettled`. Use `/skills` to see loaded/failed/needs-config status.
 
 Categories:
-- **Trading**: Polymarket, Kalshi, Betfair, Hyperliquid, Binance, Bybit, MEXC, Jupiter, Raydium
+- **Trading**: Polymarket, Kalshi, Betfair, Hyperliquid, Binance, Bybit, MEXC, Jupiter, Raydium, Percolator (on-chain Solana perps)
 - **Analysis**: Arbitrage, edge finding, whale tracking, copy trading
 - **Automation**: Cron jobs, triggers, bots, webhooks
 - **AI**: Memory, embeddings, multi-agent routing
@@ -339,6 +340,32 @@ src/bittensor/
 - **Python sidecar** for btcli operations (all Bittensor tooling is Python-only)
 - **Gateway wired**: service lifecycle (start/stop), HTTP routes behind auth, agent tool handler
 - **Disabled by default**: set `BITTENSOR_ENABLED=true` to activate
+
+### Percolator Module
+
+On-chain Solana perpetual futures via Anatoly Yakovenko's Percolator protocol:
+
+```
+src/percolator/
+├── types.ts           # PercolatorConfig, MarketState, Position interfaces
+├── slab.ts            # Binary slab parser (992KB account, PERCOLAT magic)
+├── encode.ts          # Buffer encoding helpers (u8..u128, pubkey)
+├── accounts.ts        # Account specs for CPI instructions + well-known keys
+├── pda.ts             # PDA derivation (vault authority, LP PDA)
+├── instructions.ts    # Instruction encoders (trade, deposit, withdraw, crank)
+├── tx.ts              # Transaction builder + simulateOrSend
+├── feed.ts            # Slab poller (2s interval), emits price/orderbook events
+├── execution.ts       # ExecutionService adapter (marketBuy, marketSell, etc.)
+├── keeper.ts          # Optional permissionless keeper crank bot
+└── index.ts           # Factory + re-exports
+```
+
+**Architecture:**
+- **Slab-based state**: All market data (positions, OI, funding, LP quotes) lives in one on-chain account
+- **CPI trading**: Trades via Cross-Program Invocation — only needs user signature (not LP)
+- **Polling feed**: Fetches slab on interval, computes oracle price + LP bid/ask spread
+- **Gateway wired**: feed connect/disconnect, keeper start/stop, hot-reload support
+- **Disabled by default**: set `PERCOLATOR_ENABLED=true` + configure `PERCOLATOR_SLAB`, `PERCOLATOR_ORACLE`
 
 ---
 

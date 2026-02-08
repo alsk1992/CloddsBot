@@ -129,6 +129,18 @@ BYBIT_API_SECRET=
 SOLANA_PRIVATE_KEY=base58-encoded-key
 SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 
+# Percolator (On-Chain Solana Perps)
+PERCOLATOR_ENABLED=false
+PERCOLATOR_SLAB=                    # Market slab account pubkey
+PERCOLATOR_ORACLE=                  # Chainlink/Pyth oracle pubkey
+PERCOLATOR_MATCHER_PROGRAM=         # Matcher program pubkey
+PERCOLATOR_MATCHER_CONTEXT=         # Matcher context account
+PERCOLATOR_PROGRAM_ID=2SSnp35m7FQ7cRLNKGdW5UzjYFF6RBUNq7d3m5mqNByp
+PERCOLATOR_LP_INDEX=0               # Preferred LP index
+PERCOLATOR_KEEPER_ENABLED=false     # Run background crank
+PERCOLATOR_DRY_RUN=true             # Simulate trades (default: true)
+PERCOLATOR_RPC_URL=                 # Falls back to SOLANA_RPC_URL
+
 # EVM DeFi
 EVM_PRIVATE_KEY=0x...
 ALCHEMY_API_KEY=

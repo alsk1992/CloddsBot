@@ -83,11 +83,17 @@ class App {
     };
 
     newChatBtn?.addEventListener('click', () => this.newChat());
-    sidebarToggle?.addEventListener('click', () => {
+
+    // Sidebar toggle (shared logic for desktop + mobile buttons)
+    const toggleSidebar = () => {
       this.sidebar.toggle();
       backdropEl?.classList.toggle('visible', !this.sidebar.collapsed);
       if (!this.sidebar.collapsed) this.commands.hide();
-    });
+    };
+    sidebarToggle?.addEventListener('click', toggleSidebar);
+    const sidebarToggleMobile = document.getElementById('sidebar-toggle-mobile');
+    sidebarToggleMobile?.addEventListener('click', toggleSidebar);
+
     backdropEl?.addEventListener('click', () => {
       if (!this.sidebar.collapsed) {
         this.sidebar.toggle();
@@ -214,10 +220,10 @@ class App {
       }
     });
 
-    // Welcome card clicks
-    document.querySelectorAll('.welcome-card').forEach(card => {
-      card.addEventListener('click', () => {
-        inputEl.value = card.dataset.msg;
+    // Welcome chip clicks
+    document.querySelectorAll('.welcome-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        inputEl.value = chip.dataset.msg;
         this._send();
       });
     });
@@ -234,6 +240,17 @@ class App {
         document.title = this._originalTitle;
       }
     });
+
+    // Time-based greeting
+    const greetingEl = document.getElementById('welcome-greeting');
+    if (greetingEl) {
+      const hour = new Date().getHours();
+      const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+      greetingEl.textContent = greeting;
+    }
+
+    // Main element ref for welcome-mode
+    this._mainEl = document.querySelector('.main');
 
     // Stop generation
     this._generating = false;
@@ -272,6 +289,7 @@ class App {
       } else if (msg.type === 'switched') {
         // Session switch confirmed
       } else if (msg.type === 'message') {
+        this._setWelcomeMode(false);
         this.chat.addBotMessage(msg.text, msg.messageId, msg.attachments);
         if (document.hidden) {
           this._unreadCount++;
@@ -309,6 +327,7 @@ class App {
     } else {
       // Connect WS without a session — will create one on first message
       this.ws.connect(token, this.userId);
+      this._showGreeting();
     }
 
     inputEl.focus();
@@ -335,15 +354,19 @@ class App {
       if (this.activeSessionId !== sessionId) return; // stale response
       if (r.ok) {
         const data = await r.json();
-        this.chat.loadHistory(data.messages || []);
+        const msgs = data.messages || [];
+        this.chat.loadHistory(msgs);
+        this._setWelcomeMode(!msgs.length);
       } else {
         this.chat.clear();
         this.chat.showWelcome();
+        this._setWelcomeMode(true);
       }
     } catch {
       if (this.activeSessionId !== sessionId) return;
       this.chat.clear();
       this.chat.showWelcome();
+      this._setWelcomeMode(true);
     }
 
     // Connect or switch WS (skip refresh since we just loaded history above)
@@ -409,6 +432,7 @@ class App {
         this.activeSessionId = null;
         this.chat.clear();
         this.chat.showWelcome();
+        this._setWelcomeMode(true);
         Storage.remove('lastSessionId');
         const headerTitle = document.getElementById('header-title');
         if (headerTitle) headerTitle.textContent = 'Clodds';
@@ -470,6 +494,7 @@ class App {
       return;
     }
 
+    this._setWelcomeMode(false);
     const displayText = text || (this._pendingAttachment ? '\uD83D\uDCCE ' + this._pendingAttachment.filename : '');
     if (displayText) this.chat.addMessage(displayText, 'user');
     if (this._pendingAttachment) {
@@ -505,6 +530,16 @@ class App {
       }
     }
     this._sending = false;
+  }
+
+  _setWelcomeMode(on) {
+    if (this._mainEl) {
+      this._mainEl.classList.toggle('welcome-mode', on);
+    }
+  }
+
+  _showGreeting() {
+    this._setWelcomeMode(true);
   }
 
   _setGenerating(on) {
