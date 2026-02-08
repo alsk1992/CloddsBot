@@ -37,7 +37,6 @@
       <div class="chat-header">
         <button class="sidebar-toggle-mobile" id="sidebar-toggle-mobile" title="Toggle sidebar">&#9776;</button>
         <div class="chat-header-title" id="header-title">Clodds</div>
-        <div class="status-dot" id="status-dot" title="Connecting..."></div>
       </div>
       <div class="reconnect-banner" id="reconnect-banner">
         <span class="reconnect-spinner"></span> Connection lost. Reconnecting...
@@ -85,11 +84,23 @@
             </svg>
           </button>
         </div>
-        <div class="welcome-chips" id="welcome-chips">
-          <button class="welcome-chip" data-msg="What markets are trending right now? Show me the top movers.">&#x1F4CA; Markets</button>
-          <button class="welcome-chip" data-msg="/positions">&#x1F4CB; Positions</button>
-          <button class="welcome-chip" data-msg="Find me high-conviction arbitrage opportunities right now">&#x26A1; Arbitrage</button>
-          <button class="welcome-chip" data-msg="/help">&#x1F680; Get started</button>
+        <div class="welcome-cards" id="welcome-chips">
+          <button class="welcome-card" data-msg="What markets are trending right now? Show me the top movers.">
+            <svg class="welcome-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            <div class="welcome-card-text"><span class="welcome-card-title">Markets</span><span class="welcome-card-sub">Trending movers and prices</span></div>
+          </button>
+          <button class="welcome-card" data-msg="/positions">
+            <svg class="welcome-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            <div class="welcome-card-text"><span class="welcome-card-title">Positions</span><span class="welcome-card-sub">Open trades and P&L</span></div>
+          </button>
+          <button class="welcome-card" data-msg="Find me high-conviction arbitrage opportunities right now">
+            <svg class="welcome-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-5"/></svg>
+            <div class="welcome-card-text"><span class="welcome-card-title">Arbitrage</span><span class="welcome-card-sub">Cross-platform opportunities</span></div>
+          </button>
+          <button class="welcome-card" data-msg="/help">
+            <svg class="welcome-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6V2H8"/><path d="m8 18-4 4V8a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2Z"/></svg>
+            <div class="welcome-card-text"><span class="welcome-card-title">Get started</span><span class="welcome-card-sub">Commands and setup guide</span></div>
+          </button>
         </div>
         <div class="input-hint">
           <span><kbd>Enter</kbd> send &middot; <kbd>Shift+Enter</kbd> new line &middot; <kbd>/</kbd> commands</span>

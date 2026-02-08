@@ -221,7 +221,7 @@ class App {
     });
 
     // Welcome chip clicks
-    document.querySelectorAll('.welcome-chip').forEach(chip => {
+    document.querySelectorAll('.welcome-card').forEach(chip => {
       chip.addEventListener('click', () => {
         inputEl.value = chip.dataset.msg;
         this._send();

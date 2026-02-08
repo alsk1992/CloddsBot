@@ -3,25 +3,25 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg-primary: #0c0a1a;
-  --bg-secondary: #151228;
-  --bg-card: #1c1835;
-  --bg-input: #1c1835;
-  --bg-sidebar: #0f0d1f;
-  --border: #2d2755;
-  --border-hover: #4a3f8a;
-  --text-primary: #eee9ff;
-  --text-secondary: #9b8fc4;
-  --text-dim: #6b5f9e;
-  --accent: #a78bfa;
-  --accent-bright: #c4b5fd;
-  --accent-glow: rgba(167, 139, 250, 0.15);
+  --bg-primary: #111113;
+  --bg-secondary: #1a1a1e;
+  --bg-card: #212126;
+  --bg-input: #212126;
+  --bg-sidebar: #0e0e10;
+  --border: #2e2e33;
+  --border-hover: #45454d;
+  --text-primary: #ededef;
+  --text-secondary: #9a9aa0;
+  --text-dim: #62626a;
+  --accent: #3b82f6;
+  --accent-bright: #60a5fa;
+  --accent-glow: rgba(59, 130, 246, 0.12);
   --cyan: #22d3ee;
   --orange: #f59e0b;
   --green: #34d399;
   --red: #f87171;
-  --user-bg: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
-  --bot-bg: #1c1835;
+  --user-bg: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  --bot-bg: #212126;
   --radius: 16px;
   --radius-sm: 10px;
   --radius-xs: 6px;
@@ -91,7 +91,7 @@ body {
 .sidebar-header-title {
   font-size: 15px;
   font-weight: 700;
-  background: linear-gradient(135deg, #f5f3ff 0%, #c4b5fd 50%, #f59e0b 100%);
+  background: linear-gradient(135deg, #f0f0f2 0%, #60a5fa 50%, #3b82f6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -362,39 +362,67 @@ body {
   letter-spacing: -0.5px;
 }
 
-/* ── Welcome Chips (below input, Claude-style) ── */
-.welcome-chips {
+/* ── Welcome Cards (below input) ── */
+.welcome-cards {
   display: none;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 10px;
-  max-width: 720px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+  max-width: 560px;
   margin-left: auto;
   margin-right: auto;
 }
-.main.welcome-mode .welcome-chips {
+.main.welcome-mode .welcome-cards {
+  display: grid;
+}
+.welcome-card {
   display: flex;
-}
-.welcome-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 24px;
-  background: transparent;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
   color: var(--text-secondary);
-  font-size: 13px;
   font-family: inherit;
+  font-size: 13px;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s, color 0.2s;
-  white-space: nowrap;
+  text-align: left;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s, box-shadow 0.2s;
 }
-.welcome-chip:hover {
-  border-color: var(--accent);
-  background: var(--accent-glow);
+.welcome-card:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-card);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.welcome-card-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  stroke: var(--accent);
+  opacity: 0.8;
+}
+.welcome-card:hover .welcome-card-icon {
+  opacity: 1;
+}
+.welcome-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.welcome-card-title {
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-primary);
+  line-height: 1.3;
+}
+.welcome-card-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.3;
 }
 
 /* ── Messages ── */
@@ -433,7 +461,7 @@ body {
   margin-bottom: 2px;
 }
 .bot-avatar {
-  background: linear-gradient(135deg, #4c1d95, #6d28d9);
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
   color: #f59e0b;
 }
 .user-avatar {
@@ -869,7 +897,7 @@ body {
   width: 40px; height: 40px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
   color: white;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
@@ -1067,6 +1095,7 @@ body {
   .msg-bubble { max-width: 85%; }
   .msg-avatar { width: 26px; height: 26px; font-size: 12px; }
   .welcome-greeting { font-size: 24px; }
+  .welcome-cards { grid-template-columns: 1fr; max-width: 300px; }
   .input-hint { display: none; }
   .input-area { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .sidebar-backdrop.visible { display: block; }
