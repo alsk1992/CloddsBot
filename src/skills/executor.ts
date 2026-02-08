@@ -379,6 +379,42 @@ export interface SkillExecutionResult {
   response?: string;
   error?: string;
   skill?: string;
+  /** If set, the command should be dispatched directly to this tool (bypass LLM) */
+  dispatch?: {
+    tool: string;
+    args: string;
+    argMode: 'raw' | 'parsed';
+  };
+}
+
+// =============================================================================
+// COMMAND DISPATCH (bypass LLM, route directly to tool)
+// =============================================================================
+
+interface DispatchEntry {
+  toolName: string;
+  argMode: 'raw' | 'parsed';
+  skillName: string;
+}
+
+/** Map of /command → dispatch target for skills with command-dispatch: tool */
+const dispatchMap = new Map<string, DispatchEntry>();
+
+/**
+ * Register a SKILL.md skill for direct command dispatch.
+ * Called by the SkillManager when loading skills with command-dispatch: tool.
+ */
+export function registerDispatchSkill(command: string, entry: DispatchEntry): void {
+  const normalized = command.toLowerCase().startsWith('/') ? command.toLowerCase() : `/${command.toLowerCase()}`;
+  dispatchMap.set(normalized, entry);
+  logger.debug({ command: normalized, tool: entry.toolName, skill: entry.skillName }, 'Registered dispatch skill');
+}
+
+/**
+ * Clear all dispatch skill registrations (called on reload).
+ */
+export function clearDispatchSkills(): void {
+  dispatchMap.clear();
 }
 
 /**
@@ -410,6 +446,21 @@ export async function executeSkillCommand(message: string): Promise<SkillExecuti
   const spaceIndex = trimmed.indexOf(' ');
   const command = spaceIndex === -1 ? trimmed.toLowerCase() : trimmed.slice(0, spaceIndex).toLowerCase();
   const args = spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1);
+
+  // Check dispatch map first (command-dispatch: tool skills bypass LLM)
+  const dispatch = dispatchMap.get(command);
+  if (dispatch) {
+    logger.info({ skill: dispatch.skillName, command, tool: dispatch.toolName, args }, 'Dispatching skill directly to tool');
+    return {
+      handled: true,
+      skill: dispatch.skillName,
+      dispatch: {
+        tool: dispatch.toolName,
+        args,
+        argMode: dispatch.argMode,
+      },
+    };
+  }
 
   // Find matching skill handler
   const skill = commandToSkill.get(command);
@@ -452,11 +503,11 @@ export function getSkillByCommand(command: string): NormalizedSkillHandler | und
 }
 
 /**
- * Check if a command is handled by a skill
+ * Check if a command is handled by a skill (handler or dispatch)
  */
 export function isSkillCommand(command: string): boolean {
   const normalized = command.toLowerCase().startsWith('/') ? command.toLowerCase() : `/${command.toLowerCase()}`;
-  return commandToSkill.has(normalized);
+  return commandToSkill.has(normalized) || dispatchMap.has(normalized);
 }
 
 /**

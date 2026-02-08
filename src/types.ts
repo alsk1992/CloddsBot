@@ -669,6 +669,43 @@ export interface Skill {
   content: string;
   enabled: boolean;
   subcommands?: Array<{ name: string; description: string; category: string }>;
+  // OpenClaw compatibility fields
+  emoji?: string;
+  homepage?: string;
+  primaryEnv?: string;
+  skillKey?: string;
+  always?: boolean;
+  os?: string[];
+  userInvocable?: boolean;
+  modelInvocable?: boolean;
+  baseDir?: string;
+  // Command dispatch (bypass LLM, route directly to tool)
+  commandDispatch?: 'tool';
+  commandTool?: string;
+  commandArgMode?: 'raw' | 'parsed';
+  // Bins directory paths auto-added to PATH
+  binPaths?: string[];
+  // Env overrides scoped to this skill
+  envOverrides?: Record<string, string>;
+  // Platform-specific install commands
+  install?: {
+    darwin?: { command: string };
+    linux?: { command: string };
+    win32?: { command: string };
+  };
+}
+
+export interface SkillManagerConfig {
+  /** Only load these bundled skills (whitelist). If undefined, load all. */
+  allowBundled?: string[];
+  /** Extra directories to scan for skills */
+  extraDirs?: string[];
+  /** Watch for file changes and hot-reload */
+  watch?: boolean;
+  /** Debounce interval for file watcher in ms (default: 500) */
+  watchDebounceMs?: number;
+  /** Config keys for requires.config gating */
+  configKeys?: Record<string, unknown>;
 }
 
 // =============================================================================

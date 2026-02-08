@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createSkillsManager, createSkillsRegistry } from '../../skills/index';
 import type { Skill, InstalledSkill, RegistrySkill } from '../../skills/index';
+import { parseFrontmatter, type ParsedFrontmatter } from '../../skills/frontmatter.js';
 
 export interface SkillsCommands {
   list(options?: { verbose?: boolean }): void;
@@ -26,51 +27,11 @@ export interface SkillsCommands {
   checkUpdates(): Promise<void>;
 }
 
-interface SkillFrontmatter {
-  name?: string;
-  description?: string;
-  emoji?: string;
-  commands?: string[];
-  gates?: {
-    bins?: string[];
-    envs?: string[] | { anyOf?: string[]; allOf?: string[] };
-  };
-}
-
-/** Parse YAML frontmatter from SKILL.md content */
-function parseFrontmatter(content: string): SkillFrontmatter {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!match) return {};
-
-  const yaml = match[1];
-  const result: SkillFrontmatter = {};
-
-  for (const line of yaml.split('\n')) {
-    const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
-
-    const key = line.slice(0, colonIdx).trim();
-    let value = line.slice(colonIdx + 1).trim();
-
-    // Remove quotes
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-
-    if (key === 'name') result.name = value;
-    else if (key === 'description') result.description = value;
-    else if (key === 'emoji') result.emoji = value;
-  }
-
-  return result;
-}
-
 /** Get skill metadata from SKILL.md file */
-function getSkillMeta(skillPath: string): SkillFrontmatter {
+function getSkillMeta(skillPath: string): ParsedFrontmatter {
   try {
     const content = fs.readFileSync(skillPath, 'utf-8');
-    return parseFrontmatter(content);
+    return parseFrontmatter(content).frontmatter;
   } catch {
     return {};
   }
@@ -81,7 +42,7 @@ export function createSkillsCommands(): SkillsCommands {
   const registry = createSkillsRegistry({});
 
   /** Format skill for display */
-  function formatSkill(skill: Skill | InstalledSkill, meta?: SkillFrontmatter): string {
+  function formatSkill(skill: Skill | InstalledSkill, meta?: ParsedFrontmatter): string {
     const status = 'eligible' in skill
       ? (skill.eligible ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m')
       : '\x1b[36m○\x1b[0m';
@@ -138,17 +99,12 @@ export function createSkillsCommands(): SkillsCommands {
 
           if (options.verbose) {
             // Show required environment variables
-            if (meta.gates?.envs) {
-              const envs = Array.isArray(meta.gates.envs)
-                ? meta.gates.envs
-                : meta.gates.envs.anyOf || meta.gates.envs.allOf || [];
-              if (envs.length > 0) {
-                const envStatus = envs.map(env => {
-                  const set = !!process.env[env];
-                  return set ? `\x1b[32m${env}\x1b[0m` : `\x1b[31m${env}\x1b[0m`;
-                }).join(', ');
-                console.log(`     \x1b[90mRequires:\x1b[0m ${envStatus}`);
-              }
+            if (meta.gates?.envs?.length) {
+              const envStatus = meta.gates.envs.map(env => {
+                const set = !!process.env[env];
+                return set ? `\x1b[32m${env}\x1b[0m` : `\x1b[31m${env}\x1b[0m`;
+              }).join(', ');
+              console.log(`     \x1b[90mRequires:\x1b[0m ${envStatus}`);
             }
 
             // Show commands from SKILL.md
