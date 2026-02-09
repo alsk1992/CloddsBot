@@ -9148,23 +9148,15 @@ async function executeTool(
             return JSON.stringify({ error: 'Could not determine token ID from original trade' });
           }
 
-          // Execute the copy trade via Python script
-          const tradingDir = join(__dirname, '..', '..', 'trading');
-          const cmd = side === 'BUY'
-            ? `cd ${tradingDir} && python3 polymarket.py buy ${tokenId} ${price} ${copySize}`
-            : `cd ${tradingDir} && python3 polymarket.py sell ${tokenId} ${copySize} ${price}`;
-
-          const creds = polyCreds.data as PolymarketCredentials;
-          const userEnv = {
-            ...process.env,
-            PRIVATE_KEY: creds.privateKey,
-            POLY_FUNDER_ADDRESS: creds.funderAddress,
-            POLY_API_KEY: creds.apiKey,
-            POLY_API_SECRET: creds.apiSecret,
-            POLY_API_PASSPHRASE: creds.apiPassphrase,
-          };
-
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
+          // Execute the copy trade via execution service
+          const execSvc = context.tradingContext?.executionService;
+          if (!execSvc) {
+            return JSON.stringify({ error: 'Trading execution not available. Configure trading.enabled=true.' });
+          }
+          const orderResult = side === 'BUY'
+            ? await execSvc.buyLimit({ platform: 'polymarket', marketId: tokenId, tokenId, price, size: copySize })
+            : await execSvc.sellLimit({ platform: 'polymarket', marketId: tokenId, tokenId, price, size: copySize });
+          const output = JSON.stringify(orderResult);
           await context.credentials.markSuccess(userId, 'polymarket');
 
           return JSON.stringify({
@@ -9469,25 +9461,17 @@ async function executeTool(
           const edge = (1 - sum) * 100;
           const profit = (size * 2) * (1 - sum);
 
-          // Execute both trades
-          const tradingDir = join(__dirname, '..', '..', 'trading');
-          const creds = polyCreds.data as PolymarketCredentials;
-          const userEnv = {
-            ...process.env,
-            PRIVATE_KEY: creds.privateKey,
-            POLY_FUNDER_ADDRESS: creds.funderAddress,
-            POLY_API_KEY: creds.apiKey,
-            POLY_API_SECRET: creds.apiSecret,
-            POLY_API_PASSPHRASE: creds.apiPassphrase,
-          };
+          // Execute both trades via execution service
+          const execSvc = context.tradingContext?.executionService;
+          if (!execSvc) {
+            return JSON.stringify({ error: 'Trading execution not available. Configure trading.enabled=true.' });
+          }
 
           // Buy YES
-          const yesCmd = `cd ${tradingDir} && python3 polymarket.py buy ${yesToken.token_id} ${yesAsk} ${size}`;
-          const yesOutput = execSync(yesCmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
+          const yesResult = await execSvc.buyLimit({ platform: 'polymarket', marketId: yesToken.token_id, tokenId: yesToken.token_id, price: yesAsk, size });
 
           // Buy NO
-          const noCmd = `cd ${tradingDir} && python3 polymarket.py buy ${noToken.token_id} ${noAsk} ${size}`;
-          const noOutput = execSync(noCmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
+          const noResult = await execSvc.buyLimit({ platform: 'polymarket', marketId: noToken.token_id, tokenId: noToken.token_id, price: noAsk, size });
 
           await context.credentials.markSuccess(userId, 'polymarket');
 
@@ -9496,8 +9480,8 @@ async function executeTool(
               status: 'executed',
               market: marketData.question?.slice(0, 50) || marketId,
               trades: [
-                { side: 'YES', price: `${Math.round(yesAsk * 100)}¢`, size, output: yesOutput.trim() },
-                { side: 'NO', price: `${Math.round(noAsk * 100)}¢`, size, output: noOutput.trim() },
+                { side: 'YES', price: `${Math.round(yesAsk * 100)}¢`, size, result: yesResult },
+                { side: 'NO', price: `${Math.round(noAsk * 100)}¢`, size, result: noResult },
               ],
               edge: `${edge.toFixed(2)}%`,
               expectedProfit: `$${profit.toFixed(2)}`,
@@ -9505,11 +9489,8 @@ async function executeTool(
             },
           });
         } catch (err: unknown) {
-          const error = err as { stderr?: string; message?: string };
-          if (error.stderr?.includes('auth') || error.stderr?.includes('401')) {
-            await context.credentials.markFailure(userId, 'polymarket');
-          }
-          return JSON.stringify({ error: 'Arbitrage execution failed', details: error.stderr || error.message });
+          const error = err as Error;
+          return JSON.stringify({ error: 'Arbitrage execution failed', details: error.message });
         }
       }
 
@@ -9894,26 +9875,21 @@ async function executeTool(
             error: 'No Polymarket credentials set up. Use setup_polymarket_credentials first.',
           });
         }
-
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py positions`;
-
         const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
-
+        const auth = getPolymarketApiKeyAuth(creds);
+        if (!auth) {
+          return JSON.stringify({ error: 'Incomplete Polymarket credentials.' });
+        }
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return JSON.stringify({ result: output.trim() });
+          const { getPolymarketPositions } = await import('../execution');
+          const positions = await getPolymarketPositions(auth);
+          if (positions.length === 0) {
+            return JSON.stringify({ result: 'No open positions.' });
+          }
+          return JSON.stringify({ positions, count: positions.length });
         } catch (err: unknown) {
-          const error = err as { stderr?: string; message?: string };
-          return JSON.stringify({ error: 'Failed to get positions', details: error.stderr || error.message });
+          const error = err as Error;
+          return JSON.stringify({ error: 'Failed to get positions', details: error.message });
         }
       }
 
@@ -9946,15 +9922,18 @@ async function executeTool(
       case 'polymarket_orderbook': {
         // Orderbook is public - no credentials required
         const tokenId = toolInput.token_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py orderbook ${tokenId}`;
-
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return JSON.stringify({ result: output.trim() });
+          const response = await fetch(`https://clob.polymarket.com/book?token_id=${tokenId}`);
+          if (!response.ok) {
+            return JSON.stringify({ error: `Orderbook fetch failed: ${response.status}` });
+          }
+          const data = await response.json() as { bids?: Array<{ price: string; size: string }>; asks?: Array<{ price: string; size: string }> };
+          const bids = (data.bids || []).slice(0, 10);
+          const asks = (data.asks || []).slice(0, 10);
+          return JSON.stringify({ token_id: tokenId, bids, asks, bid_count: bids.length, ask_count: asks.length });
         } catch (err: unknown) {
-          const error = err as { stderr?: string; message?: string };
-          return JSON.stringify({ error: 'Orderbook fetch failed', details: error.stderr || error.message });
+          const error = err as Error;
+          return JSON.stringify({ error: 'Orderbook fetch failed', details: error.message });
         }
       }
 
@@ -9965,26 +9944,22 @@ async function executeTool(
             error: 'No Polymarket credentials set up. Use setup_polymarket_credentials first.',
           });
         }
-
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py balance`;
-
         const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
-
+        const auth = getPolymarketApiKeyAuth(creds);
+        if (!auth) {
+          return JSON.stringify({ error: 'Incomplete Polymarket credentials.' });
+        }
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return JSON.stringify({ result: output.trim() });
+          const { getPolymarketBalance } = await import('../execution');
+          const { balance, allowance } = await getPolymarketBalance(auth);
+          return JSON.stringify({
+            balance: `$${balance.toFixed(2)} USDC`,
+            allowance: `$${allowance.toFixed(2)} USDC`,
+            raw: { balance, allowance },
+          });
         } catch (err: unknown) {
-          const error = err as { stderr?: string; message?: string };
-          return JSON.stringify({ error: 'Balance fetch failed', details: error.stderr || error.message });
+          const error = err as Error;
+          return JSON.stringify({ error: 'Balance fetch failed', details: error.message });
         }
       }
 
@@ -10385,108 +10360,78 @@ async function executeTool(
             error: 'No Polymarket credentials set up. Use setup_polymarket_credentials first.',
           });
         }
-
-        const marketId = toolInput.market_id as string | undefined;
-        const tokenId = toolInput.token_id as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py trades`;
-        if (marketId) cmd += ` --market ${marketId}`;
-        if (tokenId) cmd += ` --token ${tokenId}`;
-
         const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
-
+        const auth = getPolymarketApiKeyAuth(creds);
+        if (!auth) {
+          return JSON.stringify({ error: 'Incomplete Polymarket credentials.' });
+        }
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
+          const { getPolymarketTrades } = await import('../execution');
+          const trades = await getPolymarketTrades(auth);
           await context.credentials.markSuccess(userId, 'polymarket');
-          return JSON.stringify({ result: 'Trade history', output: output.trim() });
-        } catch (err: unknown) {
-          const error = err as { stderr?: string; message?: string };
-          if (error.stderr?.includes('auth') || error.stderr?.includes('401')) {
-            await context.credentials.markFailure(userId, 'polymarket');
+          if (trades.length === 0) {
+            return JSON.stringify({ result: 'No recent trades.' });
           }
-          return JSON.stringify({ error: 'Trade history failed', details: error.stderr || error.message });
+          return JSON.stringify({ trades: trades.slice(0, 50), count: trades.length });
+        } catch (err: unknown) {
+          const error = err as Error;
+          return JSON.stringify({ error: 'Trade history failed', details: error.message });
         }
       }
 
       case 'polymarket_cancel_market': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds || polyCreds.platform !== 'polymarket') {
-          return JSON.stringify({
-            error: 'No Polymarket credentials set up. Use setup_polymarket_credentials first.',
-          });
-        }
-
-        const marketId = toolInput.market_id as string;
-        const tokenId = toolInput.token_id as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py cancel_market ${marketId}`;
-        if (tokenId) cmd += ` ${tokenId}`;
-
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
-
-        try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          await context.credentials.markSuccess(userId, 'polymarket');
-          return JSON.stringify({ result: 'Orders cancelled for market', output: output.trim() });
-        } catch (err: unknown) {
-          const error = err as { stderr?: string; message?: string };
-          if (error.stderr?.includes('auth') || error.stderr?.includes('401')) {
-            await context.credentials.markFailure(userId, 'polymarket');
+        const execSvc = context.tradingContext?.executionService;
+        if (execSvc) {
+          try {
+            const marketId = toolInput.market_id as string;
+            const cancelledCount = await execSvc.cancelAllOrders('polymarket', marketId);
+            await context.credentials.markSuccess(userId, 'polymarket');
+            return JSON.stringify({ result: 'Orders cancelled for market', cancelledCount });
+          } catch (err: unknown) {
+            const error = err as Error;
+            return JSON.stringify({ error: 'Cancel market orders failed', details: error.message });
           }
-          return JSON.stringify({ error: 'Cancel market orders failed', details: error.stderr || error.message });
         }
+        return JSON.stringify({ error: 'Trading execution not available. Configure trading.enabled=true.' });
       }
 
       case 'polymarket_estimate_fill': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds || polyCreds.platform !== 'polymarket') {
-          return JSON.stringify({
-            error: 'No Polymarket credentials set up. Use setup_polymarket_credentials first.',
-          });
-        }
-
+        // Estimate fill by fetching orderbook and calculating slippage
         const tokenId = toolInput.token_id as string;
-        const side = toolInput.side as string;
+        const side = (toolInput.side as string).toUpperCase();
         const amount = toolInput.amount as number;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py estimate_fill ${tokenId} ${side} ${amount}`;
-
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
-
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          await context.credentials.markSuccess(userId, 'polymarket');
-          return JSON.stringify({ result: 'Fill estimate', output: output.trim() });
-        } catch (err: unknown) {
-          const error = err as { stderr?: string; message?: string };
-          if (error.stderr?.includes('auth') || error.stderr?.includes('401')) {
-            await context.credentials.markFailure(userId, 'polymarket');
+          const response = await fetch(`https://clob.polymarket.com/book?token_id=${tokenId}`);
+          if (!response.ok) {
+            return JSON.stringify({ error: `Orderbook fetch failed: ${response.status}` });
           }
-          return JSON.stringify({ error: 'Fill estimate failed', details: error.stderr || error.message });
+          const book = await response.json() as { bids?: Array<{ price: string; size: string }>; asks?: Array<{ price: string; size: string }> };
+          const levels = side === 'BUY' ? (book.asks || []) : (book.bids || []);
+          let remaining = amount;
+          let totalCost = 0;
+          const fills: Array<{ price: string; size: number }> = [];
+          for (const level of levels) {
+            if (remaining <= 0) break;
+            const levelSize = parseFloat(level.size);
+            const levelPrice = parseFloat(level.price);
+            const fillSize = Math.min(remaining, levelSize);
+            totalCost += fillSize * levelPrice;
+            fills.push({ price: level.price, size: fillSize });
+            remaining -= fillSize;
+          }
+          const avgPrice = amount > 0 ? totalCost / (amount - remaining) : 0;
+          return JSON.stringify({
+            token_id: tokenId,
+            side,
+            requested: amount,
+            filled: amount - remaining,
+            unfilled: remaining,
+            avg_price: avgPrice.toFixed(4),
+            total_cost: totalCost.toFixed(2),
+            fills,
+          });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: 'Fill estimate failed', details: (err as Error).message });
         }
       }
 
@@ -10652,62 +10597,71 @@ async function executeTool(
       // ========== BATCH HANDLERS ==========
       case 'polymarket_midpoints_batch': {
         const tokenIds = toolInput.token_ids as string[];
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py midpoints_batch ${tokenIds.join(',')}`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const results = await Promise.all(tokenIds.map(async (id) => {
+            const r = await fetch(`https://clob.polymarket.com/midpoint?token_id=${id}`);
+            const d = await r.json() as { mid?: string };
+            return { token_id: id, mid: d.mid };
+          }));
+          return JSON.stringify(results);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_prices_batch': {
         const requests = toolInput.requests as Array<{ token_id: string; side: string }>;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const requestsJson = JSON.stringify(requests);
-        const cmd = `cd ${tradingDir} && python3 polymarket.py prices_batch '${requestsJson}'`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const results = await Promise.all(requests.map(async (req) => {
+            const r = await fetch(`https://clob.polymarket.com/price?token_id=${req.token_id}&side=${req.side}`);
+            const d = await r.json() as { price?: string };
+            return { token_id: req.token_id, side: req.side, price: d.price };
+          }));
+          return JSON.stringify(results);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_spreads_batch': {
         const tokenIds = toolInput.token_ids as string[];
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py spreads_batch ${tokenIds.join(',')}`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const results = await Promise.all(tokenIds.map(async (id) => {
+            const r = await fetch(`https://clob.polymarket.com/spread?token_id=${id}`);
+            const d = await r.json() as { spread?: string };
+            return { token_id: id, spread: d.spread };
+          }));
+          return JSON.stringify(results);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_orderbooks_batch': {
         const tokenIds = toolInput.token_ids as string[];
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py orderbooks_batch ${tokenIds.join(',')}`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const results = await Promise.all(tokenIds.map(async (id) => {
+            const r = await fetch(`https://clob.polymarket.com/book?token_id=${id}`);
+            const d = await r.json() as { bids?: Array<{ price: string; size: string }>; asks?: Array<{ price: string; size: string }> };
+            return { token_id: id, bids: (d.bids || []).slice(0, 5), asks: (d.asks || []).slice(0, 5) };
+          }));
+          return JSON.stringify(results);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_last_trades_batch': {
         const tokenIds = toolInput.token_ids as string[];
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py last_trades_batch ${tokenIds.join(',')}`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const results = await Promise.all(tokenIds.map(async (id) => {
+            const r = await fetch(`https://clob.polymarket.com/last-trade-price?token_id=${id}`);
+            const d = await r.json() as { price?: string };
+            return { token_id: id, price: d.price };
+          }));
+          return JSON.stringify(results);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -10807,27 +10761,14 @@ async function executeTool(
 
       // ========== ORDER OPERATIONS HANDLERS ==========
       case 'polymarket_get_order': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const orderId = toolInput.order_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py get_order ${orderId}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const orderId = toolInput.order_id as string;
+          const url = `https://clob.polymarket.com/order/${orderId}`;
+          const response = await fetchPolymarketClob(context, url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -10863,410 +10804,203 @@ async function executeTool(
             if (exposureError) return exposureError;
           }
         }
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const ordersJson = JSON.stringify(orders);
-        const cmd = `cd ${tradingDir} && python3 polymarket.py post_orders_batch '${ordersJson}'`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
-        try {
-          const output = execSync(cmd, { timeout: 60000, encoding: 'utf-8', env: userEnv });
-          await context.credentials.markSuccess(userId, 'polymarket');
-          return output.trim();
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+        const execSvc = context.tradingContext?.executionService;
+        if (execSvc) {
+          try {
+            const results = [];
+            for (const order of orders) {
+              const side = String(order.side || '').toUpperCase() as 'BUY' | 'SELL';
+              const result = side === 'BUY'
+                ? await execSvc.buyLimit({ platform: 'polymarket', marketId: order.token_id, tokenId: order.token_id, price: order.price, size: order.size })
+                : await execSvc.sellLimit({ platform: 'polymarket', marketId: order.token_id, tokenId: order.token_id, price: order.price, size: order.size });
+              results.push(result);
+            }
+            await context.credentials.markSuccess(userId, 'polymarket');
+            return JSON.stringify({ results });
+          } catch (err: unknown) {
+            return JSON.stringify({ error: (err as Error).message });
+          }
         }
+        return JSON.stringify({ error: 'Trading execution not available.' });
       }
 
       case 'polymarket_cancel_orders_batch': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
+        const execSvc = context.tradingContext?.executionService;
+        if (execSvc) {
+          try {
+            const orderIds = toolInput.order_ids as string[];
+            const results: Array<{ orderId: string; success: boolean }> = [];
+            for (const oid of orderIds) {
+              const success = await execSvc.cancelOrder('polymarket', oid);
+              results.push({ orderId: oid, success });
+            }
+            await context.credentials.markSuccess(userId, 'polymarket');
+            return JSON.stringify({ result: 'Orders cancelled', cancelled: results });
+          } catch (err: unknown) {
+            return JSON.stringify({ error: (err as Error).message });
+          }
         }
-        const orderIds = toolInput.order_ids as string[];
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py cancel_orders_batch ${orderIds.join(',')}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
-        try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          await context.credentials.markSuccess(userId, 'polymarket');
-          return output.trim();
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
-        }
+        return JSON.stringify({ error: 'Trading execution not available.' });
       }
 
       // ========== API KEY MANAGEMENT HANDLERS ==========
-      case 'polymarket_create_api_key': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const nonce = (toolInput.nonce as number) || 0;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py create_api_key ${nonce}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-        };
-        try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
-        }
-      }
-
+      case 'polymarket_create_api_key':
       case 'polymarket_derive_api_key': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const nonce = (toolInput.nonce as number) || 0;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py derive_api_key ${nonce}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-        };
-        try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
-        }
+        // These require L1 wallet signing which needs the private key signer — not available via REST alone
+        return JSON.stringify({ error: 'API key creation requires wallet signing. Use the Polymarket web interface or CLI.' });
       }
 
       case 'polymarket_get_api_keys': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py get_api_keys`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, 'https://clob.polymarket.com/api-keys');
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_delete_api_key': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py delete_api_key`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, 'https://clob.polymarket.com/api-key', { method: 'DELETE' });
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       // ========== READ-ONLY API KEY HANDLERS ==========
       case 'polymarket_create_readonly_api_key': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py create_readonly_api_key`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, 'https://clob.polymarket.com/readonly-api-key', { method: 'POST' });
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_get_readonly_api_keys': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py get_readonly_api_keys`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, 'https://clob.polymarket.com/readonly-api-keys');
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_delete_readonly_api_key': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
         const apiKey = toolInput.api_key as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py delete_readonly_api_key "${apiKey}"`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, `https://clob.polymarket.com/readonly-api-key/${encodeURIComponent(apiKey)}`, { method: 'DELETE' });
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_validate_readonly_api_key': {
-        // This is a public endpoint - doesn't need user credentials
         const apiKey = toolInput.api_key as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py validate_readonly_api_key "${apiKey}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://clob.polymarket.com/readonly-api-key/validate/${encodeURIComponent(apiKey)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       // ========== BALANCE & ALLOWANCE HANDLERS ==========
       case 'polymarket_get_balance_allowance': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
         const assetType = toolInput.asset_type as string;
         const tokenId = toolInput.token_id as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py get_balance_allowance ${assetType}`;
-        if (tokenId) cmd += ` ${tokenId}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          let url = `https://clob.polymarket.com/balance-allowance?asset_type=${assetType}`;
+          if (tokenId) url += `&token_id=${tokenId}`;
+          const response = await fetchPolymarketClob(context, url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
       case 'polymarket_update_balance_allowance': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
         const assetType = toolInput.asset_type as string;
         const tokenId = toolInput.token_id as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py update_balance_allowance ${assetType}`;
-        if (tokenId) cmd += ` ${tokenId}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const body: Record<string, string> = { asset_type: assetType };
+          if (tokenId) body.token_id = tokenId;
+          const response = await fetchPolymarketClob(context, 'https://clob.polymarket.com/balance-allowance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       // ========== ADVANCED FEATURES HANDLERS ==========
       case 'polymarket_heartbeat': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const heartbeatId = toolInput.heartbeat_id as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py heartbeat`;
-        if (heartbeatId) cmd += ` ${heartbeatId}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const url = 'https://clob.polymarket.com/heartbeat';
+          const response = await fetchPolymarketClob(context, url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_is_order_scoring': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
         const orderId = toolInput.order_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py is_order_scoring ${orderId}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, `https://clob.polymarket.com/order-scoring?order_id=${orderId}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_are_orders_scoring': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
         const orderIds = toolInput.order_ids as string[];
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py are_orders_scoring ${orderIds.join(',')}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, `https://clob.polymarket.com/orders-scoring?order_ids=${orderIds.join(',')}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_notifications': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py notifications`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, 'https://clob.polymarket.com/notifications');
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_drop_notifications': {
-        const polyCreds = context.tradingContext?.credentials.get('polymarket');
-        if (!polyCreds) {
-          return JSON.stringify({ error: 'No Polymarket credentials set up.' });
-        }
         const notificationIds = toolInput.notification_ids as string[];
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py drop_notifications ${notificationIds.join(',')}`;
-        const creds = polyCreds.data as PolymarketCredentials;
-        const userEnv = {
-          ...process.env,
-          PRIVATE_KEY: creds.privateKey,
-          POLY_FUNDER_ADDRESS: creds.funderAddress,
-          POLY_API_KEY: creds.apiKey,
-          POLY_API_SECRET: creds.apiSecret,
-          POLY_API_PASSPHRASE: creds.apiPassphrase,
-        };
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-          return output.trim();
+          const response = await fetchPolymarketClob(context, 'https://clob.polymarket.com/notifications', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: notificationIds }),
+          });
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11282,26 +11016,26 @@ async function executeTool(
 
       case 'polymarket_orderbook_hash': {
         const tokenId = toolInput.token_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py orderbook_hash ${tokenId}`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://clob.polymarket.com/hash?token_id=${tokenId}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_sampling_simplified_markets': {
         const nextCursor = toolInput.next_cursor as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py sampling_simplified_markets`;
-        if (nextCursor) cmd += ` "${nextCursor}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const url = nextCursor
+            ? `https://clob.polymarket.com/sampling-simplified-markets?next_cursor=${nextCursor}`
+            : 'https://clob.polymarket.com/sampling-simplified-markets';
+          const response = await fetch(url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11311,88 +11045,79 @@ async function executeTool(
 
       case 'polymarket_event': {
         const eventId = toolInput.event_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py event "${eventId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/events/${encodeURIComponent(eventId)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_event_by_slug': {
         const slug = toolInput.slug as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py event_by_slug "${slug}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/events?slug=${encodeURIComponent(slug)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_events': {
-        const limit = toolInput.limit as number | undefined;
-        const offset = toolInput.offset as number | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py events`;
-        if (limit) cmd += ` ${limit}`;
-        if (offset) cmd += ` ${offset}`;
+        const limit = (toolInput.limit as number) || 20;
+        const offset = (toolInput.offset as number) || 0;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/events?_limit=${limit}&_offset=${offset}&active=true&closed=false`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_search_events': {
         const query = toolInput.query as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py search_events "${query}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/events?_q=${encodeURIComponent(query)}&_limit=20&active=true`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_event_tags': {
         const eventId = toolInput.event_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py event_tags "${eventId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/events/${encodeURIComponent(eventId)}/tags`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_market_by_slug': {
         const slug = toolInput.slug as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py market_by_slug "${slug}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(slug)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_market_tags': {
         const marketId = toolInput.market_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py market_tags "${marketId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/markets/${encodeURIComponent(marketId)}/tags`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11402,27 +11127,26 @@ async function executeTool(
 
       case 'polymarket_series': {
         const seriesId = toolInput.series_id as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py series`;
-        if (seriesId) cmd += ` "${seriesId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const url = seriesId
+            ? `https://gamma-api.polymarket.com/series/${encodeURIComponent(seriesId)}`
+            : 'https://gamma-api.polymarket.com/series';
+          const response = await fetch(url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_series_list': {
-        const limit = toolInput.limit as number | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py series_list`;
-        if (limit) cmd += ` ${limit}`;
+        const limit = (toolInput.limit as number) || 20;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/series?_limit=${limit}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11431,51 +11155,46 @@ async function executeTool(
       // ============================================
 
       case 'polymarket_tags': {
-        const limit = toolInput.limit as number | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py tags`;
-        if (limit) cmd += ` ${limit}`;
+        const limit = (toolInput.limit as number) || 50;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/tags?_limit=${limit}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_tag': {
         const tagId = toolInput.tag_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py tag "${tagId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/tags/${encodeURIComponent(tagId)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_tag_by_slug': {
         const slug = toolInput.slug as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py tag_by_slug "${slug}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/tags?slug=${encodeURIComponent(slug)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_tag_relations': {
         const tagId = toolInput.tag_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py tag_relations "${tagId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/tags/${encodeURIComponent(tagId)}/relations`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11484,26 +11203,26 @@ async function executeTool(
       // ============================================
 
       case 'polymarket_sports': {
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py sports`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch('https://gamma-api.polymarket.com/sports');
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_teams': {
         const sport = toolInput.sport as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py teams`;
-        if (sport) cmd += ` "${sport}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const url = sport
+            ? `https://gamma-api.polymarket.com/teams?sport=${encodeURIComponent(sport)}`
+            : 'https://gamma-api.polymarket.com/teams';
+          const response = await fetch(url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11513,25 +11232,23 @@ async function executeTool(
 
       case 'polymarket_comments': {
         const marketId = toolInput.market_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py comments "${marketId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/comments?market=${encodeURIComponent(marketId)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_user_comments': {
         const address = toolInput.address as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py user_comments "${address}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/comments?address=${encodeURIComponent(address)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11541,145 +11258,149 @@ async function executeTool(
 
       case 'polymarket_positions_value': {
         const address = toolInput.address as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py positions_value`;
-        if (address) cmd += ` "${address}"`;
+        const polyCreds = context.tradingContext?.credentials.get('polymarket');
+        const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
+        if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://data-api.polymarket.com/value?address=${walletAddr}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_closed_positions': {
         const address = toolInput.address as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py closed_positions`;
-        if (address) cmd += ` "${address}"`;
+        const polyCreds = context.tradingContext?.credentials.get('polymarket');
+        const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
+        if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://data-api.polymarket.com/positions?address=${walletAddr}&closed=true&_limit=50`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_pnl_timeseries': {
         const address = toolInput.address as string | undefined;
         const interval = toolInput.interval as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py pnl_timeseries`;
-        if (address) cmd += ` "${address}"`;
-        if (interval) cmd += ` "${interval}"`;
+        const polyCreds = context.tradingContext?.credentials.get('polymarket');
+        const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
+        if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          let url = `https://data-api.polymarket.com/pnl/timeseries?address=${walletAddr}`;
+          if (interval) url += `&interval=${interval}`;
+          const response = await fetch(url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_overall_pnl': {
         const address = toolInput.address as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py overall_pnl`;
-        if (address) cmd += ` "${address}"`;
+        const polyCreds = context.tradingContext?.credentials.get('polymarket');
+        const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
+        if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://data-api.polymarket.com/pnl?address=${walletAddr}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_user_rank': {
         const address = toolInput.address as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py user_rank`;
-        if (address) cmd += ` "${address}"`;
+        const polyCreds = context.tradingContext?.credentials.get('polymarket');
+        const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
+        if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://data-api.polymarket.com/rank?address=${walletAddr}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_leaderboard': {
-        const limit = toolInput.limit as number | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py leaderboard`;
-        if (limit) cmd += ` ${limit}`;
+        const limit = (toolInput.limit as number) || 20;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://data-api.polymarket.com/leaderboard?_limit=${limit}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_top_holders': {
         const marketId = toolInput.market_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py top_holders "${marketId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://data-api.polymarket.com/holders?market=${encodeURIComponent(marketId)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_user_activity': {
         const address = toolInput.address as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py user_activity`;
-        if (address) cmd += ` "${address}"`;
+        const polyCreds = context.tradingContext?.credentials.get('polymarket');
+        const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
+        if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://data-api.polymarket.com/activity?address=${walletAddr}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_open_interest': {
         const marketId = toolInput.market_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py open_interest "${marketId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://data-api.polymarket.com/open-interest?market=${encodeURIComponent(marketId)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_live_volume': {
         const eventId = toolInput.event_id as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py live_volume`;
-        if (eventId) cmd += ` "${eventId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const url = eventId
+            ? `https://data-api.polymarket.com/volume?event=${encodeURIComponent(eventId)}`
+            : 'https://data-api.polymarket.com/volume';
+          const response = await fetch(url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_price_history': {
         const tokenId = toolInput.token_id as string;
         const interval = toolInput.interval as string | undefined;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        let cmd = `cd ${tradingDir} && python3 polymarket.py price_history "${tokenId}"`;
-        if (interval) cmd += ` "${interval}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          let url = `https://clob.polymarket.com/prices-history?market=${tokenId}`;
+          if (interval) url += `&interval=${interval}`;
+          const response = await fetch(url);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11688,36 +11409,33 @@ async function executeTool(
       // ============================================
 
       case 'polymarket_daily_rewards': {
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py daily_rewards`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch('https://clob.polymarket.com/rewards/daily');
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_market_rewards': {
         const marketId = toolInput.market_id as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py market_rewards "${marketId}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://clob.polymarket.com/rewards/markets/${encodeURIComponent(marketId)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
       case 'polymarket_reward_markets': {
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py reward_markets`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch('https://clob.polymarket.com/rewards/markets');
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 
@@ -11727,13 +11445,12 @@ async function executeTool(
 
       case 'polymarket_profile': {
         const address = toolInput.address as string;
-        const tradingDir = join(__dirname, '..', '..', 'trading');
-        const cmd = `cd ${tradingDir} && python3 polymarket.py profile "${address}"`;
         try {
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-          return output.trim();
+          const response = await fetch(`https://gamma-api.polymarket.com/profiles/${encodeURIComponent(address)}`);
+          const data = await response.json() as ApiResponse;
+          return JSON.stringify(data);
         } catch (err: unknown) {
-          return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+          return JSON.stringify({ error: (err as Error).message });
         }
       }
 

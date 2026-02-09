@@ -2,36 +2,20 @@
  * Kalshi Handlers
  *
  * All 78 Kalshi platform handlers migrated from agents/index.ts switch cases.
- * Includes execution-service-based trading, no-auth exchange info,
- * and credential-based Python CLI handlers.
+ * Uses direct HTTP calls to the Kalshi REST API with RSA-PSS authentication.
  */
 
-import { execSync } from 'child_process';
-import { join } from 'path';
 import type { ToolInput, HandlerResult, HandlersMap, HandlerContext } from './types';
 import { errorResult } from './types';
 import type { KalshiCredentials } from '../../types';
+import { buildKalshiHeadersForUrl, type KalshiApiKeyAuth } from '../../utils/kalshi-auth';
 import { enforceMaxOrderSize, enforceExposureLimits } from '../../trading/risk';
 
 // =============================================================================
-// HELPERS
+// CONSTANTS & HELPERS
 // =============================================================================
 
-/**
- * Build environment variables for Kalshi Python CLI
- */
-function buildKalshiEnv(creds: KalshiCredentials): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (creds.apiKeyId && creds.privateKeyPem) {
-    env.KALSHI_API_KEY_ID = creds.apiKeyId;
-    env.KALSHI_PRIVATE_KEY = creds.privateKeyPem;
-  }
-  if (creds.email && creds.password) {
-    env.KALSHI_EMAIL = creds.email;
-    env.KALSHI_PASSWORD = creds.password;
-  }
-  return env;
-}
+const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
 
 /**
  * Get Kalshi credentials from handler context
@@ -43,22 +27,65 @@ function getKalshiCreds(context: HandlerContext): { data: KalshiCredentials } | 
 }
 
 /**
- * Get the trading directory path (relative to this file's location)
+ * Build KalshiApiKeyAuth from KalshiCredentials
  */
-function getTradingDir(): string {
-  return join(__dirname, '..', '..', '..', 'trading');
+function toApiKeyAuth(creds: KalshiCredentials): KalshiApiKeyAuth | null {
+  if (!creds.apiKeyId || !creds.privateKeyPem) return null;
+  return { apiKeyId: creds.apiKeyId, privateKeyPem: creds.privateKeyPem };
 }
 
 /**
- * Execute a Kalshi Python CLI command with credentials
+ * Make an unauthenticated GET request to the Kalshi API
  */
-function execKalshiPython(cmd: string, userEnv: NodeJS.ProcessEnv): string {
+async function kalshiGet(path: string): Promise<string> {
+  const url = `${KALSHI_API_BASE}${path}`;
   try {
-    const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-    return output.trim();
+    const response = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await response.json();
+    return JSON.stringify(data);
   } catch (err: unknown) {
-    return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
+    return JSON.stringify({ error: (err as Error).message });
   }
+}
+
+/**
+ * Make an authenticated request to the Kalshi API
+ */
+async function kalshiAuthFetch(
+  auth: KalshiApiKeyAuth,
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<string> {
+  const url = `${KALSHI_API_BASE}${path}`;
+  const headers = buildKalshiHeadersForUrl(auth, method, url);
+  const fetchOptions: RequestInit = {
+    method,
+    headers: { ...headers, 'Content-Type': 'application/json' },
+  };
+  if (body !== undefined) {
+    fetchOptions.body = JSON.stringify(body);
+  }
+  try {
+    const response = await fetch(url, fetchOptions);
+    const data = await response.json();
+    return JSON.stringify(data);
+  } catch (err: unknown) {
+    return JSON.stringify({ error: (err as Error).message });
+  }
+}
+
+/**
+ * Require auth credentials from context, returning auth object or error string
+ */
+function requireAuth(context: HandlerContext): KalshiApiKeyAuth | string {
+  const kalshiCreds = getKalshiCreds(context);
+  if (!kalshiCreds) return errorResult('No Kalshi credentials set up. Use setup_kalshi_credentials first.');
+  const auth = toApiKeyAuth(kalshiCreds.data);
+  if (!auth) return errorResult('Kalshi API key credentials required (apiKeyId + privateKeyPem).');
+  return auth;
 }
 
 // =============================================================================
@@ -169,7 +196,7 @@ async function sellHandler(toolInput: ToolInput, context: HandlerContext): Promi
 /**
  * kalshi_orders - Get open orders via execution service
  */
-async function ordersHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
+async function ordersHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
   const execSvc = context.tradingContext?.executionService;
   if (execSvc) {
     try {
@@ -235,213 +262,148 @@ async function cancelHandler(toolInput: ToolInput, context: HandlerContext): Pro
  * kalshi_exchange_status - Get exchange status (no auth required)
  */
 async function exchangeStatusHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py exchange_status`;
-  try {
-    const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-    return output.trim();
-  } catch (err: unknown) {
-    return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
-  }
+  return kalshiGet('/exchange/status');
 }
 
 /**
  * kalshi_exchange_schedule - Get exchange schedule (no auth required)
  */
 async function exchangeScheduleHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py exchange_schedule`;
-  try {
-    const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-    return output.trim();
-  } catch (err: unknown) {
-    return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
-  }
+  return kalshiGet('/exchange/schedule');
 }
 
 /**
  * kalshi_announcements - Get exchange announcements (no auth required)
  */
 async function announcementsHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py announcements`;
-  try {
-    const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' });
-    return output.trim();
-  } catch (err: unknown) {
-    return JSON.stringify({ error: (err as { stderr?: string; message?: string }).stderr || (err as { message?: string }).message });
-  }
+  return kalshiGet('/exchange/announcements');
 }
 
 // =============================================================================
-// CREDENTIAL-BASED PYTHON HANDLERS
+// AUTHENTICATED REST API HANDLERS
 // =============================================================================
 
 /**
  * kalshi_positions - Get current positions
  */
 async function positionsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up. Use setup_kalshi_credentials first.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py positions`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  try {
-    const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: userEnv });
-    return JSON.stringify({ result: output.trim() });
-  } catch (error: unknown) {
-    return JSON.stringify({ error: 'Failed to get positions', details: (error as { stderr?: string; message?: string }).stderr || (error as { message?: string }).message });
-  }
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/positions');
 }
 
 /**
  * kalshi_search - Search for markets
  */
-async function searchHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up. Use setup_kalshi_credentials first.');
+async function searchHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const query = toolInput.query as string | undefined;
-  const tradingDir = getTradingDir();
-  const sanitizedQuery = query ? query.replace(/[^a-zA-Z0-9\s_\-.,]/g, '') : '';
-  const cmd = sanitizedQuery
-    ? `cd ${tradingDir} && python3 kalshi.py search "${sanitizedQuery}"`
-    : `cd ${tradingDir} && python3 kalshi.py search`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const params = new URLSearchParams({ status: 'open' });
+  if (query) params.set('query', query);
+  return kalshiGet(`/markets?${params.toString()}`);
 }
 
 /**
  * kalshi_market - Get market details
  */
-async function marketHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up. Use setup_kalshi_credentials first.');
+async function marketHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const ticker = toolInput.ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py market ${ticker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/markets/${encodeURIComponent(ticker)}`);
 }
 
 /**
  * kalshi_balance - Get account balance
  */
 async function balanceHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up. Use setup_kalshi_credentials first.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py balance`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/balance');
 }
 
 /**
  * kalshi_orderbook - Get orderbook for a market
  */
-async function orderbookHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function orderbookHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const ticker = toolInput.ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py orderbook ${ticker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/markets/${encodeURIComponent(ticker)}/orderbook`);
 }
 
 /**
  * kalshi_market_trades - Get recent trades for a market
  */
-async function marketTradesHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function marketTradesHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const ticker = toolInput.ticker as string | undefined;
   const limit = toolInput.limit as number | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py market_trades`;
-  if (ticker) cmd += ` --ticker ${ticker}`;
-  if (limit) cmd += ` --limit ${limit}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  if (ticker) {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString();
+    return kalshiGet(`/markets/${encodeURIComponent(ticker)}/trades${qs ? `?${qs}` : ''}`);
+  }
+  // No ticker: list all trades
+  const params = new URLSearchParams();
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  return kalshiGet(`/markets/trades${qs ? `?${qs}` : ''}`);
 }
 
 /**
  * kalshi_candlesticks - Get candlestick data
  */
-async function candlesticksHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function candlesticksHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const seriesTicker = toolInput.series_ticker as string;
   const ticker = toolInput.ticker as string;
   const interval = toolInput.interval as number | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py candlesticks ${seriesTicker} ${ticker}`;
-  if (interval) cmd += ` --interval ${interval}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const params = new URLSearchParams({ series_ticker: seriesTicker });
+  if (interval) params.set('period_interval', String(interval));
+  return kalshiGet(`/markets/${encodeURIComponent(ticker)}/candlesticks?${params.toString()}`);
 }
 
 /**
  * kalshi_events - List events
  */
-async function eventsHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function eventsHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const status = toolInput.status as string | undefined;
   const seriesTicker = toolInput.series_ticker as string | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py events`;
-  if (status) cmd += ` --status ${status}`;
-  if (seriesTicker) cmd += ` --series ${seriesTicker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  if (seriesTicker) params.set('series_ticker', seriesTicker);
+  const qs = params.toString();
+  return kalshiGet(`/events${qs ? `?${qs}` : ''}`);
 }
 
 /**
  * kalshi_event - Get event details
  */
-async function eventHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function eventHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const eventTicker = toolInput.event_ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py event ${eventTicker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/events/${encodeURIComponent(eventTicker)}`);
 }
 
 /**
  * kalshi_series - List series
  */
-async function seriesHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function seriesHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const category = toolInput.category as string | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py series`;
-  if (category) cmd += ` --category ${category}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const params = new URLSearchParams();
+  if (category) params.set('category', category);
+  const qs = params.toString();
+  return kalshiGet(`/series${qs ? `?${qs}` : ''}`);
 }
 
 /**
  * kalshi_series_info - Get series info
  */
-async function seriesInfoHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function seriesInfoHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const seriesTicker = toolInput.series_ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py series_info ${seriesTicker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/series/${encodeURIComponent(seriesTicker)}`);
 }
 
 /**
  * kalshi_market_order - Place a market order with risk checks
  */
 async function marketOrderHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const ticker = toolInput.ticker as string;
   const side = toolInput.side as string;
   const action = toolInput.action as string;
@@ -459,18 +421,21 @@ async function marketOrderHandler(toolInput: ToolInput, context: HandlerContext)
     });
     if (exposureError) return exposureError;
   }
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py market_order ${ticker} ${side} ${action} ${count}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', '/portfolio/orders', {
+    ticker,
+    side,
+    action,
+    count,
+    type: 'market',
+  });
 }
 
 /**
  * kalshi_batch_create_orders - Batch create orders with risk checks
  */
 async function batchCreateOrdersHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const orders = toolInput.orders as unknown[];
   const userId = context.userId || '';
   if (Array.isArray(orders) && orders.length > 0) {
@@ -508,768 +473,589 @@ async function batchCreateOrdersHandler(toolInput: ToolInput, context: HandlerCo
       if (exposureError) return exposureError;
     }
   }
-  const tradingDir = getTradingDir();
-  const ordersJson = JSON.stringify(orders).replace(/"/g, '\\"');
-  const cmd = `cd ${tradingDir} && python3 kalshi.py batch_create_orders "${ordersJson}"`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', '/portfolio/orders/batched', { orders });
 }
 
 /**
  * kalshi_batch_cancel_orders - Batch cancel orders
  */
 async function batchCancelOrdersHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const orderIds = toolInput.order_ids as string[];
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py batch_cancel_orders ${orderIds.join(',')}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'DELETE', '/portfolio/orders/batched', { order_ids: orderIds });
 }
 
 /**
  * kalshi_cancel_all - Cancel all open orders
  */
 async function cancelAllHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py cancel_all`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'DELETE', '/portfolio/orders');
 }
 
 /**
  * kalshi_get_order - Get order details
  */
 async function getOrderHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const orderId = toolInput.order_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py get_order ${orderId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'GET', `/portfolio/orders/${encodeURIComponent(orderId)}`);
 }
 
 /**
  * kalshi_amend_order - Amend an existing order
  */
 async function amendOrderHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const orderId = toolInput.order_id as string;
   const price = toolInput.price as number | undefined;
   const count = toolInput.count as number | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py amend_order ${orderId}`;
-  if (price) cmd += ` --price ${price}`;
-  if (count) cmd += ` --count ${count}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const body: Record<string, unknown> = {};
+  if (price !== undefined) body.price = price;
+  if (count !== undefined) body.count = count;
+  return kalshiAuthFetch(auth, 'PATCH', `/portfolio/orders/${encodeURIComponent(orderId)}`, body);
 }
 
 /**
  * kalshi_decrease_order - Decrease order size
  */
 async function decreaseOrderHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const orderId = toolInput.order_id as string;
   const reduceBy = toolInput.reduce_by as number;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py decrease_order ${orderId} ${reduceBy}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', `/portfolio/orders/${encodeURIComponent(orderId)}/decrease`, { reduce_by: reduceBy });
 }
 
 /**
  * kalshi_queue_position - Get queue position for an order
  */
 async function queuePositionHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const orderId = toolInput.order_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py queue_position ${orderId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'GET', `/portfolio/orders/${encodeURIComponent(orderId)}/position`);
 }
 
 /**
  * kalshi_queue_positions - Get all queue positions
  */
 async function queuePositionsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py queue_positions`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/orders/queue-positions');
 }
 
 /**
  * kalshi_fills - Get fill history
  */
 async function fillsHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const ticker = toolInput.ticker as string | undefined;
   const limit = toolInput.limit as number | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py fills`;
-  if (ticker) cmd += ` --ticker ${ticker}`;
-  if (limit) cmd += ` --limit ${limit}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const params = new URLSearchParams();
+  if (ticker) params.set('ticker', ticker);
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  return kalshiAuthFetch(auth, 'GET', `/portfolio/fills${qs ? `?${qs}` : ''}`);
 }
 
 /**
  * kalshi_settlements - Get settlement history
  */
 async function settlementsHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const limit = toolInput.limit as number | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py settlements`;
-  if (limit) cmd += ` --limit ${limit}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const params = new URLSearchParams();
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  return kalshiAuthFetch(auth, 'GET', `/portfolio/settlements${qs ? `?${qs}` : ''}`);
 }
 
 /**
  * kalshi_account_limits - Get account limits
  */
 async function accountLimitsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py account_limits`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/account/limits');
 }
 
 /**
  * kalshi_api_keys - List API keys
  */
 async function apiKeysHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py api_keys`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/api-keys');
 }
 
 /**
  * kalshi_create_api_key - Create a new API key
  */
 async function createApiKeyHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py create_api_key`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'POST', '/portfolio/api-keys', {});
 }
 
 /**
  * kalshi_delete_api_key - Delete an API key
  */
 async function deleteApiKeyHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const apiKey = toolInput.api_key as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py delete_api_key ${apiKey}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'DELETE', `/portfolio/api-keys/${encodeURIComponent(apiKey)}`);
 }
 
 /**
  * kalshi_fee_changes - Get fee changes
  */
-async function feeChangesHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py fee_changes`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+async function feeChangesHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
+  return kalshiGet('/exchange/fee-changes');
 }
 
 /**
  * kalshi_user_data_timestamp - Get user data timestamp
  */
 async function userDataTimestampHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py user_data_timestamp`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/user-data/timestamp');
 }
 
 /**
- * kalshi_batch_candlesticks - Get batch candlestick data
+ * kalshi_batch_candlesticks - Get batch candlestick data for multiple tickers
  */
-async function batchCandlesticksHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function batchCandlesticksHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const tickers = toolInput.tickers as unknown[];
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py batch_candlesticks '${JSON.stringify(tickers)}'`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  // Fetch candlesticks for each ticker in parallel
+  try {
+    const results = await Promise.all(
+      (tickers as Array<{ ticker: string; series_ticker: string; interval?: number }>).map(async (t) => {
+        const params = new URLSearchParams({ series_ticker: t.series_ticker });
+        if (t.interval) params.set('period_interval', String(t.interval));
+        const url = `${KALSHI_API_BASE}/markets/${encodeURIComponent(t.ticker)}/candlesticks?${params.toString()}`;
+        const response = await fetch(url, { headers: { 'Content-Type': 'application/json' } });
+        return { ticker: t.ticker, data: await response.json() };
+      })
+    );
+    return JSON.stringify(results);
+  } catch (err: unknown) {
+    return JSON.stringify({ error: (err as Error).message });
+  }
 }
 
 /**
  * kalshi_event_metadata - Get event metadata
  */
-async function eventMetadataHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function eventMetadataHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const eventTicker = toolInput.event_ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py event_metadata ${eventTicker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/events/${encodeURIComponent(eventTicker)}/metadata`);
 }
 
 /**
  * kalshi_event_candlesticks - Get event candlestick data
  */
-async function eventCandlesticksHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const seriesTicker = toolInput.series_ticker as string;
+async function eventCandlesticksHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const eventTicker = toolInput.event_ticker as string;
   const interval = toolInput.interval as number | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py event_candlesticks ${seriesTicker} ${eventTicker}`;
-  if (interval) cmd += ` --interval ${interval}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const params = new URLSearchParams();
+  if (interval) params.set('period_interval', String(interval));
+  const qs = params.toString();
+  return kalshiGet(`/events/${encodeURIComponent(eventTicker)}/candlesticks${qs ? `?${qs}` : ''}`);
 }
 
 /**
  * kalshi_forecast_history - Get forecast history
  */
-async function forecastHistoryHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function forecastHistoryHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const seriesTicker = toolInput.series_ticker as string;
   const eventTicker = toolInput.event_ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py forecast_history ${seriesTicker} ${eventTicker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/series/${encodeURIComponent(seriesTicker)}/events/${encodeURIComponent(eventTicker)}/forecast-history`);
 }
 
 /**
  * kalshi_multivariate_events - Get multivariate events
  */
-async function multivariateEventsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py multivariate_events`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+async function multivariateEventsHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
+  return kalshiGet('/events?with_nested_markets=true&status=open');
 }
 
 /**
  * kalshi_create_order_group - Create an order group
  */
 async function createOrderGroupHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const orders = toolInput.orders as unknown[];
   const maxLoss = toolInput.max_loss as number | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py create_order_group '${JSON.stringify(orders)}'`;
-  if (maxLoss) cmd += ` --max_loss ${maxLoss}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const body: Record<string, unknown> = { orders };
+  if (maxLoss !== undefined) body.max_loss = maxLoss;
+  return kalshiAuthFetch(auth, 'POST', '/portfolio/order-groups', body);
 }
 
 /**
  * kalshi_order_groups - List order groups
  */
 async function orderGroupsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py order_groups`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/order-groups');
 }
 
 /**
  * kalshi_order_group - Get order group details
  */
 async function orderGroupHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const groupId = toolInput.group_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py order_group ${groupId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'GET', `/portfolio/order-groups/${encodeURIComponent(groupId)}`);
 }
 
 /**
  * kalshi_order_group_limit - Set order group limit
  */
 async function orderGroupLimitHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const groupId = toolInput.group_id as string;
   const maxLoss = toolInput.max_loss as number;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py order_group_limit ${groupId} ${maxLoss}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'PUT', `/portfolio/order-groups/${encodeURIComponent(groupId)}/max-loss`, { max_loss: maxLoss });
 }
 
 /**
  * kalshi_order_group_trigger - Trigger order group
  */
 async function orderGroupTriggerHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const groupId = toolInput.group_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py order_group_trigger ${groupId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', `/portfolio/order-groups/${encodeURIComponent(groupId)}/trigger`, {});
 }
 
 /**
  * kalshi_order_group_reset - Reset order group
  */
 async function orderGroupResetHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const groupId = toolInput.group_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py order_group_reset ${groupId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', `/portfolio/order-groups/${encodeURIComponent(groupId)}/reset`, {});
 }
 
 /**
  * kalshi_delete_order_group - Delete order group
  */
 async function deleteOrderGroupHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const groupId = toolInput.group_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py delete_order_group ${groupId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'DELETE', `/portfolio/order-groups/${encodeURIComponent(groupId)}`);
 }
 
 /**
  * kalshi_resting_order_value - Get resting order value
  */
 async function restingOrderValueHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py resting_order_value`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/resting-order-value');
 }
 
 /**
  * kalshi_create_subaccount - Create a subaccount
  */
 async function createSubaccountHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const name = toolInput.name as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py create_subaccount "${name}"`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', '/portfolio/subaccounts', { name });
 }
 
 /**
  * kalshi_subaccount_balances - Get subaccount balances
  */
 async function subaccountBalancesHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py subaccount_balances`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/subaccounts/balance');
 }
 
 /**
  * kalshi_subaccount_transfer - Transfer between subaccounts
  */
 async function subaccountTransferHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const fromId = toolInput.from_id as string;
   const toId = toolInput.to_id as string;
   const amount = toolInput.amount as number;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py subaccount_transfer ${fromId} ${toId} ${amount}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', '/portfolio/subaccounts/transfer', {
+    from_id: fromId,
+    to_id: toId,
+    amount,
+  });
 }
 
 /**
  * kalshi_subaccount_transfers - List subaccount transfers
  */
 async function subaccountTransfersHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py subaccount_transfers`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/subaccounts/transfers');
 }
 
 /**
  * kalshi_comms_id - Get communications ID
  */
 async function commsIdHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py comms_id`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/communications-id');
 }
 
 /**
  * kalshi_create_rfq - Create a request for quote
  */
 async function createRfqHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const ticker = toolInput.ticker as string;
   const side = toolInput.side as string;
   const count = toolInput.count as number;
   const minPrice = toolInput.min_price as number | undefined;
   const maxPrice = toolInput.max_price as number | undefined;
-  const tradingDir = getTradingDir();
-  let cmd = `cd ${tradingDir} && python3 kalshi.py create_rfq ${ticker} ${side} ${count}`;
-  if (minPrice) cmd += ` --min_price ${minPrice}`;
-  if (maxPrice) cmd += ` --max_price ${maxPrice}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const body: Record<string, unknown> = { ticker, side, count };
+  if (minPrice !== undefined) body.min_price = minPrice;
+  if (maxPrice !== undefined) body.max_price = maxPrice;
+  return kalshiAuthFetch(auth, 'POST', '/rfqs', body);
 }
 
 /**
  * kalshi_rfqs - List RFQs
  */
 async function rfqsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py rfqs`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/rfqs');
 }
 
 /**
  * kalshi_rfq - Get RFQ details
  */
 async function rfqHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const rfqId = toolInput.rfq_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py rfq ${rfqId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'GET', `/rfqs/${encodeURIComponent(rfqId)}`);
 }
 
 /**
  * kalshi_cancel_rfq - Cancel an RFQ
  */
 async function cancelRfqHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const rfqId = toolInput.rfq_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py cancel_rfq ${rfqId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'DELETE', `/rfqs/${encodeURIComponent(rfqId)}`);
 }
 
 /**
  * kalshi_create_quote - Create a quote for an RFQ
  */
 async function createQuoteHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const rfqId = toolInput.rfq_id as string;
   const price = toolInput.price as number;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py create_quote ${rfqId} ${price}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', `/rfqs/${encodeURIComponent(rfqId)}/quotes`, { price });
 }
 
 /**
  * kalshi_quotes - List quotes
  */
 async function quotesHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py quotes`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/rfqs/quotes');
 }
 
 /**
  * kalshi_quote - Get quote details
  */
 async function quoteHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const quoteId = toolInput.quote_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py quote ${quoteId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'GET', `/rfqs/quotes/${encodeURIComponent(quoteId)}`);
 }
 
 /**
  * kalshi_cancel_quote - Cancel a quote
  */
 async function cancelQuoteHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const quoteId = toolInput.quote_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py cancel_quote ${quoteId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'DELETE', `/rfqs/quotes/${encodeURIComponent(quoteId)}`);
 }
 
 /**
  * kalshi_accept_quote - Accept a quote
  */
 async function acceptQuoteHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const quoteId = toolInput.quote_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py accept_quote ${quoteId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', `/rfqs/quotes/${encodeURIComponent(quoteId)}/accept`, {});
 }
 
 /**
  * kalshi_confirm_quote - Confirm a quote
  */
 async function confirmQuoteHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
   const quoteId = toolInput.quote_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py confirm_quote ${quoteId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiAuthFetch(auth, 'POST', `/rfqs/quotes/${encodeURIComponent(quoteId)}/confirm`, {});
 }
 
 /**
  * kalshi_collections - List collections
  */
-async function collectionsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py collections`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+async function collectionsHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
+  return kalshiGet('/collections');
 }
 
 /**
  * kalshi_collection - Get collection details
  */
-async function collectionHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function collectionHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const collectionTicker = toolInput.collection_ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py collection ${collectionTicker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/collections/${encodeURIComponent(collectionTicker)}`);
 }
 
 /**
  * kalshi_collection_lookup - Lookup collection
  */
-async function collectionLookupHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function collectionLookupHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const collectionTicker = toolInput.collection_ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py collection_lookup ${collectionTicker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/collections/${encodeURIComponent(collectionTicker)}/lookup`);
 }
 
 /**
  * kalshi_collection_lookup_history - Get collection lookup history
  */
-async function collectionLookupHistoryHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function collectionLookupHistoryHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const collectionTicker = toolInput.collection_ticker as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py collection_lookup_history ${collectionTicker}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/collections/${encodeURIComponent(collectionTicker)}/lookup/history`);
 }
 
 /**
  * kalshi_live_data - Get live data
  */
-async function liveDataHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function liveDataHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const dataType = toolInput.data_type as string;
   const milestoneId = toolInput.milestone_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py live_data ${dataType} ${milestoneId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/live-data/${encodeURIComponent(dataType)}/${encodeURIComponent(milestoneId)}`);
 }
 
 /**
  * kalshi_live_data_batch - Get batch live data
  */
-async function liveDataBatchHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function liveDataBatchHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const requests = toolInput.requests as unknown[];
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py live_data_batch '${JSON.stringify(requests)}'`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const url = `${KALSHI_API_BASE}/live-data/batch`;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests }),
+    });
+    const data = await response.json();
+    return JSON.stringify(data);
+  } catch (err: unknown) {
+    return JSON.stringify({ error: (err as Error).message });
+  }
 }
 
 /**
  * kalshi_milestones - List milestones
  */
-async function milestonesHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py milestones`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+async function milestonesHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
+  return kalshiGet('/milestones');
 }
 
 /**
  * kalshi_milestone - Get milestone details
  */
-async function milestoneHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function milestoneHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const milestoneId = toolInput.milestone_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py milestone ${milestoneId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/milestones/${encodeURIComponent(milestoneId)}`);
 }
 
 /**
  * kalshi_structured_targets - List structured targets
  */
-async function structuredTargetsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py structured_targets`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+async function structuredTargetsHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
+  return kalshiGet('/structured-targets');
 }
 
 /**
  * kalshi_structured_target - Get structured target details
  */
-async function structuredTargetHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
+async function structuredTargetHandler(toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
   const targetId = toolInput.target_id as string;
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py structured_target ${targetId}`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  return kalshiGet(`/structured-targets/${encodeURIComponent(targetId)}`);
 }
 
 /**
  * kalshi_incentives - Get incentives
  */
-async function incentivesHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py incentives`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+async function incentivesHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
+  return kalshiGet('/incentives');
 }
 
 /**
  * kalshi_fcm_orders - Get FCM orders
  */
 async function fcmOrdersHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py fcm_orders`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/fcm/orders');
 }
 
 /**
  * kalshi_fcm_positions - Get FCM positions
  */
 async function fcmPositionsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py fcm_positions`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+  const auth = requireAuth(context);
+  if (typeof auth === 'string') return auth;
+  return kalshiAuthFetch(auth, 'GET', '/portfolio/fcm/positions');
 }
 
 /**
  * kalshi_search_tags - Search by tags
  */
-async function searchTagsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py search_tags`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+async function searchTagsHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
+  return kalshiGet('/markets/search/tags');
 }
 
 /**
  * kalshi_search_sports - Search sports markets
  */
-async function searchSportsHandler(_toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
-  const kalshiCreds = getKalshiCreds(context);
-  if (!kalshiCreds) return errorResult('No Kalshi credentials set up.');
-  const tradingDir = getTradingDir();
-  const cmd = `cd ${tradingDir} && python3 kalshi.py search_sports`;
-  const userEnv = buildKalshiEnv(kalshiCreds.data);
-  return execKalshiPython(cmd, userEnv);
+async function searchSportsHandler(_toolInput: ToolInput, _context: HandlerContext): Promise<HandlerResult> {
+  return kalshiGet('/markets/search/sports');
 }
 
 // =============================================================================
@@ -1286,7 +1072,7 @@ export const kalshiHandlers: HandlersMap = {
   kalshi_exchange_status: exchangeStatusHandler,
   kalshi_exchange_schedule: exchangeScheduleHandler,
   kalshi_announcements: announcementsHandler,
-  // Credential-based Python handlers
+  // Authenticated REST API handlers
   kalshi_positions: positionsHandler,
   kalshi_search: searchHandler,
   kalshi_market: marketHandler,

@@ -12,7 +12,6 @@
 import { EventEmitter } from 'eventemitter3';
 import { randomUUID } from 'crypto';
 import { generateId as generateSecureId } from '../utils/id';
-import { execSync } from 'child_process';
 import { join } from 'path';
 import { Database } from '../db';
 import { FeedManager } from '../feeds';
@@ -304,29 +303,6 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
   return { platform: user.platform, chatId: user.platformUserId };
 }
 
-function buildPolymarketEnv(creds: PolymarketCredentials): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    PRIVATE_KEY: creds.privateKey,
-    POLY_FUNDER_ADDRESS: creds.funderAddress,
-    POLY_API_KEY: creds.apiKey,
-    POLY_API_SECRET: creds.apiSecret,
-    POLY_API_PASSPHRASE: creds.apiPassphrase,
-  };
-}
-
-function buildKalshiEnv(creds: KalshiCredentials): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (creds.apiKeyId && creds.privateKeyPem) {
-    env.KALSHI_API_KEY_ID = creds.apiKeyId;
-    env.KALSHI_PRIVATE_KEY = creds.privateKeyPem;
-  }
-  if (creds.email && creds.password) {
-    env.KALSHI_EMAIL = creds.email;
-    env.KALSHI_PASSWORD = creds.password;
-  }
-  return env;
-}
 
   /** Execute a job based on its payload */
   async function executeJob(job: CronJob): Promise<void> {
@@ -1096,37 +1072,52 @@ function buildKalshiEnv(creds: KalshiCredentials): NodeJS.ProcessEnv {
     if (platform === 'polymarket') {
       const creds = await deps.credentials.getCredentials<PolymarketCredentials>(user.id, 'polymarket');
       if (!creds) return { status: 'skipped', error: 'Missing Polymarket credentials' };
-      const tradingDir = join(__dirname, '..', '..', 'trading');
       const tokenId = position.outcomeId;
       const size = position.shares;
-      const cmd = `cd ${tradingDir} && python3 polymarket.py market_sell ${tokenId} ${size}`;
       try {
-        const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: buildPolymarketEnv(creds) });
+        // Use execution module directly for market sell
+        const { createExecutionService } = await import('../execution');
+        const execSvc = createExecutionService({
+          polymarket: {
+            address: creds.funderAddress,
+            apiKey: creds.apiKey,
+            apiSecret: creds.apiSecret,
+            apiPassphrase: creds.apiPassphrase,
+            privateKey: creds.privateKey,
+            funderAddress: creds.funderAddress,
+          },
+          dryRun: false,
+        });
+        const result = await execSvc.marketSell({ platform: 'polymarket', marketId: tokenId, tokenId, size });
         await deps.credentials.markSuccess(user.id, 'polymarket');
-        return { status: 'executed', output: output.trim() };
+        return { status: 'executed', output: JSON.stringify(result) };
       } catch (err: unknown) {
-        const error = err as { stderr?: string; message?: string };
+        const error = err as Error;
         await deps.credentials.markFailure(user.id, 'polymarket');
-        return { status: 'failed', error: error.stderr || error.message };
+        return { status: 'failed', error: error.message };
       }
     }
 
     if (platform === 'kalshi') {
       const creds = await deps.credentials.getCredentials<KalshiCredentials>(user.id, 'kalshi');
       if (!creds) return { status: 'skipped', error: 'Missing Kalshi credentials' };
-      const tradingDir = join(__dirname, '..', '..', 'trading');
       const ticker = position.marketId;
       const side = position.side.toLowerCase();
       const count = Math.round(position.shares);
-      const cmd = `cd ${tradingDir} && python3 kalshi.py market_order ${ticker} ${side} sell ${count}`;
       try {
-        const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8', env: buildKalshiEnv(creds) });
+        const url = 'https://trading-api.kalshi.com/trade-api/v2/portfolio/orders';
+        if (!creds.apiKeyId || !creds.privateKeyPem) return { status: 'skipped', error: 'Missing Kalshi API key or private key' };
+        const auth = { apiKeyId: creds.apiKeyId, privateKeyPem: creds.privateKeyPem };
+        const headers = { ...buildKalshiHeadersForUrl(auth, 'POST', url), 'Content-Type': 'application/json' };
+        const body = JSON.stringify({ ticker, action: 'sell', side, count, type: 'market' });
+        const response = await fetch(url, { method: 'POST', headers, body });
+        const data = await response.json();
         await deps.credentials.markSuccess(user.id, 'kalshi');
-        return { status: 'executed', output: output.trim() };
+        return { status: 'executed', output: JSON.stringify(data) };
       } catch (err: unknown) {
-        const error = err as { stderr?: string; message?: string };
+        const error = err as Error;
         await deps.credentials.markFailure(user.id, 'kalshi');
-        return { status: 'failed', error: error.stderr || error.message };
+        return { status: 'failed', error: error.message };
       }
     }
 
