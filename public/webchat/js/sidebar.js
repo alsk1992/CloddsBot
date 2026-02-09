@@ -83,6 +83,24 @@ export class Sidebar {
       });
     }
 
+    // Settings panel
+    const settingsItem = this.sidebarEl.querySelector('#popover-settings');
+    if (settingsItem) {
+      settingsItem.addEventListener('click', () => {
+        popover?.classList.remove('visible');
+        this._openSettings();
+      });
+    }
+    const settingsBack = this.sidebarEl.querySelector('#settings-back');
+    if (settingsBack) {
+      settingsBack.addEventListener('click', () => this._closeSettings());
+    }
+    const settingsSave = this.sidebarEl.querySelector('#settings-save');
+    if (settingsSave) {
+      settingsSave.addEventListener('click', () => this._saveSettings());
+    }
+    this._settingsDirty = {};
+
     // Language select
     const langSelect = this.sidebarEl.querySelector('#language-select');
     if (langSelect) {
@@ -795,5 +813,183 @@ export class Sidebar {
 
     listEl.innerHTML = '';
     listEl.appendChild(frag);
+  }
+
+  // ── Settings Panel ──
+
+  async _openSettings() {
+    const panel = this.sidebarEl.querySelector('#settings-panel');
+    if (!panel) return;
+    panel.classList.add('visible');
+
+    const body = panel.querySelector('#settings-body');
+    body.innerHTML = '<div class="settings-loading">Loading...</div>';
+
+    try {
+      const token = Storage.get('webchat_token') || '';
+      const r = await fetch('/api/config/env', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+      if (!r.ok) throw new Error('Failed to load');
+      const data = await r.json();
+      this._renderSettings(data.schema);
+    } catch (err) {
+      body.innerHTML = '<div class="settings-error">Failed to load settings. Check authentication.</div>';
+    }
+  }
+
+  _closeSettings() {
+    const panel = this.sidebarEl.querySelector('#settings-panel');
+    panel?.classList.remove('visible');
+    this._settingsDirty = {};
+    const banner = this.sidebarEl.querySelector('#settings-restart-banner');
+    if (banner) banner.classList.remove('visible');
+    const saveBtn = this.sidebarEl.querySelector('#settings-save');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Save Changes';
+    }
+  }
+
+  _renderSettings(schema) {
+    const body = this.sidebarEl.querySelector('#settings-body');
+    if (!body) return;
+    body.innerHTML = '';
+    this._settingsDirty = {};
+
+    const frag = document.createDocumentFragment();
+
+    for (const cat of schema) {
+      const section = document.createElement('div');
+      section.className = 'settings-category';
+
+      const label = document.createElement('div');
+      label.className = 'settings-category-label';
+      label.textContent = cat.category;
+      section.appendChild(label);
+
+      for (const v of cat.vars) {
+        const field = document.createElement('div');
+        field.className = 'settings-field';
+
+        // Header: label + status badge
+        const header = document.createElement('div');
+        header.className = 'settings-field-header';
+
+        const labelEl = document.createElement('label');
+        labelEl.className = 'settings-field-label';
+        labelEl.textContent = v.label;
+        if (v.required) {
+          const req = document.createElement('span');
+          req.className = 'settings-required';
+          req.textContent = ' *';
+          labelEl.appendChild(req);
+        }
+        header.appendChild(labelEl);
+
+        const status = document.createElement('span');
+        status.className = 'settings-field-status ' + (v.set ? 'set' : 'unset');
+        status.textContent = v.set ? 'Set' : 'Not set';
+        header.appendChild(status);
+        field.appendChild(header);
+
+        // Env var name + help link
+        const envName = document.createElement('div');
+        envName.className = 'settings-env-name';
+        envName.textContent = v.key;
+        if (v.helpUrl) {
+          const link = document.createElement('a');
+          link.href = v.helpUrl;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.className = 'settings-help-link';
+          link.textContent = 'Get key';
+          envName.appendChild(document.createTextNode(' '));
+          envName.appendChild(link);
+        }
+        field.appendChild(envName);
+
+        // Input
+        const input = document.createElement('input');
+        input.className = 'settings-input';
+        input.type = v.secret ? 'password' : 'text';
+        input.placeholder = v.set ? v.masked : 'Not configured';
+        input.dataset.key = v.key;
+        input.addEventListener('input', () => {
+          const val = input.value.trim();
+          if (val) {
+            this._settingsDirty[v.key] = val;
+          } else {
+            delete this._settingsDirty[v.key];
+          }
+          const saveBtn = this.sidebarEl.querySelector('#settings-save');
+          if (saveBtn) {
+            saveBtn.disabled = Object.keys(this._settingsDirty).length === 0;
+            saveBtn.textContent = 'Save Changes';
+          }
+        });
+        field.appendChild(input);
+
+        section.appendChild(field);
+      }
+
+      frag.appendChild(section);
+    }
+
+    body.appendChild(frag);
+  }
+
+  async _saveSettings() {
+    if (Object.keys(this._settingsDirty).length === 0) return;
+
+    const saveBtn = this.sidebarEl.querySelector('#settings-save');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+    }
+
+    try {
+      const token = Storage.get('webchat_token') || '';
+      const r = await fetch('/api/config/env', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ vars: this._settingsDirty }),
+      });
+
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || 'Save failed');
+      }
+
+      const data = await r.json();
+
+      if (data.restartRequired) {
+        const banner = this.sidebarEl.querySelector('#settings-restart-banner');
+        if (banner) banner.classList.add('visible');
+      }
+
+      // Refresh panel to show updated statuses
+      this._settingsDirty = {};
+      await this._openSettings();
+
+      if (saveBtn) saveBtn.textContent = 'Saved!';
+      setTimeout(() => {
+        if (saveBtn) {
+          saveBtn.textContent = 'Save Changes';
+          saveBtn.disabled = true;
+        }
+      }, 2000);
+    } catch (err) {
+      if (saveBtn) {
+        saveBtn.textContent = 'Error - Try Again';
+        saveBtn.disabled = false;
+        setTimeout(() => {
+          if (saveBtn) saveBtn.textContent = 'Save Changes';
+        }, 3000);
+      }
+    }
   }
 }
