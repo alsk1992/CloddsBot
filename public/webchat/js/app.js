@@ -312,12 +312,36 @@ class App {
       }
     });
 
-    // Time-based greeting
+    // Time-based greeting + themed subtitle + live market pulse
     const greetingEl = document.getElementById('welcome-greeting');
+    const subEl = document.querySelector('.welcome-sub');
     if (greetingEl) {
       const hour = new Date().getHours();
       const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
       greetingEl.textContent = greeting;
+
+      if (subEl) {
+        const subs = hour < 12 ? [
+          'What odds are you exploring today?',
+          'Markets are waking up. Ready to trade?',
+          'Time to find your edge.',
+        ] : hour < 18 ? [
+          'What odds are you exploring?',
+          'Time to predict the future.',
+          'The markets are moving. Are you?',
+        ] : [
+          'Time to predict the future.',
+          'What odds do you want to explore?',
+          'Markets never sleep. Neither does Clodds.',
+        ];
+        subEl.textContent = subs[Math.floor(Math.random() * subs.length)];
+      }
+    }
+
+    // Live market pulse
+    const pulseEl = document.getElementById('welcome-pulse');
+    if (pulseEl) {
+      this._loadMarketPulse(pulseEl);
     }
 
     // Main element ref for welcome-mode
@@ -646,6 +670,56 @@ class App {
         target.style.borderRadius = '';
       }, 2000);
     }
+  }
+
+  async _loadMarketPulse(el) {
+    try {
+      const r = await fetch('/api/feeds/search?q=&limit=50');
+      if (!r.ok) return;
+      const data = await r.json();
+      const markets = data?.data?.markets || [];
+      if (!markets.length) return;
+
+      // Count platforms
+      const platforms = new Set(markets.map(m => m.platform));
+
+      // Find biggest movers (markets with prices near extremes)
+      const movers = markets
+        .filter(m => m.outcomes?.length >= 2)
+        .map(m => {
+          const price = m.outcomes[0]?.price ?? 0.5;
+          return { q: m.question, price, dist: Math.abs(price - 0.5) };
+        })
+        .sort((a, b) => b.dist - a.dist);
+
+      const hot = movers[0];
+
+      el.innerHTML = '';
+
+      // Live dot + market count
+      const countItem = document.createElement('span');
+      countItem.className = 'welcome-pulse-item';
+      countItem.innerHTML = '<span class="welcome-pulse-dot live"></span>'
+        + '<span class="welcome-pulse-value">' + markets.length + '</span> markets tracked';
+      el.appendChild(countItem);
+
+      // Platform count
+      const platItem = document.createElement('span');
+      platItem.className = 'welcome-pulse-item';
+      platItem.innerHTML = '<span class="welcome-pulse-value">' + platforms.size + '</span> platforms';
+      el.appendChild(platItem);
+
+      // Hot market
+      if (hot) {
+        const pct = Math.round(hot.price * 100);
+        const hotItem = document.createElement('span');
+        hotItem.className = 'welcome-pulse-item';
+        const q = hot.q.length > 30 ? hot.q.slice(0, 30) + '...' : hot.q;
+        hotItem.innerHTML = '<span class="welcome-pulse-value ' + (pct > 50 ? 'up' : 'down') + '">'
+          + pct + '%</span> ' + q;
+        el.appendChild(hotItem);
+      }
+    } catch { /* silent — pulse is optional */ }
   }
 
   _setGenerating(on) {

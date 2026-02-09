@@ -27,15 +27,15 @@ export class Sidebar {
     this._allArtifacts = [];
     this._allCode = [];
 
-    // Default collapsed on mobile, open on desktop
-    const saved = Storage.get('sidebarCollapsed');
+    // Default expanded on desktop, collapsed on mobile
+    const saved = Storage.get('sidebarExpanded');
     if (saved !== null) {
-      this._collapsed = saved === 'true';
+      this._expanded = saved === 'true';
     } else {
-      this._collapsed = window.innerWidth <= 768;
+      this._expanded = window.innerWidth > 768;
     }
-    if (this._collapsed) {
-      this.sidebarEl.classList.add('collapsed');
+    if (this._expanded) {
+      this.sidebarEl.classList.add('expanded');
     }
 
     // Search filters within active tab
@@ -45,10 +45,17 @@ export class Sidebar {
       });
     }
 
-    // Tab switching
-    this.sidebarEl.querySelectorAll('.sidebar-nav-btn').forEach(btn => {
+    // Tab switching (rail icon buttons)
+    this.sidebarEl.querySelectorAll('.rail-btn[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.switchTab(btn.dataset.tab);
+        const tab = btn.dataset.tab;
+        if (this.activeTab === tab && this._expanded) {
+          // Clicking active tab again collapses panel
+          this.toggle();
+        } else {
+          this.switchTab(tab);
+          if (!this._expanded) this.toggle();
+        }
       });
     });
 
@@ -71,6 +78,16 @@ export class Sidebar {
         if (!popover.contains(e.target) && !profileBar.contains(e.target)) {
           popover.classList.remove('visible');
         }
+      });
+    }
+
+    // Rail profile button (bottom of icon rail)
+    const railProfileBtn = this.sidebarEl.querySelector('#rail-profile-btn');
+    if (railProfileBtn && popover) {
+      railProfileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!this._expanded) this.toggle();
+        popover.classList.toggle('visible');
       });
     }
 
@@ -124,8 +141,8 @@ export class Sidebar {
     if (tab === this.activeTab) return;
     this.activeTab = tab;
 
-    // Update nav buttons
-    this.sidebarEl.querySelectorAll('.sidebar-nav-btn').forEach(btn => {
+    // Update rail buttons
+    this.sidebarEl.querySelectorAll('.rail-btn[data-tab]').forEach(btn => {
       const isActive = btn.dataset.tab === tab;
       btn.classList.toggle('active', isActive);
       btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
@@ -211,17 +228,17 @@ export class Sidebar {
   }
 
   toggle() {
-    this._collapsed = !this._collapsed;
-    this.sidebarEl.classList.toggle('collapsed', this._collapsed);
-    Storage.set('sidebarCollapsed', this._collapsed ? 'true' : 'false');
+    this._expanded = !this._expanded;
+    this.sidebarEl.classList.toggle('expanded', this._expanded);
+    Storage.set('sidebarExpanded', this._expanded ? 'true' : 'false');
     // Hide popover when collapsing
-    if (this._collapsed) {
+    if (!this._expanded) {
       const popover = this.sidebarEl.querySelector('#profile-popover');
       popover?.classList.remove('visible');
     }
   }
 
-  get collapsed() { return this._collapsed; }
+  get collapsed() { return !this._expanded; }
 
   // ─── Feed session messages for artifact/code extraction ───
   feedMessages(sessionId, messages) {
