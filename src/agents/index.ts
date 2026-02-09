@@ -1105,12 +1105,12 @@ function buildTools(): ToolDefinition[] {
     // Polymarket trading
     {
       name: 'polymarket_buy',
-      description: 'Buy shares on Polymarket. Executes a real trade using py_clob_client.',
+      description: 'Buy shares on Polymarket (limit order GTC). Use polymarket_orderbook first to get the real buyPrice from /price endpoint — do NOT use raw book bids/asks which may show AMM extremes.',
       input_schema: {
         type: 'object',
         properties: {
-          token_id: { type: 'string', description: 'Token ID of the outcome to buy (get from search_markets)' },
-          price: { type: 'number', description: 'Price per share (0.01-0.99)' },
+          token_id: { type: 'string', description: 'Token ID of the outcome to buy' },
+          price: { type: 'number', description: 'Price per share (0.01-0.99). Use buyPrice from polymarket_orderbook, NOT raw book ask.' },
           size: { type: 'number', description: 'Number of shares to buy' },
         },
         required: ['token_id', 'price', 'size'],
@@ -1118,20 +1118,20 @@ function buildTools(): ToolDefinition[] {
     },
     {
       name: 'polymarket_sell',
-      description: 'Sell shares on Polymarket. Executes a real trade.',
+      description: 'Sell shares on Polymarket (limit order GTC). Use polymarket_orderbook first to get the real sellPrice from /price endpoint. Set price to sellPrice for immediate fill.',
       input_schema: {
         type: 'object',
         properties: {
           token_id: { type: 'string', description: 'Token ID of the outcome to sell' },
           size: { type: 'number', description: 'Number of shares to sell' },
-          price: { type: 'number', description: 'Price per share (0.01 for market sell)' },
+          price: { type: 'number', description: 'Price per share. Use sellPrice from polymarket_orderbook for instant fill.' },
         },
         required: ['token_id', 'size'],
       },
     },
     {
       name: 'polymarket_positions',
-      description: 'Get current Polymarket positions and USDC balance',
+      description: 'Get current Polymarket positions with live CLOB prices (buyPrice, sellPrice, midpoint) for accurate P&L tracking and sell decisions.',
       input_schema: {
         type: 'object',
         properties: {},
@@ -1185,7 +1185,7 @@ function buildTools(): ToolDefinition[] {
     },
     {
       name: 'polymarket_market_sell',
-      description: 'Market sell - immediately sell shares at best available price (0.01). If size not specified, sells entire position.',
+      description: 'Market sell - immediately sell shares at best available bid. Sells at the real sellPrice (NOT 0.01). If size not specified, sells entire position.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1197,7 +1197,7 @@ function buildTools(): ToolDefinition[] {
     },
     {
       name: 'polymarket_market_buy',
-      description: 'Market buy - spend a specific USDC amount to buy shares at current ask price. Uses FOK (fill or kill) for immediate execution.',
+      description: 'Market buy - spend a specific USDC amount to buy shares at the real buyPrice from CLOB /price endpoint. Uses FOK (fill or kill) for immediate execution.',
       input_schema: {
         type: 'object',
         properties: {
@@ -9909,7 +9909,33 @@ async function executeTool(
           if (positions.length === 0) {
             return JSON.stringify({ result: 'No open positions.' });
           }
-          return JSON.stringify({ positions, count: positions.length });
+          // Enrich each position with live CLOB prices for accurate tracking/selling
+          const enriched = await Promise.all(positions.map(async (p) => {
+            try {
+              const [buyRes, sellRes, midRes] = await Promise.all([
+                fetch(`https://clob.polymarket.com/price?token_id=${p.tokenId}&side=BUY`),
+                fetch(`https://clob.polymarket.com/price?token_id=${p.tokenId}&side=SELL`),
+                fetch(`https://clob.polymarket.com/midpoint?token_id=${p.tokenId}`),
+              ]);
+              const buy = await buyRes.json() as { price?: string };
+              const sell = await sellRes.json() as { price?: string };
+              const mid = await midRes.json() as { mid?: string };
+              const liveSellPrice = parseFloat(sell.price || '0');
+              const liveValue = liveSellPrice * p.size;
+              const cost = p.avgPrice * p.size;
+              return {
+                ...p,
+                liveBuyPrice: buy.price || null,
+                liveSellPrice: sell.price || null,
+                liveMidpoint: mid.mid || null,
+                liveValue: Math.round(liveValue * 100) / 100,
+                livePnl: Math.round((liveValue - cost) * 100) / 100,
+              };
+            } catch {
+              return p;
+            }
+          }));
+          return JSON.stringify({ positions: enriched, count: enriched.length });
         } catch (err: unknown) {
           const error = err as Error;
           return JSON.stringify({ error: 'Failed to get positions', details: error.message });
