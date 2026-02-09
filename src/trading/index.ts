@@ -49,7 +49,7 @@ export * from './builder';
 export * from './accounts';
 export * from './safety';
 export * from './resilience';
-export * from './secrets';
+// secrets module loaded dynamically (gitignored, contains credential encryption)
 export {
   createBacktestEngine,
   type BacktestEngine,

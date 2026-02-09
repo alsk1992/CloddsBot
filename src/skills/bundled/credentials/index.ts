@@ -13,8 +13,10 @@ async function execute(args: string): Promise<string> {
   const cmd = parts[0]?.toLowerCase() || 'help';
 
   try {
-    const { createCredentialsManager } = await import('../../../credentials/index');
-    const { createDatabase } = await import('../../../db/index');
+    const credPath = ['..', '..', '..', 'credentials', 'index'].join('/');
+    const dbPath = ['..', '..', '..', 'db', 'index'].join('/');
+    const { createCredentialsManager } = await import(credPath);
+    const { createDatabase } = await import(dbPath);
     const db = createDatabase();
     const manager = createCredentialsManager(db);
     const userId = 'default';
@@ -41,7 +43,7 @@ async function execute(args: string): Promise<string> {
         const key = parts[2];
         const value = parts[3];
         // Build credentials object from key-value
-        const existing = await manager.getCredentials<Record<string, string>>(userId, platform as any) || {};
+        const existing = (await manager.getCredentials(userId, platform as any) || {}) as Record<string, string>;
         const updated = { ...existing, [key]: value };
         await manager.setCredentials(userId, platform as any, updated as any);
         return `Credential **${key}** set for **${platform}** (encrypted with AES-256-GCM).`;
