@@ -209,6 +209,26 @@ BIRDEYE_API_KEY=
 ALCHEMY_API_KEY=
 ```
 
+### Marketplace (Escrow)
+
+```bash
+# Solana RPC endpoint (mainnet or devnet)
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+
+# USDC SPL token mint address
+USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+
+# Platform wallet public key (receives 5% marketplace fees)
+MARKETPLACE_PLATFORM_WALLET=
+
+# Platform wallet private key (base58) — pays ATA rent for escrow transfers
+# Generate with: solana-keygen new --no-bip39-passphrase
+MARKETPLACE_PLATFORM_KEY=
+
+# Encryption key for escrow keypair storage (REQUIRED — no fallback)
+ENCRYPTION_KEY=
+```
+
 ### Telemetry
 
 ```bash

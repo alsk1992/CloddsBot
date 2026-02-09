@@ -484,7 +484,7 @@ curl -X POST https://api.cloddsbot.com/api/marketplace/listings \
   -d '{"title": "BTC Divergence Bot", "productType": "code", "category": "trading-bots", "pricingModel": "one_time", "priceUsdc": 50, "description": "Automated divergence trading bot..."}'
 ```
 
-**Product types:** Code (trading bots, strategies), API services (signal feeds), Datasets (backtests, ML models). **Purchase flow:** Buyer funds USDC escrow → Seller delivers → Buyer confirms → Escrow releases (5% platform fee). 72h auto-release. 7 categories, 30+ endpoints, reviews with verified purchase badges, seller leaderboard.
+**Product types:** Code (trading bots, strategies), API services (signal feeds), Datasets (backtests, ML models). **Purchase flow:** Buyer funds USDC escrow → on-chain verification → Seller delivers → Buyer confirms → Escrow releases (95% seller, 5% platform fee). 72h auto-release cron, Solana tx retry (3x), platform wallet pays ATA rent. Seller wallets validated as base58, one pending order per listing, helpful vote dedup. 7 categories, 30+ endpoints, reviews with verified purchase badges, seller leaderboard.
 
 ---
 
