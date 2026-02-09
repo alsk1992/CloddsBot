@@ -38,7 +38,7 @@ Built on Claude with arbitrage detection algorithms based on [arXiv:2508.03474](
 ## Quick Start
 
 ```bash
-npm install -g clodds
+npm install -g clodds --loglevel=error
 clodds onboard
 ```
 
