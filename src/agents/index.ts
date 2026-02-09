@@ -1784,6 +1784,17 @@ function buildTools(): ToolDefinition[] {
       },
     },
     {
+      name: 'polymarket_crypto_markets',
+      description: 'Find current live crypto Up/Down markets on Polymarket. Returns token IDs, prices, and orderbook for BTC, ETH, SOL, XRP across 15-minute, hourly, and daily timeframes.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          coin: { type: 'string', description: 'Coin: BTC, ETH, SOL, XRP, or ALL (default ALL)', enum: ['BTC', 'ETH', 'SOL', 'XRP', 'ALL'] },
+          timeframe: { type: 'string', description: 'Timeframe: 15m, 1h, daily, or ALL (default ALL)', enum: ['15m', '1h', 'daily', 'ALL'] },
+        },
+      },
+    },
+    {
       name: 'polymarket_event_tags',
       description: 'Get tags associated with an event.',
       input_schema: {
@@ -11098,6 +11109,147 @@ async function executeTool(
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
         }
+      }
+
+      case 'polymarket_crypto_markets': {
+        const coin = ((toolInput.coin as string) || 'ALL').toUpperCase();
+        const timeframe = ((toolInput.timeframe as string) || 'ALL').toLowerCase();
+        const coins = coin === 'ALL' ? ['BTC', 'ETH', 'SOL', 'XRP'] : [coin];
+        const timeframes = timeframe === 'all' ? ['15m', '1h', 'daily'] : [timeframe];
+
+        const COIN_NAMES: Record<string, string> = { BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', XRP: 'xrp' };
+        const GAMMA = 'https://gamma-api.polymarket.com';
+        const CLOB = 'https://clob.polymarket.com';
+
+        const results: Array<Record<string, unknown>> = [];
+
+        for (const c of coins) {
+          const coinName = COIN_NAMES[c] || c.toLowerCase();
+          for (const tf of timeframes) {
+            try {
+              let slug = '';
+              if (tf === '15m') {
+                // 15-min: {coin}-updown-15m-{unix_ts} where ts = floor(now/900)*900
+                const now = Math.floor(Date.now() / 1000);
+                const windowStart = Math.floor(now / 900) * 900;
+                // Try current window, then next
+                for (const offset of [0, 900]) {
+                  slug = `${c.toLowerCase()}-updown-15m-${windowStart + offset}`;
+                  const res = await fetch(`${GAMMA}/events?slug=${slug}`);
+                  const events = await res.json() as Array<Record<string, unknown>>;
+                  if (Array.isArray(events) && events.length > 0) {
+                    const ev = events[0];
+                    const mkts = ev.markets as Array<Record<string, unknown>> | undefined;
+                    if (mkts && mkts.length > 0) {
+                      const m = mkts[0];
+                      // Parse tokens
+                      const tokenIds = JSON.parse((m.clobTokenIds as string) || '[]') as string[];
+                      const outcomes = JSON.parse((m.outcomes as string) || '[]') as string[];
+                      const prices = JSON.parse((m.outcomePrices as string) || '[]') as string[];
+                      const tokens: Record<string, unknown> = {};
+                      for (let i = 0; i < outcomes.length; i++) {
+                        tokens[outcomes[i]] = { tokenId: tokenIds[i], price: prices[i] };
+                      }
+                      // Fetch orderbook for both sides
+                      const books: Record<string, unknown> = {};
+                      for (let i = 0; i < tokenIds.length; i++) {
+                        try {
+                          const bookRes = await fetch(`${CLOB}/book?token_id=${tokenIds[i]}`);
+                          const book = await bookRes.json() as { bids?: Array<{ price: string; size: string }>; asks?: Array<{ price: string; size: string }> };
+                          books[outcomes[i]] = {
+                            bestBid: book.bids?.[0]?.price || null,
+                            bestAsk: book.asks?.[0]?.price || null,
+                            bidDepth: (book.bids || []).slice(0, 3),
+                            askDepth: (book.asks || []).slice(0, 3),
+                          };
+                        } catch { /* skip */ }
+                      }
+                      results.push({
+                        coin: c, timeframe: '15m', slug, title: ev.title,
+                        conditionId: m.conditionId, endDate: m.endDate,
+                        tokens, orderbook: books,
+                        volume: m.volumeNum, liquidity: m.liquidityNum,
+                      });
+                      break; // Found current window
+                    }
+                  }
+                }
+              } else if (tf === '1h') {
+                // Hourly: {coinName}-up-or-down-{month}-{day}-{hour}{am/pm}-et
+                const now = new Date();
+                const etOffset = -5 * 60; // ET = UTC-5
+                const etTime = new Date(now.getTime() + (etOffset + now.getTimezoneOffset()) * 60000);
+                const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+                const month = months[etTime.getMonth()];
+                const day = etTime.getDate();
+                // Try current hour and next hour
+                for (const hourOff of [0, 1]) {
+                  const h24 = (etTime.getHours() + hourOff) % 24;
+                  const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+                  const ampm = h24 < 12 ? 'am' : 'pm';
+                  slug = `${coinName}-up-or-down-${month}-${day}-${h12}${ampm}-et`;
+                  const res = await fetch(`${GAMMA}/events?slug=${slug}`);
+                  const events = await res.json() as Array<Record<string, unknown>>;
+                  if (Array.isArray(events) && events.length > 0) {
+                    const ev = events[0];
+                    const mkts = ev.markets as Array<Record<string, unknown>> | undefined;
+                    if (mkts && mkts.length > 0) {
+                      const m = mkts[0];
+                      const tokenIds = JSON.parse((m.clobTokenIds as string) || '[]') as string[];
+                      const outcomes = JSON.parse((m.outcomes as string) || '[]') as string[];
+                      const prices = JSON.parse((m.outcomePrices as string) || '[]') as string[];
+                      const tokens: Record<string, unknown> = {};
+                      for (let i = 0; i < outcomes.length; i++) {
+                        tokens[outcomes[i]] = { tokenId: tokenIds[i], price: prices[i] };
+                      }
+                      results.push({
+                        coin: c, timeframe: '1h', slug, title: ev.title,
+                        conditionId: m.conditionId, endDate: m.endDate,
+                        tokens, volume: m.volumeNum, liquidity: m.liquidityNum,
+                      });
+                      break;
+                    }
+                  }
+                }
+              } else if (tf === 'daily') {
+                // Daily: {coinName}-up-or-down-on-{month}-{day}
+                const now = new Date();
+                const etOffset = -5 * 60;
+                const etTime = new Date(now.getTime() + (etOffset + now.getTimezoneOffset()) * 60000);
+                const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+                const month = months[etTime.getMonth()];
+                const day = etTime.getDate();
+                slug = `${coinName}-up-or-down-on-${month}-${day}`;
+                const res = await fetch(`${GAMMA}/events?slug=${slug}`);
+                const events = await res.json() as Array<Record<string, unknown>>;
+                if (Array.isArray(events) && events.length > 0) {
+                  const ev = events[0];
+                  const mkts = ev.markets as Array<Record<string, unknown>> | undefined;
+                  if (mkts && mkts.length > 0) {
+                    const m = mkts[0];
+                    const tokenIds = JSON.parse((m.clobTokenIds as string) || '[]') as string[];
+                    const outcomes = JSON.parse((m.outcomes as string) || '[]') as string[];
+                    const prices = JSON.parse((m.outcomePrices as string) || '[]') as string[];
+                    const tokens: Record<string, unknown> = {};
+                    for (let i = 0; i < outcomes.length; i++) {
+                      tokens[outcomes[i]] = { tokenId: tokenIds[i], price: prices[i] };
+                    }
+                    results.push({
+                      coin: c, timeframe: 'daily', slug, title: ev.title,
+                      conditionId: m.conditionId, endDate: m.endDate,
+                      tokens, volume: m.volumeNum, liquidity: m.liquidityNum,
+                    });
+                  }
+                }
+              }
+            } catch { /* skip failed lookups */ }
+          }
+        }
+
+        if (results.length === 0) {
+          return JSON.stringify({ error: 'No active crypto Up/Down markets found. Markets may be between rounds.' });
+        }
+        return JSON.stringify({ markets: results, count: results.length });
       }
 
       case 'polymarket_event_tags': {
