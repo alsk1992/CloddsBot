@@ -1105,7 +1105,7 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
       const side = position.side.toLowerCase();
       const count = Math.round(position.shares);
       try {
-        const url = 'https://trading-api.kalshi.com/trade-api/v2/portfolio/orders';
+        const url = 'https://api.elections.kalshi.com/trade-api/v2/portfolio/orders';
         if (!creds.apiKeyId || !creds.privateKeyPem) return { status: 'skipped', error: 'Missing Kalshi API key or private key' };
         const auth = { apiKeyId: creds.apiKeyId, privateKeyPem: creds.privateKeyPem };
         const headers = { ...buildKalshiHeadersForUrl(auth, 'POST', url), 'Content-Type': 'application/json' };

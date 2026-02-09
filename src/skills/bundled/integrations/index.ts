@@ -53,7 +53,7 @@ async function execute(args: string): Promise<string> {
       case 'status': {
         const platforms = [
           { name: 'Polymarket', id: 'polymarket', env: 'POLY_API_KEY', url: 'https://clob.polymarket.com' },
-          { name: 'Kalshi', id: 'kalshi', env: 'KALSHI_API_KEY', url: 'https://trading-api.kalshi.com' },
+          { name: 'Kalshi', id: 'kalshi', env: 'KALSHI_API_KEY', url: 'https://api.elections.kalshi.com' },
           { name: 'Binance', id: 'binance', env: 'BINANCE_API_KEY', url: 'https://fapi.binance.com' },
         ];
 

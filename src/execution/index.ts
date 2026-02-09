@@ -930,7 +930,7 @@ async function fetchPolymarketOrderbook(tokenId: string): Promise<OrderbookData 
   }
 }
 
-const KALSHI_URL = 'https://trading-api.kalshi.com/trade-api/v2';
+const KALSHI_URL = 'https://api.elections.kalshi.com/trade-api/v2';
 
 /**
  * Fetch Kalshi orderbook for a market

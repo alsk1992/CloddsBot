@@ -8945,14 +8945,23 @@ async function executeTool(
         let pnlData: any = {};
 
         if (platform === 'polymarket') {
-          const response = await fetch(`https://data-api.polymarket.com/pnl?user=${address}`);
-          const data = await response.json() as { totalPnl?: string; realizedPnl?: string; unrealizedPnl?: string; winRate?: string; tradesCount?: number };
+          // PnL endpoint removed — compute from positions data
+          const [openRes, closedRes] = await Promise.all([
+            fetch(`https://data-api.polymarket.com/positions?user=${address}&sizeThreshold=.1`),
+            fetch(`https://data-api.polymarket.com/positions?user=${address}&status=closed&sizeThreshold=.1`),
+          ]);
+          const openPositions = await openRes.json() as Array<{ currentValue?: number; initialValue?: number; cashPnl?: number; percentPnl?: number; size?: number }>;
+          const closedPositions = await closedRes.json() as Array<{ cashPnl?: number; percentPnl?: number; size?: number }>;
+          const realizedPnl = (Array.isArray(closedPositions) ? closedPositions : []).reduce((sum, p) => sum + (p.cashPnl || 0), 0);
+          const unrealizedPnl = (Array.isArray(openPositions) ? openPositions : []).reduce((sum, p) => sum + ((p.currentValue || 0) - (p.initialValue || 0)), 0);
+          const allTrades = [...(Array.isArray(closedPositions) ? closedPositions : [])];
+          const wins = allTrades.filter(p => (p.cashPnl || 0) > 0).length;
           pnlData = {
-            totalPnl: data.totalPnl ? `$${parseFloat(data.totalPnl).toFixed(2)}` : 'N/A',
-            realizedPnl: data.realizedPnl ? `$${parseFloat(data.realizedPnl).toFixed(2)}` : 'N/A',
-            unrealizedPnl: data.unrealizedPnl ? `$${parseFloat(data.unrealizedPnl).toFixed(2)}` : 'N/A',
-            winRate: data.winRate ? `${(parseFloat(data.winRate) * 100).toFixed(1)}%` : 'N/A',
-            tradesCount: data.tradesCount || 'N/A',
+            totalPnl: `$${(realizedPnl + unrealizedPnl).toFixed(2)}`,
+            realizedPnl: `$${realizedPnl.toFixed(2)}`,
+            unrealizedPnl: `$${unrealizedPnl.toFixed(2)}`,
+            winRate: allTrades.length > 0 ? `${((wins / allTrades.length) * 100).toFixed(1)}%` : 'N/A',
+            tradesCount: allTrades.length || 'N/A',
           };
         } else if (platform === 'kalshi') {
           // Try to use authenticated API if user has credentials
@@ -9056,16 +9065,19 @@ async function executeTool(
         let traders: any[] = [];
 
         if (platform === 'polymarket') {
-          const response = await fetch(`https://data-api.polymarket.com/leaderboard?period=${period}&limit=${limit}`);
+          // Map period param to API timePeriod
+          const timePeriodMap: Record<string, string> = { '24h': '24hr', '7d': '7d', '30d': '30d', 'all': 'ALL' };
+          const timePeriod = timePeriodMap[period] || 'ALL';
+          const orderBy = sortBy === 'volume' ? 'VOLUME' : 'PNL';
+          const response = await fetch(`https://data-api.polymarket.com/v1/leaderboard?limit=${limit}&timePeriod=${timePeriod}&orderBy=${orderBy}`);
           const data = await response.json() as Array<Record<string, unknown>>;
-          traders = data.slice(0, limit).map((t, i) => ({
+          traders = (Array.isArray(data) ? data : []).slice(0, limit).map((t, i) => ({
             rank: i + 1,
             address: `${String(t.address || '').slice(0,6)}...${String(t.address || '').slice(-4)}`,
             fullAddress: t.address,
-            profit: `$${parseFloat(String(t.profit || 0)).toFixed(2)}`,
-            roi: `${(parseFloat(String(t.roi || 0)) * 100).toFixed(1)}%`,
+            profit: `$${parseFloat(String(t.pnl || t.profit || 0)).toFixed(2)}`,
             volume: `$${parseFloat(String(t.volume || 0)).toFixed(0)}`,
-            winRate: `${(parseFloat(String(t.winRate || 0)) * 100).toFixed(1)}%`,
+            markets: t.marketsTraded || t.markets || 'N/A',
           }));
         } else if (platform === 'kalshi') {
           traders = [{ message: 'Kalshi leaderboard not publicly available.' }];
@@ -11286,16 +11298,19 @@ async function executeTool(
 
       case 'polymarket_pnl_timeseries': {
         const address = toolInput.address as string | undefined;
-        const interval = toolInput.interval as string | undefined;
         const polyCreds = context.tradingContext?.credentials.get('polymarket');
         const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
         if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          let url = `https://data-api.polymarket.com/pnl/timeseries?address=${walletAddr}`;
-          if (interval) url += `&interval=${interval}`;
-          const response = await fetch(url);
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify(data);
+          // PnL timeseries not available — compute from closed positions
+          const response = await fetch(`https://data-api.polymarket.com/positions?user=${walletAddr.toLowerCase()}&closed=true&limit=500&sortBy=TIMESTAMP&sortDirection=DESC`);
+          const positions = await response.json() as Array<{ cashPnl?: number; endDate?: string; title?: string }>;
+          let cumPnl = 0;
+          const series = (positions as Array<{ cashPnl?: number; endDate?: string; title?: string }>).reverse().map(p => {
+            cumPnl += (p.cashPnl || 0);
+            return { date: p.endDate, pnl: cumPnl, trade: p.title };
+          });
+          return JSON.stringify({ timeseries: series, totalPnl: cumPnl });
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
         }
@@ -11307,9 +11322,25 @@ async function executeTool(
         const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
         if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const response = await fetch(`https://data-api.polymarket.com/pnl?address=${walletAddr}`);
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify(data);
+          // Compute PnL from open + closed positions
+          const [openRes, closedRes, valueRes] = await Promise.all([
+            fetch(`https://data-api.polymarket.com/positions?user=${walletAddr.toLowerCase()}&sizeThreshold=0`),
+            fetch(`https://data-api.polymarket.com/positions?user=${walletAddr.toLowerCase()}&closed=true&limit=500`),
+            fetch(`https://data-api.polymarket.com/value?user=${walletAddr.toLowerCase()}`),
+          ]);
+          const open = await openRes.json() as Array<{ cashPnl?: number; initialValue?: number; currentValue?: number }>;
+          const closed = await closedRes.json() as Array<{ cashPnl?: number; realizedPnl?: number }>;
+          const value = await valueRes.json() as Array<{ value?: number }>;
+          const unrealizedPnl = (open as Array<{ cashPnl?: number }>).reduce((s, p) => s + (p.cashPnl || 0), 0);
+          const realizedPnl = (closed as Array<{ cashPnl?: number }>).reduce((s, p) => s + (p.cashPnl || 0), 0);
+          return JSON.stringify({
+            totalPnl: realizedPnl + unrealizedPnl,
+            realizedPnl,
+            unrealizedPnl,
+            positionValue: (value as Array<{ value?: number }>)[0]?.value || 0,
+            openPositions: (open as Array<unknown>).length,
+            closedPositions: (closed as Array<unknown>).length,
+          });
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
         }
@@ -11321,7 +11352,7 @@ async function executeTool(
         const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
         if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const response = await fetch(`https://data-api.polymarket.com/rank?address=${walletAddr}`);
+          const response = await fetch(`https://data-api.polymarket.com/v1/leaderboard?user=${walletAddr.toLowerCase()}&timePeriod=ALL&limit=1`);
           const data = await response.json() as ApiResponse;
           return JSON.stringify(data);
         } catch (err: unknown) {
@@ -11331,8 +11362,10 @@ async function executeTool(
 
       case 'polymarket_leaderboard': {
         const limit = (toolInput.limit as number) || 20;
+        const period = (toolInput.period as string) || 'WEEK';
+        const category = (toolInput.category as string) || 'OVERALL';
         try {
-          const response = await fetch(`https://data-api.polymarket.com/leaderboard?_limit=${limit}`);
+          const response = await fetch(`https://data-api.polymarket.com/v1/leaderboard?limit=${Math.min(limit, 50)}&timePeriod=${period}&category=${category}&orderBy=PNL`);
           const data = await response.json() as ApiResponse;
           return JSON.stringify(data);
         } catch (err: unknown) {
@@ -11357,7 +11390,7 @@ async function executeTool(
         const walletAddr = address || (polyCreds?.data as PolymarketCredentials)?.funderAddress;
         if (!walletAddr) return JSON.stringify({ error: 'No address provided and no credentials set up.' });
         try {
-          const response = await fetch(`https://data-api.polymarket.com/activity?address=${walletAddr}`);
+          const response = await fetch(`https://data-api.polymarket.com/activity?user=${walletAddr.toLowerCase()}&limit=100`);
           const data = await response.json() as ApiResponse;
           return JSON.stringify(data);
         } catch (err: unknown) {
@@ -11368,7 +11401,7 @@ async function executeTool(
       case 'polymarket_open_interest': {
         const marketId = toolInput.market_id as string;
         try {
-          const response = await fetch(`https://data-api.polymarket.com/open-interest?market=${encodeURIComponent(marketId)}`);
+          const response = await fetch(`https://data-api.polymarket.com/oi?market=${encodeURIComponent(marketId)}`);
           const data = await response.json() as ApiResponse;
           return JSON.stringify(data);
         } catch (err: unknown) {
@@ -11378,11 +11411,9 @@ async function executeTool(
 
       case 'polymarket_live_volume': {
         const eventId = toolInput.event_id as string | undefined;
+        if (!eventId) return JSON.stringify({ error: 'event_id is required for live volume' });
         try {
-          const url = eventId
-            ? `https://data-api.polymarket.com/volume?event=${encodeURIComponent(eventId)}`
-            : 'https://data-api.polymarket.com/volume';
-          const response = await fetch(url);
+          const response = await fetch(`https://data-api.polymarket.com/live-volume?id=${encodeURIComponent(eventId)}`);
           const data = await response.json() as ApiResponse;
           return JSON.stringify(data);
         } catch (err: unknown) {
@@ -11408,35 +11439,10 @@ async function executeTool(
       // POLYMARKET REWARDS API
       // ============================================
 
-      case 'polymarket_daily_rewards': {
-        try {
-          const response = await fetch('https://clob.polymarket.com/rewards/daily');
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify(data);
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
-      }
-
-      case 'polymarket_market_rewards': {
-        const marketId = toolInput.market_id as string;
-        try {
-          const response = await fetch(`https://clob.polymarket.com/rewards/markets/${encodeURIComponent(marketId)}`);
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify(data);
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
-      }
-
+      case 'polymarket_daily_rewards':
+      case 'polymarket_market_rewards':
       case 'polymarket_reward_markets': {
-        try {
-          const response = await fetch('https://clob.polymarket.com/rewards/markets');
-          const data = await response.json() as ApiResponse;
-          return JSON.stringify(data);
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
+        return JSON.stringify({ error: 'Polymarket rewards endpoints are no longer publicly available. Makers earn rewards automatically by posting resting limit orders.' });
       }
 
       // ============================================
@@ -11446,7 +11452,7 @@ async function executeTool(
       case 'polymarket_profile': {
         const address = toolInput.address as string;
         try {
-          const response = await fetch(`https://gamma-api.polymarket.com/profiles/${encodeURIComponent(address)}`);
+          const response = await fetch(`https://gamma-api.polymarket.com/public-profile?address=${encodeURIComponent(address)}`);
           const data = await response.json() as ApiResponse;
           return JSON.stringify(data);
         } catch (err: unknown) {
