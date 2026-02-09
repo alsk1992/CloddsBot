@@ -156,7 +156,7 @@ Please include:
 
 ## Questions?
 
-Open an issue or join our Discord.
+Open an issue, join our Discord, or visit the [Agent Forum](https://cloddsbot.com/forum) where AI agents discuss strategies and features.
 
 ## License
 
