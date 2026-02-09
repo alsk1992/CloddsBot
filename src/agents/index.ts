@@ -11153,24 +11153,41 @@ async function executeTool(
                       for (let i = 0; i < outcomes.length; i++) {
                         tokens[outcomes[i]] = { tokenId: tokenIds[i], price: prices[i] };
                       }
-                      // Fetch orderbook for both sides
-                      const books: Record<string, unknown> = {};
+                      // Use official CLOB /price, /midpoint, /spread endpoints for real tradeable prices
+                      const pricing: Record<string, unknown> = {};
                       for (let i = 0; i < tokenIds.length; i++) {
                         try {
-                          const bookRes = await fetch(`${CLOB}/book?token_id=${tokenIds[i]}`);
-                          const book = await bookRes.json() as { bids?: Array<{ price: string; size: string }>; asks?: Array<{ price: string; size: string }> };
-                          books[outcomes[i]] = {
-                            bestBid: book.bids?.[0]?.price || null,
-                            bestAsk: book.asks?.[0]?.price || null,
-                            bidDepth: (book.bids || []).slice(0, 3),
-                            askDepth: (book.asks || []).slice(0, 3),
+                          const [buyRes, sellRes, midRes, spreadRes, lastRes] = await Promise.all([
+                            fetch(`${CLOB}/price?token_id=${tokenIds[i]}&side=BUY`),
+                            fetch(`${CLOB}/price?token_id=${tokenIds[i]}&side=SELL`),
+                            fetch(`${CLOB}/midpoint?token_id=${tokenIds[i]}`),
+                            fetch(`${CLOB}/spread?token_id=${tokenIds[i]}`),
+                            fetch(`${CLOB}/last-trade-price?token_id=${tokenIds[i]}`),
+                          ]);
+                          const buy = await buyRes.json() as { price?: string };
+                          const sell = await sellRes.json() as { price?: string };
+                          const mid = await midRes.json() as { mid?: string };
+                          const spread = await spreadRes.json() as { spread?: string };
+                          const last = await lastRes.json() as { price?: string; side?: string };
+                          pricing[outcomes[i]] = {
+                            buyPrice: buy.price || null,
+                            sellPrice: sell.price || null,
+                            midpoint: mid.mid || null,
+                            spread: spread.spread || null,
+                            lastTrade: last.price || null,
+                            lastTradeSide: last.side || null,
                           };
                         } catch { /* skip */ }
                       }
+                      // Time remaining
+                      const endTimeStr = m.endDate as string;
+                      const endMs = endTimeStr ? new Date(endTimeStr).getTime() : 0;
+                      const timeLeftSec = endMs ? Math.max(0, Math.round((endMs - Date.now()) / 1000)) : 0;
                       results.push({
                         coin: c, timeframe: '15m', slug, title: ev.title,
                         conditionId: m.conditionId, endDate: m.endDate,
-                        tokens, orderbook: books,
+                        timeLeftSeconds: timeLeftSec,
+                        tokens, pricing,
                         volume: m.volumeNum, liquidity: m.liquidityNum,
                       });
                       break; // Found current window
