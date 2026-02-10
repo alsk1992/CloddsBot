@@ -17152,13 +17152,16 @@ export async function createAgentManager(
       const effectiveMaxTokens =
         (contextConfig.maxTokens ?? 128000) - (contextConfig.reserveTokens ?? 4096);
 
+      // Estimate tool definitions once (they don't change during the conversation)
+      const toolsTokenEstimate = estimateTokens(JSON.stringify(tools), modelId);
+
       const estimateSubmitTokens = (): number => {
         const system = estimateTokens(finalSystemPrompt, modelId);
         const msgs = messages.reduce((sum, m) => {
           const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
           return sum + estimateTokens(content, modelId) + 4;
         }, 0);
-        return system + msgs;
+        return system + msgs + toolsTokenEstimate;
       };
 
       // Add all messages to context manager for tracking
