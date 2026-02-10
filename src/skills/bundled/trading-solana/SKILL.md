@@ -305,10 +305,10 @@ const tokenAmount = new BN(1000000 * 1e6); // 1M tokens
 const sellQuote = calculateSellQuote(state, tokenAmount, 100);
 console.log(`SOL out: ${sellQuote.solOut.toNumber() / 1e9}`);
 
-// Check if token graduated to Raydium
+// Check if token graduated to PumpSwap
 const graduation = await isGraduated(connection, 'token_mint');
 if (graduation.graduated) {
-  console.log(`Raydium pool: ${graduation.raydiumPool}`);
+  console.log(`PumpSwap pool: ${graduation.pumpswapPool}`);
 }
 ```
 

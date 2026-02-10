@@ -21,9 +21,14 @@ import {
 import { Database } from '../db/index.js';
 import { logger } from '../utils/logger.js';
 
-// Encryption key from environment
-const ENCRYPTION_KEY = process.env.CLODDS_CREDENTIAL_KEY;
-const HAS_ENCRYPTION_KEY = Boolean(ENCRYPTION_KEY && ENCRYPTION_KEY.trim().length > 0);
+// Encryption key from environment (lazy — read at call time so startup can auto-generate)
+function getEncryptionKey(): string | undefined {
+  return process.env.CLODDS_CREDENTIAL_KEY;
+}
+function hasEncryptionKey(): boolean {
+  const k = getEncryptionKey();
+  return Boolean(k && k.trim().length > 0);
+}
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const LEGACY_ALGORITHM = 'aes-256-cbc';
@@ -34,12 +39,13 @@ const VERSION_PREFIX = 'v2';
  * Encrypt credentials for storage
  */
 function encrypt(data: string): string {
-  if (!HAS_ENCRYPTION_KEY) {
+  const encKey = getEncryptionKey();
+  if (!encKey) {
     throw new Error('CLODDS_CREDENTIAL_KEY is required to encrypt credentials');
   }
 
   const salt = crypto.randomBytes(16);
-  const key = crypto.scryptSync(ENCRYPTION_KEY as string, salt, 32);
+  const key = crypto.scryptSync(encKey, salt, 32);
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
   let encrypted = cipher.update(data, 'utf8', 'hex');
@@ -58,7 +64,8 @@ function encrypt(data: string): string {
  * Decrypt credentials from storage
  */
 function decrypt(encryptedData: string): string {
-  if (!HAS_ENCRYPTION_KEY) {
+  const encKey = getEncryptionKey();
+  if (!encKey) {
     throw new Error('CLODDS_CREDENTIAL_KEY is required to decrypt credentials');
   }
 
@@ -68,7 +75,7 @@ function decrypt(encryptedData: string): string {
     const salt = Buffer.from(saltHex, 'hex');
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
-    const key = crypto.scryptSync(ENCRYPTION_KEY as string, salt, 32);
+    const key = crypto.scryptSync(encKey, salt, 32);
     const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
@@ -81,7 +88,7 @@ function decrypt(encryptedData: string): string {
   if (!ivHex || !encrypted) {
     throw new Error('Invalid encrypted credential payload');
   }
-  const key = crypto.scryptSync(ENCRYPTION_KEY as string, LEGACY_SALT, 32);
+  const key = crypto.scryptSync(encKey, LEGACY_SALT, 32);
   const iv = Buffer.from(ivHex, 'hex');
   const decipher = crypto.createDecipheriv(LEGACY_ALGORITHM, key, iv);
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
@@ -147,7 +154,7 @@ const MAX_COOLDOWN_MS = 24 * 60 * 60 * 1000;  // 24 hours
 const MAX_FAILED_ATTEMPTS = 5;
 
 export function createCredentialsManager(db: Database): CredentialsManager {
-  if (!HAS_ENCRYPTION_KEY) {
+  if (!hasEncryptionKey()) {
     logger.warn('CLODDS_CREDENTIAL_KEY is not set. Credential encryption is disabled and operations will fail.');
   }
   return {

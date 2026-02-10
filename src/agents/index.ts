@@ -4942,7 +4942,7 @@ function buildTools(): ToolDefinition[] {
     },
     {
       name: 'pumpfun_graduated',
-      description: 'Get tokens that graduated to Raydium from Pump.fun.',
+      description: 'Get tokens that graduated to PumpSwap from Pump.fun.',
       input_schema: {
         type: 'object',
         properties: {
@@ -5203,7 +5203,7 @@ function buildTools(): ToolDefinition[] {
     },
     {
       name: 'pumpfun_graduation_check',
-      description: 'Check if a Pump.fun token has graduated to Raydium.',
+      description: 'Check if a Pump.fun token has graduated to PumpSwap.',
       input_schema: {
         type: 'object',
         properties: {
@@ -5250,7 +5250,7 @@ function buildTools(): ToolDefinition[] {
     },
     {
       name: 'pumpfun_best_pool',
-      description: 'Determine best execution venue for a token (pump bonding curve or raydium after graduation).',
+      description: 'Determine best execution venue for a token (pump bonding curve or PumpSwap after graduation).',
       input_schema: {
         type: 'object',
         properties: {
@@ -13748,7 +13748,7 @@ async function executeTool(
             return JSON.stringify({ error: 'Bonding curve not found' });
           }
           if (state.complete) {
-            return JSON.stringify({ error: 'Token has graduated to Raydium - use Jupiter or Raydium for swaps' });
+            return JSON.stringify({ error: 'Token has graduated to PumpSwap - use Jupiter for swaps' });
           }
           const BN = (await import('bn.js')).default;
           const solAmount = new BN(Math.floor((toolInput.sol_amount as number) * 1e9));
@@ -13775,7 +13775,7 @@ async function executeTool(
             return JSON.stringify({ error: 'Bonding curve not found' });
           }
           if (state.complete) {
-            return JSON.stringify({ error: 'Token has graduated to Raydium - use Jupiter or Raydium for swaps' });
+            return JSON.stringify({ error: 'Token has graduated to PumpSwap - use Jupiter for swaps' });
           }
           const BN = (await import('bn.js')).default;
           const tokenAmount = new BN(Math.floor((toolInput.token_amount as number) * 1e6));

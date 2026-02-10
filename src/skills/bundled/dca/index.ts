@@ -556,9 +556,9 @@ async function handleKalshi(args: string): Promise<string> {
 }
 
 async function handlePump(args: string): Promise<string> {
-  // /dca pump <mint> <total-SOL> --per <SOL> --every <interval> [--slippage <bps>] [--pool pump|raydium|auto]
+  // /dca pump <mint> <total-SOL> --per <SOL> --every <interval> [--slippage <bps>] [--pool pump|pump-amm|auto]
   const parts = args.split(/\s+/);
-  if (parts.length < 6) return 'Usage: /dca pump <mint> <total-SOL> --per <SOL> --every <interval> [--slippage <bps>] [--pool pump|raydium|auto]';
+  if (parts.length < 6) return 'Usage: /dca pump <mint> <total-SOL> --per <SOL> --every <interval> [--slippage <bps>] [--pool pump|pump-amm|auto]';
 
   const mint = parts[0];
   const totalAmount = parseFloat(parts[1]);

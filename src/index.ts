@@ -6,6 +6,10 @@
  */
 
 import 'dotenv/config';
+import { randomBytes } from 'crypto';
+import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import { createGateway } from './gateway/index';
 import { loadConfig } from './utils/config';
 import { logger } from './utils/logger';
@@ -112,6 +116,33 @@ function validateStartupRequirements(): void {
       '  Fix: Add ANTHROPIC_API_KEY=sk-ant-... to your .env file\n' +
       '  Or run: clodds onboard'
     );
+  }
+
+  // Auto-generate credential encryption key if not set
+  if (!process.env.CLODDS_CREDENTIAL_KEY) {
+    const generated = randomBytes(32).toString('hex');
+    process.env.CLODDS_CREDENTIAL_KEY = generated;
+
+    // Persist to ~/.clodds/.env so it survives restarts
+    const cloddsDir = join(homedir(), '.clodds');
+    const envPath = join(cloddsDir, '.env');
+    try {
+      if (!existsSync(cloddsDir)) {
+        mkdirSync(cloddsDir, { recursive: true });
+      }
+      if (existsSync(envPath)) {
+        // Append if file exists and doesn't already contain the key
+        const existing = readFileSync(envPath, 'utf-8');
+        if (!existing.includes('CLODDS_CREDENTIAL_KEY=')) {
+          appendFileSync(envPath, `\nCLODDS_CREDENTIAL_KEY=${generated}\n`);
+        }
+      } else {
+        writeFileSync(envPath, `CLODDS_CREDENTIAL_KEY=${generated}\n`, { mode: 0o600 });
+      }
+      logger.info('Auto-generated CLODDS_CREDENTIAL_KEY for credential encryption');
+    } catch (err) {
+      logger.warn({ err }, 'Could not persist CLODDS_CREDENTIAL_KEY to .env file — key is set for this session only');
+    }
   }
 
   // Check for common channel configurations (warnings only)

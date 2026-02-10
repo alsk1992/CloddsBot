@@ -21,7 +21,7 @@
  * /pump new-hot - Hottest new tokens by volume
  * /pump new - Recently created tokens
  * /pump live - Currently trading tokens
- * /pump graduated - Tokens migrated to Raydium
+ * /pump graduated - Tokens migrated to PumpSwap
  * /pump search <query> - Search tokens
  * /pump volatile - High volatility tokens
  * /pump koth - King of the Hill tokens (30-35K mcap)
@@ -416,7 +416,7 @@ Current Price: ${formatPrice(currentPrice)} SOL`;
       outputDesc = `~${outputAmount.toFixed(6)} SOL`;
     }
 
-    return `**Pump.fun Quote (Raydium - Graduated)**
+    return `**Pump.fun Quote (PumpSwap - Graduated)**
 
 Token: **${token.symbol || '?'}** \`${mint.slice(0, 20)}...\`
 Action: ${actionUpper}
@@ -427,7 +427,7 @@ Input: ${inputDesc}
 Output: ${outputDesc}
 Fee (0.5%): ${fee.toFixed(6)} SOL
 
-*Token has graduated to Raydium. Use Jupiter for best execution.*`;
+*Token has graduated to PumpSwap. Use Jupiter for best execution.*`;
   } catch (error) {
     return `Quote failed: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -787,7 +787,7 @@ async function handleGraduated(): Promise<string> {
 
     if (!tokens?.length) return 'No graduated tokens found.';
 
-    let output = '**Graduated to Raydium**\n\n';
+    let output = '**Graduated to PumpSwap**\n\n';
     for (const t of tokens.slice(0, 15)) {
       output += `**${t.symbol}** - ${t.name}\n`;
       output += `  MCap: ${formatMarketCap(t.marketCap || 0)}`;
@@ -900,7 +900,7 @@ async function handleToken(mint: string): Promise<string> {
 
     if (token.bondingCurveProgress !== undefined) {
       output += `\n**Bonding Curve:** ${(token.bondingCurveProgress * 100).toFixed(1)}%`;
-      if (token.graduated) output += ' ✓ Graduated to Raydium';
+      if (token.graduated) output += ' ✓ Graduated to PumpSwap';
       output += '\n';
     }
 
@@ -1161,7 +1161,7 @@ async function handleBonding(mint: string): Promise<string> {
     if (!state) {
       return `Bonding curve not found for \`${mint.slice(0, 20)}...\`
 
-Token may not exist or has already graduated to Raydium.`;
+Token may not exist or has already graduated to PumpSwap.`;
     }
 
     const price = pumpapi.calculatePrice(state);
@@ -1188,7 +1188,7 @@ ${state.isMayhemMode ? '⚡ Mayhem Mode (Token2022)\n' : ''}
   Liquidity: ${liquiditySOL.toFixed(2)} SOL`;
 
     if (state.complete) {
-      output += '\n\n*Token has graduated to Raydium. Use Jupiter for trading.*';
+      output += '\n\n*Token has graduated to PumpSwap. Use Jupiter for trading.*';
     }
 
     return output;
@@ -1208,13 +1208,13 @@ async function handleBestPool(mint: string): Promise<string> {
 
     const result = await pumpapi.getBestPool(connection, mint);
 
-    if (result.pool === 'raydium') {
+    if (result.pool === 'pump-amm') {
       return `**Best Execution Venue**
 
 Token: \`${mint.slice(0, 20)}...\`
 Status: ✅ Graduated
-Venue: **Raydium**
-${result.raydiumPool ? `Pool: \`${result.raydiumPool}\`` : ''}
+Venue: **PumpSwap**
+${result.pumpswapPool ? `Pool: \`${result.pumpswapPool}\`` : ''}
 
 Use Jupiter aggregator for best execution on graduated tokens.`;
     }
@@ -1778,7 +1778,7 @@ export async function execute(args: string): Promise<string> {
   /pump new-hot                     Hottest new tokens by volume
   /pump new                         Recently created
   /pump live                        Currently trading
-  /pump graduated                   Migrated to Raydium
+  /pump graduated                   Migrated to PumpSwap
   /pump graduating                  Near graduation (>60% bonding)
   /pump search <query>              Search tokens
   /pump volatile                    High volatility

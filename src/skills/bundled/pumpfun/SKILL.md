@@ -40,7 +40,7 @@ Pump.fun is the leading Solana memecoin launchpad with bonding curve trading.
 /pump new-hot                Hottest new tokens by volume
 /pump new                    Recently created tokens
 /pump live                   Currently trading tokens
-/pump graduated              Tokens migrated to Raydium
+/pump graduated              Tokens migrated to PumpSwap
 /pump search <query>         Search tokens by name/symbol
 /pump volatile               High volatility tokens
 /pump koth                   King of the Hill (30-35K mcap)
@@ -105,7 +105,7 @@ export SOLANA_RPC_URL="your-rpc-url"         # Optional, custom RPC
 | Pool | Description |
 |------|-------------|
 | `pump` | Pump.fun bonding curve (default) |
-| `raydium` | Raydium AMM (graduated tokens) |
+| `pumpswap` | PumpSwap AMM (graduated tokens) |
 | `pump-amm` | Pump.fun native AMM |
 | `launchlab` | LaunchLab pools |
 | `raydium-cpmm` | Raydium CPMM pools |

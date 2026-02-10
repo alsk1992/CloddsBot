@@ -74,7 +74,7 @@ export interface TokenPriceInfo {
   marketCapUsd?: number;
   /** Bonding curve progress (0-1) */
   bondingProgress: number;
-  /** Whether token has graduated to Raydium */
+  /** Whether token has graduated to PumpSwap */
   graduated: boolean;
   /** Real SOL in the bonding curve */
   liquiditySol: number;
@@ -462,7 +462,7 @@ export interface PumpTokenInfo {
   website?: string;
   creator?: string;
   createdTimestamp?: number;
-  raydiumPool?: string;
+  pumpswapPool?: string;
   complete: boolean;
   virtualSolReserves?: number;
   virtualTokenReserves?: number;
@@ -499,21 +499,21 @@ export async function getTokenInfo(mint: string): Promise<PumpTokenInfo | null> 
 // ============================================================================
 
 /**
- * Check if a token has graduated to Raydium
+ * Check if a token has graduated to PumpSwap
  */
 export async function isGraduated(
   connection: Connection,
   mint: PublicKey | string
-): Promise<{ graduated: boolean; raydiumPool?: string }> {
+): Promise<{ graduated: boolean; pumpswapPool?: string }> {
   const state = await getBondingCurveState(connection, mint);
 
   if (state?.complete) {
-    // Try to get Raydium pool from API
+    // Try to get PumpSwap pool from API
     const mintStr = typeof mint === 'string' ? mint : mint.toBase58();
     const info = await getTokenInfo(mintStr);
     return {
       graduated: true,
-      raydiumPool: info?.raydiumPool,
+      pumpswapPool: info?.pumpswapPool,
     };
   }
 
@@ -654,16 +654,16 @@ export async function getUserPumpTokens(
 
 /**
  * Determine best execution venue for a token
- * Returns 'pump' for active bonding curve, 'raydium' for graduated tokens
+ * Returns 'pump' for active bonding curve, 'pump-amm' (PumpSwap) for graduated tokens
  */
 export async function getBestPool(
   connection: Connection,
   mint: PublicKey | string
-): Promise<{ pool: 'pump' | 'raydium'; raydiumPool?: string }> {
+): Promise<{ pool: 'pump' | 'pump-amm'; pumpswapPool?: string }> {
   const graduation = await isGraduated(connection, mint);
 
   if (graduation.graduated) {
-    return { pool: 'raydium', raydiumPool: graduation.raydiumPool };
+    return { pool: 'pump-amm', pumpswapPool: graduation.pumpswapPool };
   }
 
   return { pool: 'pump' };
