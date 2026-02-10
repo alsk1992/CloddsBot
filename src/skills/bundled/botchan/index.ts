@@ -452,7 +452,6 @@ export default {
   name: 'botchan',
   description: 'Botchan - Onchain agent messaging on Base via Net Protocol',
   commands: ['/botchan'],
-  requires: { env: ['PRIVATE_KEY'] },
   handle: execute,
   tools,
 };

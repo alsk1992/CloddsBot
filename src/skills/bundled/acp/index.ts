@@ -572,4 +572,4 @@ Ratings:
 Categories: llm, trading, data, compute, storage, integration, research, automation, other`;
 }
 
-export default { name, description, commands, requires: { env: ['SOLANA_PRIVATE_KEY'] }, handle: execute };
+export default { name, description, commands, handle: execute };

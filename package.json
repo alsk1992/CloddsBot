@@ -1,6 +1,6 @@
 {
   "name": "clodds",
-  "version": "1.2.7",
+  "version": "1.3.0",
   "description": "Open-source AI trading terminal. Trade Polymarket, Kalshi, Betfair, Binance, Bybit, Hyperliquid, Solana DEXs from Telegram, Discord, Slack or web. Arbitrage detection, whale tracking, copy trading, perpetual futures up to 200x, DeFi swaps, MEV protection. Self-hosted, 118 skills, powered by Claude.",
   "main": "dist/index.js",
   "bin": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"const{cpSync,readdirSync}=require('fs'),p=require('path');readdirSync('src/skills/bundled',{withFileTypes:true}).filter(d=>d.isDirectory()).forEach(d=>{const s=p.join('src/skills/bundled',d.name,'SKILL.md'),t=p.join('dist/skills/bundled',d.name,'SKILL.md');try{cpSync(s,t)}catch{}})\"",
     "start": "node dist/index.js",
     "gateway": "tsx src/gateway/index.ts",
     "worker": "tsx src/bin/worker.ts",

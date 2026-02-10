@@ -1292,7 +1292,6 @@ export const skill = {
       usage: '/hl <command>',
     },
   ],
-  requires: { env: ['HYPERLIQUID_PRIVATE_KEY'] },
 
   async handler(args: string): Promise<string> {
     const parts = args.trim().split(/\s+/);

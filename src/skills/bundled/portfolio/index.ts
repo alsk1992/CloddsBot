@@ -372,6 +372,6 @@ function helpText(): string {
 export default {
   name: 'portfolio',
   description: 'Track your positions and P&L across prediction markets and futures exchanges',
-  commands: ['/portfolio', '/pf', '/positions'],
+  commands: ['/portfolio', '/pf'],
   handle: execute,
 };

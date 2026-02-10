@@ -442,8 +442,7 @@ async function handleDbPositions(showAll?: string): Promise<string> {
 const skill = {
   name: 'binance-futures',
   description: 'Binance Futures trading with DB tracking',
-  commands: ['/bf'],
-  requires: { env: ['BINANCE_API_KEY', 'BINANCE_API_SECRET'] },
+  commands: ['/binance', '/binance-futures'],
 
   async handle(args: string): Promise<string> {
     const parts = args.trim().split(/\s+/);

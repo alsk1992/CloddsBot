@@ -264,11 +264,11 @@ function extractXmlTag(xml: string, tag: string): string | undefined {
 }
 
 // ============================================================================
-// Twitter Polling (via Nitter)
+// Twitter Polling (via Nitter — nitter.net is dead, using privacydev.net)
 // ============================================================================
 
 async function checkTwitter(source: SignalSource): Promise<void> {
-  const nitter = source.config.nitterInstance || 'https://nitter.net';
+  const nitter = source.config.nitterInstance || 'https://nitter.privacydev.net';
   const username = source.config.username;
   if (!username) return;
 
@@ -531,7 +531,7 @@ async function handleAddTwitter(args: string[]): Promise<string> {
     name,
     config: {
       username,
-      nitterInstance: 'https://nitter.net',
+      nitterInstance: 'https://nitter.privacydev.net',
       checkIntervalMs: 60000,
     },
     enabled: true,
@@ -941,6 +941,5 @@ export default {
   name: 'signals',
   description: 'Signals trading - monitor RSS, Twitter, and webhooks to trigger automatic trades',
   commands: ['/signals'],
-  requires: { env: ['SOLANA_PRIVATE_KEY'] },
   handle: execute,
 };

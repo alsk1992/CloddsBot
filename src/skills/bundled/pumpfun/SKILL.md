@@ -1,14 +1,11 @@
 ---
 name: pumpfun
-description: "Pump.fun - Complete Solana memecoin launchpad"
+description: "Pump.fun - Complete Solana memecoin launchpad. Discovery, trending, gainers, losers, token data all work without a key. Trading requires SOLANA_PRIVATE_KEY."
 command: pump
 emoji: "🚀"
-gates:
-  envs:
-    - SOLANA_PRIVATE_KEY
 ---
 
-# Pump.fun - Complete API Coverage (22 Tools)
+# Pump.fun - Complete API Coverage (32 Tools)
 
 Pump.fun is the leading Solana memecoin launchpad with bonding curve trading.
 
@@ -36,7 +33,11 @@ Pump.fun is the leading Solana memecoin launchpad with bonding curve trading.
 ## Discovery
 
 ```
-/pump trending               Top performing tokens
+/pump trending               Top tokens by 24h volume (DexScreener enriched)
+/pump gainers                Top 24h price gainers
+/pump losers                 Top 24h price losers
+/pump hot                    Most active right now (1h transactions)
+/pump new-hot                Hottest new tokens by volume
 /pump new                    Recently created tokens
 /pump live                   Currently trading tokens
 /pump graduated              Tokens migrated to Raydium
@@ -51,6 +52,7 @@ Pump.fun is the leading Solana memecoin launchpad with bonding curve trading.
 
 ```
 /pump token <mint>                      Full token info
+/pump stats <mint>                      Volume, txns, liquidity, price change (DexScreener)
 /pump price <mint>                      Current price + 24h stats
 /pump holders <mint>                    Top holders list
 /pump trades <mint> [--limit N]         Recent trades for token
@@ -118,13 +120,13 @@ export SOLANA_RPC_URL="your-rpc-url"         # Optional, custom RPC
 - **Volatility:** Volatility API v2 (volatility-api-v2.pump.fun)
 - **WebSocket:** wss://pumpportal.fun/api/data
 
-## Complete Tool List (22 Tools)
+## Complete Tool List (32 Tools)
 
 | Category | Tools |
 |----------|-------|
 | **Trading** | trade (buy/sell), quote |
-| **Discovery** | trending, new, live, graduated, search, volatile, koth, for-you, metas |
-| **Token Data** | token, price, holders, trades, chart, similar |
+| **Discovery** | trending, gainers, losers, hot, new-hot, new, live, graduated, search, volatile, koth, for-you, metas |
+| **Token Data** | token, stats, price, holders, trades, chart, similar |
 | **Creator** | user-coins, create, claim, ipfs-upload |
 | **Platform** | latest-trades, sol-price |
 

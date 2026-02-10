@@ -14,13 +14,20 @@
  * /pump quote <mint> <amount> <action>
  *
  * DISCOVERY:
- * /pump trending - Top performing tokens
+ * /pump trending - Top tokens by 24h volume (via DexScreener)
+ * /pump gainers - Top 24h price gainers
+ * /pump losers - Top 24h price losers
+ * /pump hot - Most active right now (1h transactions)
+ * /pump new-hot - Hottest new tokens by volume
  * /pump new - Recently created tokens
  * /pump live - Currently trading tokens
  * /pump graduated - Tokens migrated to Raydium
  * /pump search <query> - Search tokens
  * /pump volatile - High volatility tokens
  * /pump koth - King of the Hill tokens (30-35K mcap)
+ *
+ * TOKEN DATA:
+ * /pump stats <mint> - Volume, txns, liquidity, price change (DexScreener)
  *
  * TOKEN DATA:
  * /pump token <mint> - Full token info (metadata, price, holders, liquidity)
@@ -411,24 +418,251 @@ Fee (0.5%): ${fee.toFixed(6)} SOL
 }
 
 // ============================================================================
+// DexScreener Enrichment (free, no API key)
+// ============================================================================
+
+interface DexPair {
+  baseToken: { address: string; symbol: string; name: string };
+  volume?: { h24?: number; h6?: number; h1?: number; m5?: number };
+  priceChange?: { h24?: number; h6?: number; h1?: number; m5?: number };
+  txns?: { h24?: { buys: number; sells: number }; h1?: { buys: number; sells: number }; m5?: { buys: number; sells: number } };
+  liquidity?: { usd?: number };
+  marketCap?: number;
+  fdv?: number;
+  dexId?: string;
+  priceUsd?: string;
+}
+
+interface EnrichedToken {
+  mint: string;
+  name: string;
+  symbol: string;
+  marketCap: number;
+  vol24h: number;
+  vol1h: number;
+  change24h: number;
+  change1h: number;
+  txns24h: number;
+  txns1h: number;
+  liquidity: number;
+  dex: string;
+  priceUsd: string;
+}
+
+async function enrichWithDexScreener(mints: string[]): Promise<Map<string, EnrichedToken>> {
+  const result = new Map<string, EnrichedToken>();
+  if (!mints.length) return result;
+
+  try {
+    const resp = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints.join(',')}`);
+    if (!resp.ok) return result;
+    const pairs = await resp.json() as DexPair[];
+    if (!Array.isArray(pairs)) return result;
+
+    // Keep highest-volume pair per token
+    for (const p of pairs) {
+      const addr = p.baseToken?.address;
+      if (!addr) continue;
+      const vol24h = p.volume?.h24 || 0;
+      const existing = result.get(addr);
+      if (!existing || vol24h > existing.vol24h) {
+        const txns24h = p.txns?.h24 ? (p.txns.h24.buys + p.txns.h24.sells) : 0;
+        const txns1h = p.txns?.h1 ? (p.txns.h1.buys + p.txns.h1.sells) : 0;
+        result.set(addr, {
+          mint: addr,
+          name: p.baseToken.name,
+          symbol: p.baseToken.symbol,
+          marketCap: p.marketCap || p.fdv || 0,
+          vol24h,
+          vol1h: p.volume?.h1 || 0,
+          change24h: p.priceChange?.h24 || 0,
+          change1h: p.priceChange?.h1 || 0,
+          txns24h,
+          txns1h,
+          liquidity: p.liquidity?.usd || 0,
+          dex: p.dexId || 'unknown',
+          priceUsd: p.priceUsd || '0',
+        });
+      }
+    }
+  } catch { /* best-effort */ }
+
+  return result;
+}
+
+async function getTopPumpTokenMints(limit: number = 20): Promise<string[]> {
+  const tokens = await pumpFrontendRequest<Array<{ mint: string }>>(`/coins?limit=${limit}&offset=0&sort=market_cap&order=DESC&includeNsfw=false&complete=true`);
+  return tokens?.map(t => t.mint) || [];
+}
+
+// ============================================================================
 // Discovery Handlers
 // ============================================================================
 
 async function handleTrending(): Promise<string> {
   try {
-    const tokens = await pumpFrontendRequest<PumpToken[]>('/coins/top-runners');
+    const mints = await getTopPumpTokenMints(20);
+    if (!mints.length) return 'No trending tokens found.';
 
-    if (!tokens?.length) return 'No trending tokens found.';
+    const dex = await enrichWithDexScreener(mints);
+    const tokens = [...dex.values()].sort((a, b) => b.vol24h - a.vol24h).slice(0, 15);
 
-    let output = '**Trending on Pump.fun**\n\n';
-    for (let i = 0; i < Math.min(tokens.length, 15); i++) {
+    if (!tokens.length) return 'No trending tokens found.';
+
+    let output = '**Trending on Pump.fun (24h Volume)**\n\n';
+    for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
+      const changeStr = t.change24h ? ` | 24h: ${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(1)}%` : '';
       output += `${i + 1}. **${t.symbol}** - ${t.name}\n`;
-      output += `   MCap: ${formatMarketCap(t.marketCap || 0)}`;
-      if (t.volume24h) output += ` | Vol: ${formatMarketCap(t.volume24h)}`;
-      output += `\n   \`${t.mint.slice(0, 20)}...\`\n\n`;
+      output += `   MCap: ${formatMarketCap(t.marketCap)}`;
+      if (t.vol24h > 0) output += ` | Vol: ${formatMarketCap(t.vol24h)}`;
+      output += `${changeStr}\n   \`${t.mint.slice(0, 20)}...\`\n\n`;
     }
     return output;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleGainers(): Promise<string> {
+  try {
+    const mints = await getTopPumpTokenMints(20);
+    if (!mints.length) return 'No tokens found.';
+
+    const dex = await enrichWithDexScreener(mints);
+    const tokens = [...dex.values()].sort((a, b) => b.change24h - a.change24h).slice(0, 15);
+
+    if (!tokens.length) return 'No gainer data available.';
+
+    let output = '**Top Gainers on Pump.fun (24h)**\n\n';
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      const arrow = t.change24h >= 0 ? '📈' : '📉';
+      output += `${i + 1}. ${arrow} **${t.symbol}** ${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(1)}%\n`;
+      output += `   MCap: ${formatMarketCap(t.marketCap)} | Vol: ${formatMarketCap(t.vol24h)}`;
+      output += ` | $${parseFloat(t.priceUsd).toFixed(6)}\n`;
+      output += `   \`${t.mint.slice(0, 20)}...\`\n\n`;
+    }
+    return output;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleLosers(): Promise<string> {
+  try {
+    const mints = await getTopPumpTokenMints(20);
+    if (!mints.length) return 'No tokens found.';
+
+    const dex = await enrichWithDexScreener(mints);
+    const tokens = [...dex.values()].sort((a, b) => a.change24h - b.change24h).slice(0, 15);
+
+    if (!tokens.length) return 'No loser data available.';
+
+    let output = '**Top Losers on Pump.fun (24h)**\n\n';
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      output += `${i + 1}. 📉 **${t.symbol}** ${t.change24h.toFixed(1)}%\n`;
+      output += `   MCap: ${formatMarketCap(t.marketCap)} | Vol: ${formatMarketCap(t.vol24h)}`;
+      output += ` | $${parseFloat(t.priceUsd).toFixed(6)}\n`;
+      output += `   \`${t.mint.slice(0, 20)}...\`\n\n`;
+    }
+    return output;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleHot(): Promise<string> {
+  try {
+    const mints = await getTopPumpTokenMints(20);
+    if (!mints.length) return 'No tokens found.';
+
+    const dex = await enrichWithDexScreener(mints);
+    const tokens = [...dex.values()].sort((a, b) => b.txns1h - a.txns1h).slice(0, 15);
+
+    if (!tokens.length) return 'No activity data available.';
+
+    let output = '**Hottest Right Now on Pump.fun (1h Activity)**\n\n';
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      const changeStr = t.change1h ? ` | 1h: ${t.change1h >= 0 ? '+' : ''}${t.change1h.toFixed(1)}%` : '';
+      output += `${i + 1}. **${t.symbol}** - ${t.txns1h.toLocaleString()} txns/1h\n`;
+      output += `   MCap: ${formatMarketCap(t.marketCap)} | 1h Vol: ${formatMarketCap(t.vol1h)}${changeStr}\n`;
+      output += `   \`${t.mint.slice(0, 20)}...\`\n\n`;
+    }
+    return output;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleNewHot(): Promise<string> {
+  try {
+    // Get recently created tokens from pump.fun
+    const tokens = await pumpFrontendRequest<Array<{ mint: string; name: string; symbol: string; created_timestamp?: number }>>('/coins/currently-live?limit=20&offset=0&includeNsfw=false&order=DESC');
+
+    if (!tokens?.length) return 'No new tokens found.';
+
+    const mints = tokens.map(t => t.mint);
+    const dex = await enrichWithDexScreener(mints);
+
+    // Merge and sort by volume
+    const enriched = tokens
+      .map(t => ({ ...t, dex: dex.get(t.mint) }))
+      .filter(t => t.dex && t.dex.vol24h > 0)
+      .sort((a, b) => (b.dex?.vol24h || 0) - (a.dex?.vol24h || 0))
+      .slice(0, 15);
+
+    if (!enriched.length) return 'No new tokens with volume found.';
+
+    let output = '**Hottest New Tokens on Pump.fun**\n\n';
+    for (let i = 0; i < enriched.length; i++) {
+      const t = enriched[i];
+      const d = t.dex!;
+      const age = t.created_timestamp ? Math.round((Date.now() - t.created_timestamp) / 3600000) : 0;
+      const ageStr = age < 1 ? '<1h' : age < 24 ? `${age}h` : `${Math.round(age / 24)}d`;
+      output += `${i + 1}. **${d.symbol}** - ${d.name} (${ageStr} old)\n`;
+      output += `   MCap: ${formatMarketCap(d.marketCap)} | Vol: ${formatMarketCap(d.vol24h)}`;
+      output += ` | 24h: ${d.change24h >= 0 ? '+' : ''}${d.change24h.toFixed(1)}%\n`;
+      output += `   Txns: ${d.txns24h.toLocaleString()} | Liq: ${formatMarketCap(d.liquidity)}\n`;
+      output += `   \`${t.mint.slice(0, 20)}...\`\n\n`;
+    }
+    return output;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleStats(mint: string): Promise<string> {
+  if (!mint) return 'Usage: /pump stats <mint>';
+
+  try {
+    const dex = await enrichWithDexScreener([mint]);
+    const t = dex.get(mint);
+
+    if (!t) return `No market data found for \`${mint.slice(0, 20)}...\``;
+
+    return `**${t.symbol} - Market Stats**
+
+Price: $${parseFloat(t.priceUsd).toFixed(8)}
+Market Cap: ${formatMarketCap(t.marketCap)}
+Liquidity: ${formatMarketCap(t.liquidity)}
+DEX: ${t.dex}
+
+**Volume:**
+  24h: ${formatMarketCap(t.vol24h)}
+  1h: ${formatMarketCap(t.vol1h)}
+
+**Price Change:**
+  24h: ${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(2)}%
+  1h: ${t.change1h >= 0 ? '+' : ''}${t.change1h.toFixed(2)}%
+
+**Transactions:**
+  24h: ${t.txns24h.toLocaleString()}
+  1h: ${t.txns1h.toLocaleString()}
+
+\`${mint}\``;
   } catch (error) {
     return `Error: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -1386,6 +1620,16 @@ export async function execute(args: string): Promise<string> {
       return handleVolatile();
     case 'koth':
       return handleKOTH();
+    case 'gainers':
+      return handleGainers();
+    case 'losers':
+      return handleLosers();
+    case 'hot':
+      return handleHot();
+    case 'new-hot':
+      return handleNewHot();
+    case 'stats':
+      return handleStats(rest[0]);
 
     // Token Data
     case 'token':
@@ -1443,7 +1687,7 @@ export async function execute(args: string): Promise<string> {
 
     case 'help':
     default:
-      return `**Pump.fun - Complete API (26 Commands)**
+      return `**Pump.fun - Complete API (32 Commands)**
 
 **Trading:**
   /pump buy <mint> <SOL> [--pool X] [--slippage X]
@@ -1451,7 +1695,11 @@ export async function execute(args: string): Promise<string> {
   /pump quote <mint> <amount> <buy|sell>  (on-chain accurate)
 
 **Discovery:**
-  /pump trending                    Top performing tokens
+  /pump trending                    Top tokens by 24h volume
+  /pump gainers                     Top 24h price gainers
+  /pump losers                      Top 24h price losers
+  /pump hot                         Most active right now (1h txns)
+  /pump new-hot                     Hottest new tokens by volume
   /pump new                         Recently created
   /pump live                        Currently trading
   /pump graduated                   Migrated to Raydium
@@ -1463,6 +1711,7 @@ export async function execute(args: string): Promise<string> {
 
 **Token Data:**
   /pump token <mint>                Full token info
+  /pump stats <mint>                Volume, txns, liquidity, price change
   /pump price <mint>                Price + 24h stats
   /pump holders <mint>              Top holders
   /pump trades <mint> [--limit N]   Recent trades

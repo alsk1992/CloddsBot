@@ -142,8 +142,7 @@ async function execute(args: string): Promise<string> {
         return helpText();
     }
   } catch (error) {
-    logger.debug({ error }, 'Market index skill init failed');
-    return helpText();
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 

@@ -733,6 +733,6 @@ export async function executeCommand(args: string): Promise<string> {
 export default {
   name: 'ai-strategy',
   description: 'AI Strategy - Convert natural language to automated trades on Solana',
-  commands: ['/ai-strategy', '/strategy'],
+  commands: ['/ai-strategy'],
   handle: execute,
 };

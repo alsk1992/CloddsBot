@@ -317,7 +317,6 @@ const skill = {
   name: 'bybit-futures',
   description: 'Bybit Futures trading with DB tracking',
   commands: ['/bb'],
-  requires: { env: ['BYBIT_API_KEY', 'BYBIT_API_SECRET'] },
 
   async handle(args: string): Promise<string> {
     const parts = args.trim().split(/\s+/);

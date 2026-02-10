@@ -864,7 +864,6 @@ export default {
   name: 'clanker',
   description: 'Clanker - ERC20 token deployment with Uniswap V4 pools on Base/ETH/Arbitrum',
   commands: ['/clanker'],
-  requires: { env: ['PRIVATE_KEY'] },
   handle: execute,
   tools,
 };

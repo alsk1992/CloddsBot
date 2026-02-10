@@ -119,6 +119,5 @@ export default {
   name: 'verify',
   description: 'ERC-8004 on-chain agent identity verification to prevent impersonation',
   commands: ['/verify'],
-  requires: { env: ['PRIVATE_KEY'] },
   handle: execute,
 };

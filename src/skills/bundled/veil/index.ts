@@ -338,7 +338,6 @@ export default {
   name: 'veil',
   description: 'Veil - private transactions on Base via ZK proofs',
   commands: ['/veil'],
-  requires: { env: ['PRIVATE_KEY'] },
   handle: execute,
   tools,
 };

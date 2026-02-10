@@ -55,6 +55,7 @@ const SKILL_MANIFEST: string[] = [
   'copy-trading-solana',
   'credentials',
   'crypto-hft',
+  'dex',
   'divergence',
   'doctor',
   'drift',
@@ -79,7 +80,7 @@ const SKILL_MANIFEST: string[] = [
   'lighter',
   'marginfi',
   'market-index',
-  'markets',
+  // 'markets', // removed: stub returning fake data, use market-index instead
   'mcp',
   'memory',
   'metaculus',
@@ -93,9 +94,9 @@ const SKILL_MANIFEST: string[] = [
   'news',
   'onchainkit',
   'opinion',
-  'opportunity',
+  // 'opportunity', // removed: OpportunityFinder never initialized, always errors
   'orca',
-  'pairing',
+  // 'pairing', // removed: PairingService never initialized, always errors
   'pancakeswap',
   'percolator',
   'permissions',
@@ -182,6 +183,7 @@ const SKILL_CATEGORIES: Record<string, SkillCategory> = {
   'erc8004': 'DeFi & DEX',
   'endaoment': 'DeFi & DEX',
   'clanker': 'DeFi & DEX',
+  'dex': 'Data & Feeds',
   'slippage': 'DeFi & DEX',
   'router': 'DeFi & DEX',
   'mev': 'DeFi & DEX',

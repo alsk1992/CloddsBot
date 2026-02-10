@@ -212,6 +212,6 @@ export async function execute(args: string): Promise<string> {
 export default {
   name: 'sessions',
   description: 'Session management, conversation history, and checkpoints',
-  commands: ['/session', '/new', '/reset', '/checkpoint', '/history'],
+  commands: ['/session', '/new', '/reset', '/checkpoint'],
   handle: execute,
 };

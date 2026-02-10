@@ -27,14 +27,8 @@ async function execute(args: string): Promise<string> {
       output += '\n';
     }
     return output;
-  } catch {
-    return `**Doctor Commands**
-
-  /doctor                            - Full diagnostics
-  /doctor feeds                      - Check feed connections
-  /doctor api                        - Check API health
-  /doctor db                         - Check database
-  /doctor env                        - Check environment variables`;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 

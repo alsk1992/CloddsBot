@@ -195,7 +195,7 @@ export class Chat {
     const avatar = document.createElement('div');
     avatar.className = 'msg-avatar bot-avatar';
     const img = document.createElement('img');
-    img.src = 'https://cloddsbot.com/logo.png';
+    img.src = 'logo.png';
     img.alt = 'C';
     img.className = 'avatar-img';
     img.onerror = () => { img.remove(); avatar.textContent = 'C'; };

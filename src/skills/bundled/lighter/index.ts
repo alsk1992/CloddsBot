@@ -290,7 +290,6 @@ export const skill = {
       usage: '/lighter <command>',
     },
   ],
-  requires: { env: ['EVM_PRIVATE_KEY'] },
 
   async handler(args: string): Promise<string> {
     const parts = args.trim().split(/\s+/);

@@ -120,8 +120,8 @@ async function execute(args: string): Promise<string> {
         return helpText();
       }
     }
-  } catch {
-    return helpText();
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
