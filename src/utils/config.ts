@@ -12,8 +12,9 @@ import { createLogger } from './logger';
 
 const logger = createLogger('config');
 
-// Load .env file
-dotenvConfig();
+// Load .env file — check ~/.clodds/.env first (onboard writes here), then CWD
+dotenvConfig({ path: join(homedir(), '.clodds', '.env') });
+dotenvConfig(); // CWD fallback (won't override existing vars)
 
 function resolveUserPath(input: string): string {
   const trimmed = input.trim();

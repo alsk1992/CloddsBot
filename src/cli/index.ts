@@ -16,7 +16,12 @@ if (process.argv.includes('onboard') || process.argv.includes('setup')) {
   process.env.LOG_LEVEL = 'silent';
 }
 
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+import { homedir } from 'os';
+import { join } from 'path';
+// Load .env from ~/.clodds/.env first (where onboard writes), then CWD fallback
+dotenvConfig({ path: join(homedir(), '.clodds', '.env') });
+dotenvConfig();
 import { Command } from 'commander';
 import { createDatabase } from '../db/index';
 import { createMigrationRunner } from '../db/migrations';
