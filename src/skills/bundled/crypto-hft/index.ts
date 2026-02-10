@@ -53,9 +53,9 @@ async function getExecution(): Promise<ExecutionService | null> {
     const privateKey = process.env.POLY_PRIVATE_KEY || process.env.PRIVATE_KEY;
     if (!privateKey) return null;
 
-    const apiKey = process.env.POLY_API_KEY ?? '';
-    const apiSecret = process.env.POLY_API_SECRET ?? '';
-    const apiPassphrase = process.env.POLY_API_PASSPHRASE ?? '';
+    const apiKey = process.env.POLY_API_KEY || '';
+    const apiSecret = process.env.POLY_API_SECRET || '';
+    const apiPassphrase = process.env.POLY_API_PASSPHRASE || '';
 
     const { createExecutionService } = await import('../../../execution/index.js');
     execInstance = createExecutionService({
@@ -148,6 +148,15 @@ async function execute(args: string): Promise<string> {
       const stats = engine.getStats();
       engine.stop();
       engine = null;
+      // Clean up feed and execution service to prevent resource leaks
+      if (feedInstance) {
+        try { feedInstance.stop(); } catch { /* best effort */ }
+        feedInstance = null;
+      }
+      if (execInstance) {
+        try { (execInstance as any).cleanup?.(); } catch { /* best effort */ }
+        execInstance = null;
+      }
       return `Stopped. ${stats.totalTrades} trades, ${fmtUsd(stats.netPnlUsd)} net, ${stats.winRate.toFixed(0)}% WR, fees: $${stats.feesUsd.toFixed(2)}`;
     }
 

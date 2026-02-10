@@ -112,7 +112,7 @@ async function handleMarket(id: string): Promise<string> {
     lines.push('');
     lines.push(`Pool: $${formatNumber(m.totalPool)}`);
     lines.push(`Status: ${m.status}`);
-    lines.push(`Resolves: ${new Date(m.resolutionTime).toLocaleDateString()}`);
+    lines.push(`Resolves: ${m.resolutionTime ? new Date(m.resolutionTime).toLocaleDateString() : 'TBD'}`);
     if (m.winningOutcome) lines.push(`Winner: ${m.winningOutcome}`);
     lines.push('');
     lines.push(`Platform: AgentBets (Colosseum Agent Hackathon)`);

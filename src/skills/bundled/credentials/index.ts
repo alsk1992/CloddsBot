@@ -40,6 +40,10 @@ async function execute(args: string): Promise<string> {
       case 'set': {
         if (parts.length < 4) return 'Usage: /creds set <platform> <key> <value>\n\nPlatforms: polymarket, kalshi, manifold\nKeys vary by platform (api_key, api_secret, api_passphrase, etc.)';
         const platform = parts[1].toLowerCase();
+        const validPlatforms = ['polymarket', 'kalshi', 'manifold', 'binance', 'bybit', 'hyperliquid', 'drift'];
+        if (!validPlatforms.includes(platform)) {
+          return `Unknown platform "${platform}". Supported: ${validPlatforms.join(', ')}`;
+        }
         const key = parts[2];
         const value = parts[3];
         // Build credentials object from key-value

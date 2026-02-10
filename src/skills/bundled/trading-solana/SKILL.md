@@ -25,32 +25,32 @@ SOLANA_RPC_URL=https://api.mainnet-beta.solana.com  # Optional: custom RPC
 ### Swaps
 
 ```
-/swap sol <amount> <from> to <to>           # Swap tokens on Solana
-/swap sol 1 SOL to USDC                     # Swap 1 SOL to USDC
-/swap sol 100 USDC to JUP                   # Swap 100 USDC to JUP
-/swap sol 0.5 SOL to BONK                   # Swap 0.5 SOL to BONK
+/sol swap <amount> <from> to <to>           # Swap tokens on Solana
+/sol swap 1 SOL to USDC                     # Swap 1 SOL to USDC
+/sol swap 100 USDC to JUP                   # Swap 100 USDC to JUP
+/sol swap 0.5 SOL to BONK                   # Swap 0.5 SOL to BONK
 ```
 
 ### Quotes
 
 ```
-/quote sol <amount> <from> to <to>          # Get swap quote without executing
-/quote sol 1 SOL to USDC                    # Quote 1 SOL → USDC
+/sol quote <amount> <from> to <to>          # Get swap quote without executing
+/sol quote 1 SOL to USDC                    # Quote 1 SOL → USDC
 ```
 
 ### Pool Discovery
 
 ```
-/pools sol <token>                          # List liquidity pools for token
-/pools sol SOL                              # All SOL pools
-/pools sol BONK                             # All BONK pools
+/sol pools <token>                          # List liquidity pools for token
+/sol pools SOL                              # All SOL pools
+/sol pools BONK                             # All BONK pools
 ```
 
-### Balances
+### Balances & Wallet
 
 ```
-/balance sol                                # Check SOL and token balances
-/balance sol <token>                        # Check specific token balance
+/sol balance                                # Check SOL and token balances
+/sol address                                # Show wallet address
 ```
 
 ---

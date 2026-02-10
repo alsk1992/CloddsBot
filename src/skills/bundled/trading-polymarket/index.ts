@@ -28,6 +28,7 @@ import { logger } from '../../../utils/logger';
 // =============================================================================
 
 function formatNumber(n: number, decimals = 2): string {
+  if (isNaN(n)) return '0.00';
   if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(decimals) + 'B';
   if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(decimals) + 'M';
   if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(decimals) + 'K';
@@ -622,18 +623,26 @@ async function handleBalance(): Promise<string> {
     const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC on Polygon
     const balanceData = `0x70a08231000000000000000000000000${funderAddress.slice(2).toLowerCase()}`;
 
-    const response = await fetch('https://polygon-rpc.com/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [{ to: USDC_CONTRACT, data: balanceData }, 'latest'],
-        id: 1,
-      }),
-    });
-
-    const result = await response.json() as { result?: string };
+    const controller = new AbortController();
+    const rpcTimeout = setTimeout(() => controller.abort(), 10_000);
+    let result: { result?: string };
+    try {
+      const response = await fetch('https://polygon-rpc.com/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'eth_call',
+          params: [{ to: USDC_CONTRACT, data: balanceData }, 'latest'],
+          id: 1,
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`RPC error: ${response.status}`);
+      result = await response.json() as { result?: string };
+    } finally {
+      clearTimeout(rpcTimeout);
+    }
     const rawBalance = parseInt(result.result || '0x0', 16);
     const balance = rawBalance / 1e6; // USDC has 6 decimals
 
@@ -1262,17 +1271,13 @@ async function execute(args: string): Promise<string> {
         try {
           await exec.connectFillsWebSocket();
 
-          // Set up fill logging if not already
-          let listenersSetUp = false;
-          if (!listenersSetUp) {
-            exec.onFill((fill) => {
-              logger.info(
-                { fill },
-                `FILL: ${fill.side.toUpperCase()} ${fill.size}@${fill.price} [${fill.status}]`
-              );
-            });
-            listenersSetUp = true;
-          }
+          // Set up fill logging
+          exec.onFill((fill) => {
+            logger.info(
+              { fill },
+              `FILL: ${fill.side.toUpperCase()} ${fill.size}@${fill.price} [${fill.status}]`
+            );
+          });
 
           return `Fills WebSocket connected!\n\n` +
             `Real-time fill notifications are now active.\n` +

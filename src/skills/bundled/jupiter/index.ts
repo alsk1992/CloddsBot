@@ -232,7 +232,7 @@ Example:
 
     const tokens = await tokenlist.getTokenList();
     const fromDecimals = tokens.find(t => t.address === fromMint)?.decimals ?? 9;
-    const toDecimals = tokens.find(t => t.address === toMint)?.decimals ?? 6;
+    const toDecimals = tokens.find(t => t.address === toMint)?.decimals ?? 9;
 
     const inAmount = Math.floor(parseFloat(amount) * Math.pow(10, fromDecimals)).toString();
     const outAmount = Math.floor(parseFloat(amount) * price * Math.pow(10, toDecimals)).toString();
@@ -421,7 +421,7 @@ Example:
     }
 
     const tokens = await tokenlist.getTokenList();
-    const fromDecimals = tokens.find(t => t.address === fromMint)?.decimals ?? 6;
+    const fromDecimals = tokens.find(t => t.address === fromMint)?.decimals ?? 9;
 
     const inAmount = Math.floor(parseFloat(total) * Math.pow(10, fromDecimals)).toString();
     const inAmountPerCycle = Math.floor(parseFloat(perAmount) * Math.pow(10, fromDecimals)).toString();

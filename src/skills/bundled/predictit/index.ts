@@ -29,12 +29,15 @@ async function handleSearch(query: string): Promise<string> {
   const f = await getFeed();
 
   try {
+    const defaultQuery = !query;
     const markets = await f.searchMarkets(query || 'president');
     if (markets.length === 0) {
       return 'No markets found.';
     }
 
-    let output = `**PredictIt Markets** (${markets.length} results)\n\n`;
+    let output = defaultQuery
+      ? `**PredictIt Markets** (showing default results — use \`/pi search <query>\` to filter)\n\n`
+      : `**PredictIt Markets** (${markets.length} results)\n\n`;
     for (const market of markets.slice(0, 15)) {
       output += `**${market.question}**\n`;
       output += `  ID: \`${market.id}\`\n`;

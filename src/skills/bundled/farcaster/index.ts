@@ -153,6 +153,7 @@ async function handleSearchChannels(query: string): Promise<string> {
 
 async function handlePost(text: string): Promise<string> {
   if (!text) return '❌ Usage: /fc post <text>';
+  if (!process.env.NEYNAR_SIGNER_UUID) return '❌ Set NEYNAR_SIGNER_UUID to post casts.';
 
   const client = getNeynarClient();
   const cast = await client.postCast(text);
@@ -164,6 +165,7 @@ async function handleReply(args: string): Promise<string> {
   const text = textParts.join(' ');
 
   if (!hash || !text) return '❌ Usage: /fc reply <hash> <text>';
+  if (!process.env.NEYNAR_SIGNER_UUID) return '❌ Set NEYNAR_SIGNER_UUID to post casts.';
 
   const client = getNeynarClient();
   const cast = await client.postCast(text, { parentHash: hash });
@@ -172,6 +174,7 @@ async function handleReply(args: string): Promise<string> {
 
 async function handleLike(hash: string): Promise<string> {
   if (!hash) return '❌ Usage: /fc like <hash>';
+  if (!process.env.NEYNAR_SIGNER_UUID) return '❌ Set NEYNAR_SIGNER_UUID to interact.';
 
   const client = getNeynarClient();
   await client.likeCast(hash);
@@ -180,6 +183,7 @@ async function handleLike(hash: string): Promise<string> {
 
 async function handleRecast(hash: string): Promise<string> {
   if (!hash) return '❌ Usage: /fc recast <hash>';
+  if (!process.env.NEYNAR_SIGNER_UUID) return '❌ Set NEYNAR_SIGNER_UUID to interact.';
 
   const client = getNeynarClient();
   await client.recastCast(hash);
@@ -188,6 +192,7 @@ async function handleRecast(hash: string): Promise<string> {
 
 async function handleFollow(username: string): Promise<string> {
   if (!username) return '❌ Usage: /fc follow <username>';
+  if (!process.env.NEYNAR_SIGNER_UUID) return '❌ Set NEYNAR_SIGNER_UUID to follow users.';
 
   const client = getNeynarClient();
   const user = await client.getUserByUsername(username.replace('@', ''));
@@ -197,6 +202,7 @@ async function handleFollow(username: string): Promise<string> {
 
 async function handleUnfollow(username: string): Promise<string> {
   if (!username) return '❌ Usage: /fc unfollow <username>';
+  if (!process.env.NEYNAR_SIGNER_UUID) return '❌ Set NEYNAR_SIGNER_UUID to unfollow users.';
 
   const client = getNeynarClient();
   const user = await client.getUserByUsername(username.replace('@', ''));

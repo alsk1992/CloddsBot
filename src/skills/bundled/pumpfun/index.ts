@@ -180,9 +180,20 @@ function formatPrice(price: number): string {
 }
 
 function formatMarketCap(mcap: number): string {
+  if (mcap >= 1_000_000_000) return `$${(mcap / 1_000_000_000).toFixed(2)}B`;
   if (mcap >= 1_000_000) return `$${(mcap / 1_000_000).toFixed(2)}M`;
   if (mcap >= 1_000) return `$${(mcap / 1_000).toFixed(1)}K`;
   return `$${mcap.toFixed(0)}`;
+}
+
+function formatPriceUsd(priceStr: string): string {
+  if (!priceStr || priceStr === '0') return 'N/A';
+  const p = parseFloat(priceStr);
+  if (isNaN(p) || p === 0) return 'N/A';
+  if (p < 0.000001) return `$${p.toExponential(2)}`;
+  if (p < 0.01) return `$${p.toFixed(8)}`;
+  if (p < 1) return `$${p.toFixed(6)}`;
+  return `$${p.toFixed(4)}`;
 }
 
 // ============================================================================
@@ -454,7 +465,14 @@ async function enrichWithDexScreener(mints: string[]): Promise<Map<string, Enric
   if (!mints.length) return result;
 
   try {
-    const resp = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints.join(',')}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let resp: Response;
+    try {
+      resp = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints.join(',')}`, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!resp.ok) return result;
     const pairs = await resp.json() as DexPair[];
     if (!Array.isArray(pairs)) return result;
@@ -490,9 +508,27 @@ async function enrichWithDexScreener(mints: string[]): Promise<Map<string, Enric
   return result;
 }
 
-async function getTopPumpTokenMints(limit: number = 20): Promise<string[]> {
-  const tokens = await pumpFrontendRequest<Array<{ mint: string }>>(`/coins?limit=${limit}&offset=0&sort=market_cap&order=DESC&includeNsfw=false&complete=true`);
-  return tokens?.map(t => t.mint) || [];
+async function getTopPumpTokenMints(limit: number = 20, includeActive = true): Promise<string[]> {
+  if (!includeActive) {
+    // Graduated only
+    const tokens = await pumpFrontendRequest<Array<{ mint: string }>>(`/coins?limit=${limit}&offset=0&sort=market_cap&order=DESC&includeNsfw=false&complete=true`);
+    return tokens?.map(t => t.mint) || [];
+  }
+
+  // Fetch both graduated (by mcap) and active bonding curve tokens for broader coverage
+  const [graduated, active] = await Promise.allSettled([
+    pumpFrontendRequest<Array<{ mint: string }>>(`/coins?limit=${Math.ceil(limit * 0.6)}&offset=0&sort=market_cap&order=DESC&includeNsfw=false&complete=true`),
+    pumpFrontendRequest<Array<{ mint: string }>>(`/coins?limit=${Math.ceil(limit * 0.6)}&offset=0&sort=market_cap&order=DESC&includeNsfw=false&complete=false`),
+  ]);
+
+  const mints = new Set<string>();
+  if (graduated.status === 'fulfilled') {
+    for (const t of graduated.value || []) mints.add(t.mint);
+  }
+  if (active.status === 'fulfilled') {
+    for (const t of active.value || []) mints.add(t.mint);
+  }
+  return [...mints].slice(0, limit);
 }
 
 // ============================================================================
@@ -540,7 +576,7 @@ async function handleGainers(): Promise<string> {
       const arrow = t.change24h >= 0 ? '📈' : '📉';
       output += `${i + 1}. ${arrow} **${t.symbol}** ${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(1)}%\n`;
       output += `   MCap: ${formatMarketCap(t.marketCap)} | Vol: ${formatMarketCap(t.vol24h)}`;
-      output += ` | $${parseFloat(t.priceUsd).toFixed(6)}\n`;
+      output += ` | ${formatPriceUsd(t.priceUsd)}\n`;
       output += `   \`${t.mint.slice(0, 20)}...\`\n\n`;
     }
     return output;
@@ -562,9 +598,10 @@ async function handleLosers(): Promise<string> {
     let output = '**Top Losers on Pump.fun (24h)**\n\n';
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
-      output += `${i + 1}. 📉 **${t.symbol}** ${t.change24h.toFixed(1)}%\n`;
+      const arrow = t.change24h < 0 ? '📉' : '📈';
+      output += `${i + 1}. ${arrow} **${t.symbol}** ${t.change24h >= 0 ? '+' : ''}${t.change24h.toFixed(1)}%\n`;
       output += `   MCap: ${formatMarketCap(t.marketCap)} | Vol: ${formatMarketCap(t.vol24h)}`;
-      output += ` | $${parseFloat(t.priceUsd).toFixed(6)}\n`;
+      output += ` | ${formatPriceUsd(t.priceUsd)}\n`;
       output += `   \`${t.mint.slice(0, 20)}...\`\n\n`;
     }
     return output;
@@ -645,7 +682,7 @@ async function handleStats(mint: string): Promise<string> {
 
     return `**${t.symbol} - Market Stats**
 
-Price: $${parseFloat(t.priceUsd).toFixed(8)}
+Price: ${formatPriceUsd(t.priceUsd)}
 Market Cap: ${formatMarketCap(t.marketCap)}
 Liquidity: ${formatMarketCap(t.liquidity)}
 DEX: ${t.dex}
@@ -663,6 +700,37 @@ DEX: ${t.dex}
   1h: ${t.txns1h.toLocaleString()}
 
 \`${mint}\``;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+async function handleGraduating(): Promise<string> {
+  try {
+    // Fetch active bonding curve tokens sorted by market cap (highest = closest to graduating)
+    const tokens = await pumpFrontendRequest<PumpToken[]>('/coins?limit=50&offset=0&sort=market_cap&order=DESC&includeNsfw=false&complete=false');
+
+    if (!tokens?.length) return 'No active tokens found.';
+
+    // Filter for tokens with high bonding curve progress (>60%)
+    const nearGrad = tokens.filter(t =>
+      t.bondingCurveProgress !== undefined && t.bondingCurveProgress > 0.6
+    );
+
+    if (!nearGrad.length) return 'No tokens near graduation found (>60% bonding curve).';
+
+    // Sort by progress descending
+    nearGrad.sort((a, b) => (b.bondingCurveProgress || 0) - (a.bondingCurveProgress || 0));
+
+    let output = '**Near Graduation (Bonding Curve >60%)**\n\n';
+    for (const t of nearGrad.slice(0, 15)) {
+      const pct = ((t.bondingCurveProgress || 0) * 100).toFixed(1);
+      output += `**${t.symbol}** - ${t.name}\n`;
+      output += `  Progress: **${pct}%** | MCap: ${formatMarketCap(t.marketCap || 0)}`;
+      if (t.holders) output += ` | Holders: ${t.holders}`;
+      output += `\n  \`${t.mint.slice(0, 20)}...\`\n\n`;
+    }
+    return output;
   } catch (error) {
     return `Error: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -1620,6 +1688,9 @@ export async function execute(args: string): Promise<string> {
       return handleVolatile();
     case 'koth':
       return handleKOTH();
+    case 'graduating':
+    case 'near-grad':
+      return handleGraduating();
     case 'gainers':
       return handleGainers();
     case 'losers':
@@ -1703,6 +1774,7 @@ export async function execute(args: string): Promise<string> {
   /pump new                         Recently created
   /pump live                        Currently trading
   /pump graduated                   Migrated to Raydium
+  /pump graduating                  Near graduation (>60% bonding)
   /pump search <query>              Search tokens
   /pump volatile                    High volatility
   /pump koth                        King of the Hill (30-35K)

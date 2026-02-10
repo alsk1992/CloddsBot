@@ -309,6 +309,9 @@ Minimum recommended: 5%`;
     // Calculate shares from dollar amount
     // shares = amount / price
     const price = side === 'YES' ? edge.marketPrice : (1 - edge.marketPrice);
+    if (price <= 0) {
+      return `Cannot calculate shares: market price is ${(edge.marketPrice * 100).toFixed(1)}%.`;
+    }
     const shares = Math.floor(amount / price);
 
     if (shares < 1) {

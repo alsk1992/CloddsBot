@@ -11,21 +11,29 @@
  * /copy config - View/update config
  */
 
-async function execute(args: string): Promise<string> {
-  const parts = args.trim().split(/\s+/);
-  const cmd = parts[0]?.toLowerCase() || 'help';
+// Module-level singleton so state persists across commands
+let serviceInstance: any = null;
 
-  try {
+async function getService() {
+  if (!serviceInstance) {
     const { createCopyTradingService } = await import('../../../trading/copy-trading');
     const { createWhaleTracker } = await import('../../../feeds/polymarket/whale-tracker');
-
-    // Create whale tracker (provides trade signals) and copy service
     const tracker = createWhaleTracker();
     const config = {
       followedAddresses: [],
       dryRun: true,
     };
-    const service = createCopyTradingService(tracker, null, config);
+    serviceInstance = createCopyTradingService(tracker, null, config);
+  }
+  return serviceInstance;
+}
+
+async function execute(args: string): Promise<string> {
+  const parts = args.trim().split(/\s+/);
+  const cmd = parts[0]?.toLowerCase() || 'help';
+
+  try {
+    const service = await getService();
 
     switch (cmd) {
       case 'follow': {

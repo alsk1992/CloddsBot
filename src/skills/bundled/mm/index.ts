@@ -54,22 +54,22 @@ async function handleStart(args: string): Promise<string> {
     tokenId,
     outcomeName: flags['name'] || `${platform}:${tokenId.slice(0, 12)}`,
     negRisk: flags['neg-risk'] === 'true',
-    baseSpreadCents: Number(flags['spread'] || 2),
-    minSpreadCents: Number(flags['min-spread'] || 1),
-    maxSpreadCents: Number(flags['max-spread'] || 10),
-    orderSize: Number(flags['size'] || 50),
-    maxInventory: Number(flags['max-inventory'] || 500),
-    skewFactor: Number(flags['skew'] || 0.5),
-    volatilityMultiplier: Number(flags['vol-mult'] || 10),
-    fairValueAlpha: Number(flags['alpha'] || 0.3),
+    baseSpreadCents: parseFloat(flags['spread']) || 2,
+    minSpreadCents: parseFloat(flags['min-spread']) || 1,
+    maxSpreadCents: parseFloat(flags['max-spread']) || 10,
+    orderSize: parseFloat(flags['size']) || 50,
+    maxInventory: parseFloat(flags['max-inventory']) || 500,
+    skewFactor: parseFloat(flags['skew']) || 0.5,
+    volatilityMultiplier: parseFloat(flags['vol-mult']) || 10,
+    fairValueAlpha: parseFloat(flags['alpha']) || 0.3,
     fairValueMethod: (flags['fv-method'] as MMConfig['fairValueMethod']) || 'weighted_mid',
-    requoteIntervalMs: Number(flags['interval'] || 5000),
-    requoteThresholdCents: Number(flags['threshold'] || 1),
-    maxPositionValueUsd: Number(flags['max-pos'] || 1000),
-    maxLossUsd: Number(flags['max-loss'] || 100),
-    maxOrdersPerSide: Number(flags['max-orders'] || 1),
-    levelSpacingCents: flags['level-spacing'] ? Number(flags['level-spacing']) : undefined,
-    levelSizeDecay: flags['level-decay'] ? Number(flags['level-decay']) : undefined,
+    requoteIntervalMs: parseFloat(flags['interval']) || 5000,
+    requoteThresholdCents: parseFloat(flags['threshold']) || 1,
+    maxPositionValueUsd: parseFloat(flags['max-pos']) || 1000,
+    maxLossUsd: parseFloat(flags['max-loss']) || 100,
+    maxOrdersPerSide: parseFloat(flags['max-orders']) || 1,
+    levelSpacingCents: flags['level-spacing'] ? (parseFloat(flags['level-spacing']) || undefined) : undefined,
+    levelSizeDecay: flags['level-decay'] ? (parseFloat(flags['level-decay']) || undefined) : undefined,
   };
 
   try {
@@ -187,18 +187,19 @@ async function handleConfig(args: string): Promise<string> {
     ].join('\n');
   }
 
-  if (flags['spread']) mm.config.baseSpreadCents = Number(flags['spread']);
-  if (flags['min-spread']) mm.config.minSpreadCents = Number(flags['min-spread']);
-  if (flags['max-spread']) mm.config.maxSpreadCents = Number(flags['max-spread']);
-  if (flags['size']) mm.config.orderSize = Number(flags['size']);
-  if (flags['max-inventory']) mm.config.maxInventory = Number(flags['max-inventory']);
-  if (flags['skew']) mm.config.skewFactor = Number(flags['skew']);
-  if (flags['alpha']) mm.config.fairValueAlpha = Number(flags['alpha']);
-  if (flags['interval']) mm.config.requoteIntervalMs = Number(flags['interval']);
-  if (flags['max-loss']) mm.config.maxLossUsd = Number(flags['max-loss']);
-  if (flags['max-orders']) mm.config.maxOrdersPerSide = Number(flags['max-orders']);
-  if (flags['level-spacing']) mm.config.levelSpacingCents = Number(flags['level-spacing']);
-  if (flags['level-decay']) mm.config.levelSizeDecay = Number(flags['level-decay']);
+  const safeNum = (v: string) => { const n = Number(v); return isNaN(n) ? undefined : n; };
+  if (flags['spread']) mm.config.baseSpreadCents = safeNum(flags['spread']) ?? mm.config.baseSpreadCents;
+  if (flags['min-spread']) mm.config.minSpreadCents = safeNum(flags['min-spread']) ?? mm.config.minSpreadCents;
+  if (flags['max-spread']) mm.config.maxSpreadCents = safeNum(flags['max-spread']) ?? mm.config.maxSpreadCents;
+  if (flags['size']) mm.config.orderSize = safeNum(flags['size']) ?? mm.config.orderSize;
+  if (flags['max-inventory']) mm.config.maxInventory = safeNum(flags['max-inventory']) ?? mm.config.maxInventory;
+  if (flags['skew']) mm.config.skewFactor = safeNum(flags['skew']) ?? mm.config.skewFactor;
+  if (flags['alpha']) mm.config.fairValueAlpha = safeNum(flags['alpha']) ?? mm.config.fairValueAlpha;
+  if (flags['interval']) mm.config.requoteIntervalMs = safeNum(flags['interval']) ?? mm.config.requoteIntervalMs;
+  if (flags['max-loss']) mm.config.maxLossUsd = safeNum(flags['max-loss']) ?? mm.config.maxLossUsd;
+  if (flags['max-orders']) mm.config.maxOrdersPerSide = safeNum(flags['max-orders']) ?? mm.config.maxOrdersPerSide;
+  if (flags['level-spacing']) mm.config.levelSpacingCents = safeNum(flags['level-spacing']) ?? mm.config.levelSpacingCents;
+  if (flags['level-decay']) mm.config.levelSizeDecay = safeNum(flags['level-decay']) ?? mm.config.levelSizeDecay;
 
   return `Config updated for "${id}". Changes take effect on next requote.`;
 }

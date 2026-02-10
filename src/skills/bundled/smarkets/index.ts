@@ -212,8 +212,8 @@ async function handleBuy(marketId: string, contractId: string, price: string, qu
         outcomeName: `Contract ${contractId}`,
         side: 'long',
         size: quantityNum / 100,
-        entryPrice: priceNum / 100,
-        currentPrice: priceNum / 100,
+        entryPrice: priceNum,
+        currentPrice: priceNum,
         openedAt: new Date(),
       });
     } catch { /* position tracking non-critical */ }
@@ -273,7 +273,7 @@ async function handleSell(marketId: string, contractId: string, price: string, q
       const existing = pm.getPositionsByPlatform('smarkets' as any)
         .find(p => p.tokenId === contractId && p.status === 'open');
       if (existing) {
-        pm.closePosition(existing.id, priceNum / 100, 'manual');
+        pm.closePosition(existing.id, priceNum, 'manual');
       }
     } catch { /* position tracking non-critical */ }
 

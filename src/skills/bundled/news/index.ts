@@ -110,8 +110,7 @@ function handleAlert(keyword: string): string {
   if (!keyword) {
     return 'Usage: /news alert <keyword>';
   }
-  return `News alert registered for "${keyword}". You will be notified when market-moving news matches this keyword.\n\n` +
-    `Note: Alerts are active while the news feed is running.`;
+  return `News alerts are not yet implemented. Use \`/alerts\` for price-based alerts instead.\n\nKeyword requested: "${keyword}"`;
 }
 
 function getTimeAgo(date: Date): string {

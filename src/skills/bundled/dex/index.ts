@@ -41,7 +41,7 @@ interface DexPair {
   baseToken: { address: string; name: string; symbol: string };
   quoteToken: { address: string; name: string; symbol: string };
   priceNative: string;
-  priceUsd: string;
+  priceUsd?: string | null;
   txns: {
     m5: { buys: number; sells: number };
     h1: { buys: number; sells: number };
@@ -113,7 +113,7 @@ const DEX_ALIASES: Record<string, { chain: string; dexId?: string; search?: stri
   raydium: { chain: 'solana', dexId: 'raydium' },
   orca: { chain: 'solana', dexId: 'orca' },
   meteora: { chain: 'solana', dexId: 'meteora' },
-  jupiter: { chain: 'solana', dexId: 'raydium' }, // Jupiter routes through raydium
+  jupiter: { chain: 'solana', search: 'jupiter' }, // Aggregator — routes through multiple DEXes
 
   // Base DEXes
   aerodrome: { chain: 'base', dexId: 'aerodrome' },
@@ -161,20 +161,23 @@ function resolveFilter(input?: string): Filter {
   return { chain, label: chainEmoji(chain) };
 }
 
-function formatUsd(n: number): string {
+function formatUsd(n: number, naIfZero = false): string {
+  if (naIfZero && (!n || n === 0)) return 'N/A';
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
   return `$${n.toFixed(0)}`;
 }
 
-function formatPrice(price: string | number): string {
+function formatPrice(price: string | number | null | undefined): string {
+  if (price == null || price === '') return 'N/A';
   const p = typeof price === 'string' ? parseFloat(price) : price;
+  if (isNaN(p)) return 'N/A';
   if (p === 0) return '$0';
   if (p < 0.000001) return `$${p.toExponential(2)}`;
   if (p < 0.01) return `$${p.toFixed(8)}`;
   if (p < 1) return `$${p.toFixed(6)}`;
-  if (p < 1000) return `$${p.toFixed(4)}`;
+  if (p < 1000) return `$${p.toFixed(2)}`;
   return `$${p.toFixed(2)}`;
 }
 
@@ -188,9 +191,18 @@ function chainEmoji(chain: string): string {
 }
 
 async function dexRequest<T>(endpoint: string): Promise<T> {
-  const resp = await fetch(`${DEXSCREENER_API}${endpoint}`);
-  if (!resp.ok) throw new Error(`DexScreener error: ${resp.status}`);
-  return resp.json() as Promise<T>;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const resp = await fetch(`${DEXSCREENER_API}${endpoint}`, { signal: controller.signal });
+    if (!resp.ok) {
+      if (resp.status === 429) throw new Error('DexScreener rate limit hit. Try again in a minute.');
+      throw new Error(`DexScreener error: ${resp.status}`);
+    }
+    return resp.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // Deduplicate pairs — keep highest volume pair per base token
@@ -237,11 +249,13 @@ async function fetchFilteredPairs(filter: Filter): Promise<DexPair[]> {
   }
 
   const allPairs: DexPair[] = [];
-  for (const [c, addrs] of pairsByChain) {
-    try {
-      const pairs = await dexRequest<DexPair[]>(`/tokens/v1/${c}/${addrs.join(',')}`);
-      if (Array.isArray(pairs)) allPairs.push(...pairs);
-    } catch { /* skip chain errors */ }
+  const chainResults = await Promise.allSettled(
+    [...pairsByChain.entries()].map(([c, addrs]) =>
+      dexRequest<DexPair[]>(`/tokens/v1/${c}/${addrs.join(',')}`)
+    )
+  );
+  for (const r of chainResults) {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) allPairs.push(...r.value);
   }
 
   let result = allPairs;
@@ -266,7 +280,7 @@ async function handleTrending(args: string[]): Promise<string> {
       const change = p.priceChange?.h24 || 0;
       const changeStr = `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
       output += `${i + 1}. **${p.baseToken.symbol}** [${chainEmoji(p.chainId)}]\n`;
-      output += `   ${formatPrice(p.priceUsd)} | MCap: ${formatUsd(p.marketCap || p.fdv || 0)}`;
+      output += `   ${formatPrice(p.priceUsd)} | MCap: ${formatUsd(p.marketCap || p.fdv || 0, true)}`;
       output += ` | Vol: ${formatUsd(p.volume?.h24 || 0)} | ${changeStr}\n`;
       output += `   ${p.dexId} | \`${p.baseToken.address.slice(0, 20)}...\`\n\n`;
     }
@@ -293,7 +307,7 @@ async function handleGainers(args: string[]): Promise<string> {
       const change = p.priceChange?.h24 || 0;
       const arrow = change >= 0 ? '📈' : '📉';
       output += `${i + 1}. ${arrow} **${p.baseToken.symbol}** [${chainEmoji(p.chainId)}] ${change >= 0 ? '+' : ''}${change.toFixed(1)}%\n`;
-      output += `   ${formatPrice(p.priceUsd)} | MCap: ${formatUsd(p.marketCap || p.fdv || 0)} | Vol: ${formatUsd(p.volume?.h24 || 0)}\n`;
+      output += `   ${formatPrice(p.priceUsd)} | MCap: ${formatUsd(p.marketCap || p.fdv || 0, true)} | Vol: ${formatUsd(p.volume?.h24 || 0)}\n`;
       output += `   ${p.dexId} | \`${p.baseToken.address.slice(0, 20)}...\`\n\n`;
     }
 
@@ -318,7 +332,7 @@ async function handleLosers(args: string[]): Promise<string> {
       const p = deduped[i];
       const change = p.priceChange?.h24 || 0;
       output += `${i + 1}. 📉 **${p.baseToken.symbol}** [${chainEmoji(p.chainId)}] ${change.toFixed(1)}%\n`;
-      output += `   ${formatPrice(p.priceUsd)} | MCap: ${formatUsd(p.marketCap || p.fdv || 0)} | Vol: ${formatUsd(p.volume?.h24 || 0)}\n`;
+      output += `   ${formatPrice(p.priceUsd)} | MCap: ${formatUsd(p.marketCap || p.fdv || 0, true)} | Vol: ${formatUsd(p.volume?.h24 || 0)}\n`;
       output += `   ${p.dexId} | \`${p.baseToken.address.slice(0, 20)}...\`\n\n`;
     }
 
@@ -387,11 +401,13 @@ async function handleNew(args: string[]): Promise<string> {
     }
 
     const allPairs: DexPair[] = [];
-    for (const [c, addrs] of pairsByChain) {
-      try {
-        const pairs = await dexRequest<DexPair[]>(`/tokens/v1/${c}/${addrs.join(',')}`);
-        if (Array.isArray(pairs)) allPairs.push(...pairs);
-      } catch { /* skip */ }
+    const newChainResults = await Promise.allSettled(
+      [...pairsByChain.entries()].map(([c, addrs]) =>
+        dexRequest<DexPair[]>(`/tokens/v1/${c}/${addrs.join(',')}`)
+      )
+    );
+    for (const r of newChainResults) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) allPairs.push(...r.value);
     }
 
     const pairMap = new Map<string, DexPair>();
@@ -451,12 +467,17 @@ async function handleBoosted(): Promise<string> {
 // Token Data Handlers
 // ============================================================================
 
+function detectChain(address: string): string {
+  if (address.startsWith('0x')) return 'ethereum';
+  return 'solana';
+}
+
 async function handleToken(args: string[]): Promise<string> {
   if (!args[0]) return 'Usage: /dex token <address> [chain]';
 
   const address = args[0];
   const filter = resolveFilter(args[1]);
-  const chain = filter.chain || 'solana';
+  const chain = filter.chain || detectChain(address);
 
   try {
     const pairs = await dexRequest<DexPair[]>(`/tokens/v1/${chain}/${address}`);
@@ -498,6 +519,7 @@ async function handleToken(args: string[]): Promise<string> {
     }
 
     output += `Pair: \`${p.pairAddress}\`\nToken: \`${address}\``;
+    if (p.url) output += `\n\n${p.url}`;
 
     return output;
   } catch (error) {
@@ -510,7 +532,7 @@ async function handlePairs(args: string[]): Promise<string> {
 
   const address = args[0];
   const filter = resolveFilter(args[1]);
-  const chain = filter.chain || 'solana';
+  const chain = filter.chain || detectChain(address);
 
   try {
     const pairs = await dexRequest<DexPair[]>(`/tokens/v1/${chain}/${address}`);
@@ -537,6 +559,36 @@ async function handlePairs(args: string[]): Promise<string> {
   }
 }
 
+async function handlePrice(query: string): Promise<string> {
+  if (!query) return 'Usage: /dex price <symbol>\nExample: /dex price SOL';
+
+  try {
+    const data = await dexRequest<{ pairs: DexPair[] }>(`/latest/dex/search?q=${encodeURIComponent(query)}`);
+
+    if (!data.pairs?.length) return `No results for "${query}".`;
+
+    // Pick highest-volume pair
+    const deduped = dedupeByToken(data.pairs);
+    deduped.sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0));
+    const p = deduped[0];
+    const change = p.priceChange?.h24 || 0;
+
+    let output = `**${p.baseToken.symbol}** (${p.baseToken.name}) [${chainEmoji(p.chainId)}]\n\n`;
+    output += `**Price:** ${formatPrice(p.priceUsd)}\n`;
+    output += `**Market Cap:** ${formatUsd(p.marketCap || p.fdv || 0, true)}\n`;
+    output += `**24h Change:** ${change >= 0 ? '+' : ''}${change.toFixed(2)}%\n`;
+    output += `**24h Volume:** ${formatUsd(p.volume?.h24 || 0)}\n`;
+    output += `**Liquidity:** ${formatUsd(p.liquidity?.usd || 0)}\n`;
+    output += `**DEX:** ${p.dexId}\n`;
+    output += `\n\`${p.baseToken.address}\``;
+    if (p.url) output += `\n${p.url}`;
+
+    return output;
+  } catch (error) {
+    return `Error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
 async function handleSearch(query: string): Promise<string> {
   if (!query) return 'Usage: /dex search <query>';
 
@@ -554,7 +606,7 @@ async function handleSearch(query: string): Promise<string> {
       const p = deduped[i];
       const change = p.priceChange?.h24 || 0;
       output += `${i + 1}. **${p.baseToken.symbol}** - ${p.baseToken.name} [${chainEmoji(p.chainId)}]\n`;
-      output += `   ${formatPrice(p.priceUsd)} | MCap: ${formatUsd(p.marketCap || p.fdv || 0)}`;
+      output += `   ${formatPrice(p.priceUsd)} | MCap: ${formatUsd(p.marketCap || p.fdv || 0, true)}`;
       output += ` | Vol: ${formatUsd(p.volume?.h24 || 0)} | ${change >= 0 ? '+' : ''}${change.toFixed(1)}%\n`;
       output += `   DEX: ${p.dexId} | \`${p.baseToken.address.slice(0, 20)}...\`\n\n`;
     }
@@ -595,12 +647,14 @@ export async function execute(args: string): Promise<string> {
       return handleToken(rest);
     case 'pairs':
       return handlePairs(rest);
+    case 'price':
+      return handlePrice(rest.join(' '));
     case 'search':
       return handleSearch(rest.join(' '));
 
     case 'help':
     default:
-      return `**DEX Market Intelligence (9 Commands)**
+      return `**DEX Market Intelligence (10 Commands)**
 
 Powered by DexScreener - works across all chains and DEXes, no API key.
 
@@ -613,6 +667,7 @@ Powered by DexScreener - works across all chains and DEXes, no API key.
   /dex boosted                    DexScreener trending tokens
 
 **Token Data:**
+  /dex price <symbol>             Quick price lookup by name/symbol
   /dex token <address> [chain]    Full stats (price, vol, liq, txns)
   /dex pairs <address> [chain]    All trading pairs for a token
   /dex search <query>             Search any token across all chains
@@ -625,11 +680,11 @@ Powered by DexScreener - works across all chains and DEXes, no API key.
   BSC: pancakeswap
 
 **Examples:**
+  /dex price SOL
   /dex trending solana
   /dex trending pumpfun
   /dex gainers virtuals
   /dex hot base
-  /dex losers ethereum
   /dex token <address> eth
   /dex search PEPE`;
   }

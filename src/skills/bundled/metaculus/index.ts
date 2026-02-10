@@ -30,12 +30,15 @@ async function handleSearch(query: string): Promise<string> {
   const f = await getFeed();
 
   try {
+    const defaultQuery = !query;
     const markets = await f.searchMarkets(query || 'AI');
     if (markets.length === 0) {
       return 'No questions found.';
     }
 
-    let output = `**Metaculus Questions** (${markets.length} results)\n\n`;
+    let output = defaultQuery
+      ? `**Metaculus Questions** (showing default results — use \`/mc search <query>\` to filter)\n\n`
+      : `**Metaculus Questions** (${markets.length} results)\n\n`;
     for (const market of markets.slice(0, 15)) {
       const probability = market.outcomes[0]?.price || 0.5;
       output += `**${market.question}**\n`;

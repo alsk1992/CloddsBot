@@ -10,6 +10,7 @@ emoji: "📊"
 Cross-chain, cross-DEX market data powered by DexScreener. No API key needed. Works across Solana, Ethereum, BSC, Base, Arbitrum, and 10+ more chains.
 
 **Use this skill when users ask about:**
+- "What's the price of X?" (any token by name or symbol)
 - What's trending, what's hot, what's pumping on any chain or DEX
 - Top gainers or losers (24h or right now)
 - Token volume, liquidity, price changes, transaction counts
@@ -63,6 +64,7 @@ Cross-chain, cross-DEX market data powered by DexScreener. No API key needed. Wo
 ## Token Data Commands
 
 ```
+/dex price <symbol>             Quick price lookup by name or symbol
 /dex token <address> [chain]    Full stats: price, volume, liquidity, txns, price changes
 /dex pairs <address> [chain]    All trading pairs for a token
 /dex search <query>             Search any token across all chains
@@ -70,7 +72,10 @@ Cross-chain, cross-DEX market data powered by DexScreener. No API key needed. Wo
 
 **Examples:**
 ```
+/dex price SOL
+/dex price PEPE
 /dex token EPjFW...Dt1v solana
+/dex token 0x1234... eth         (auto-detects Ethereum for 0x addresses)
 /dex search PEPE
 /dex pairs 0x1234... eth
 ```

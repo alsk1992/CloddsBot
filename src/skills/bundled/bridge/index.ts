@@ -73,6 +73,9 @@ async function execute(args: string): Promise<string> {
         const destAddr = getDestinationAddress();
         if (!destAddr) return 'No wallet configured. Set EVM_PRIVATE_KEY or SOLANA_WALLET_ADDRESS.';
         const tokenAddress = resolveTokenForBridge(token, fromChain);
+        if (!tokenAddress) {
+          return `Token ${token} not found on ${fromChain}. Supported: USDC, USDT, WETH`;
+        }
 
         const quote: any = await wormhole.wormholeQuote({
           source_chain: fromChain,
@@ -230,6 +233,9 @@ async function execute(args: string): Promise<string> {
           }
 
           const tokenAddress = resolveTokenForBridge(token, fromChain);
+          if (!tokenAddress) {
+            return `Token ${token} not found on ${fromChain}. Supported: USDC, USDT, WETH`;
+          }
           const result: any = await wormhole.wormholeBridge({
             source_chain: fromChain,
             destination_chain: toChain,

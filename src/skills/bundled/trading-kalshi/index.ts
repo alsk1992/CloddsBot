@@ -1064,6 +1064,7 @@ async function handleBracket(subCmdOrTicker: string, sizeStrOrId?: string, tpPri
   if (isNaN(size) || size <= 0) return 'Invalid size.';
   if (isNaN(tpPrice) || tpPrice < 0.01 || tpPrice > 0.99) return 'Invalid take-profit price (0.01-0.99).';
   if (isNaN(slPrice) || slPrice < 0.01 || slPrice > 0.99) return 'Invalid stop-loss price (0.01-0.99).';
+  if (tpPrice <= slPrice) return 'Take-profit price must be higher than stop-loss price for a long bracket.';
 
   try {
     const { createBracketOrder } = await import('../../../execution');

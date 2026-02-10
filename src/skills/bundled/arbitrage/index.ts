@@ -29,7 +29,11 @@ let arbService: ArbitrageService | null = null;
 
 function getService(): ArbitrageService {
   if (!arbService) {
-    arbService = createArbitrageService(new Map());
+    const providers = new Map() as Map<any, PriceProvider>;
+    // Providers are registered dynamically by the arbitrage service
+    // based on available feed configurations
+    arbService = createArbitrageService(providers);
+    logger.info({ providerCount: providers.size }, 'Arbitrage service initialized');
   }
   return arbService;
 }

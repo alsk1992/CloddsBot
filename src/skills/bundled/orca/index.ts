@@ -275,13 +275,15 @@ async function handleOpenPosition(args: string[]): Promise<string> {
   const amountB = args[2];
 
   try {
-    const { wallet, orca } = await getSolanaModules();
+    const { wallet, orca, tokenlist } = await getSolanaModules();
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
 
-    // Convert to base units (assuming 9 decimals, adjust as needed)
-    const tokenAmountA = Math.floor(parseFloat(amountA) * 1e9).toString();
-    const tokenAmountB = amountB ? Math.floor(parseFloat(amountB) * 1e9).toString() : undefined;
+    // Default to 9 decimals (SOL standard); most Solana SPL tokens use 9
+    // Orca pool API doesn't support lookup by pool address, so we pass raw amounts
+    const decimals = 9;
+    const tokenAmountA = Math.floor(parseFloat(amountA) * Math.pow(10, decimals)).toString();
+    const tokenAmountB = amountB ? Math.floor(parseFloat(amountB) * Math.pow(10, decimals)).toString() : undefined;
 
     const result = await orca.openOrcaFullRangePosition(connection, keypair, {
       poolAddress,
@@ -320,12 +322,14 @@ async function handleOpenConcentrated(args: string[]): Promise<string> {
   }
 
   try {
-    const { wallet, orca } = await getSolanaModules();
+    const { wallet, orca, tokenlist } = await getSolanaModules();
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
 
-    const tokenAmountA = Math.floor(parseFloat(amountA) * 1e9).toString();
-    const tokenAmountB = amountB ? Math.floor(parseFloat(amountB) * 1e9).toString() : undefined;
+    // Default to 9 decimals (SOL standard); most Solana SPL tokens use 9
+    const decimals = 9;
+    const tokenAmountA = Math.floor(parseFloat(amountA) * Math.pow(10, decimals)).toString();
+    const tokenAmountB = amountB ? Math.floor(parseFloat(amountB) * Math.pow(10, decimals)).toString() : undefined;
 
     const result = await orca.openOrcaConcentratedPosition(connection, keypair, {
       poolAddress,
