@@ -16779,8 +16779,8 @@ export async function createAgentManager(
     });
   }
 
-  // Feature flag: set TOOL_SEARCH_ENABLED=true to use dynamic tool loading
-  const TOOL_SEARCH_ENABLED = process.env.TOOL_SEARCH_ENABLED === 'true';
+  // Dynamic tool loading enabled by default. Set TOOL_SEARCH_ENABLED=false to disable.
+  const TOOL_SEARCH_ENABLED = process.env.TOOL_SEARCH_ENABLED !== 'false';
 
   // Core tools (always sent) vs all tools (legacy mode)
   const coreTools = toolRegistry.getCoreTools();
