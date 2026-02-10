@@ -313,16 +313,23 @@ const PLATFORM_KEYWORDS: [RegExp, string][] = [
   [/\busdc[\s._-]?bridge\b|\bcross[\s._-]?chain\b/i, 'usdc_bridge'],
   [/\bbittensor\b|\btao\b|\bbtcli\b/i, 'bittensor'],
   [/\bqmd\b/i, 'qmd'],
+  [/\bshell\b/i, 'shell'],
+  [/\b(?:python|script|exec)\b/i, 'exec'],
+  [/\bpaper[\s._-]?trad/i, 'paper'],
+  [/\bemail\b/i, 'email'],
+  [/\bsms\b|\btext\s+message\b/i, 'sms'],
+  [/\bsql\b|\bquery\s+db\b|\bdatabase\b/i, 'sql'],
+  [/\bsubagent\b|\bagent\s+task\b/i, 'subagent'],
 ];
 
 /**
  * Category keywords for preloading tools from user messages.
  */
 const CATEGORY_KEYWORDS: [RegExp, string][] = [
-  [/\b(?:buy|sell|order|swap|long|short|execute|cancel|bridge|bet|dca|limit)\b/i, 'trading'],
+  [/\b(?:buy|sell|orders?|swap|long|short|execute|cancel|bridge|bet|dca|limit)\b/i, 'trading'],
   [/\b(?:pool|liquidity|farm|lp|harvest|stake)\b/i, 'defi'],
   [/\b(?:positions?|balances?|portfolio|pnl|margin|leverage)\b/i, 'portfolio'],
-  [/\b(?:price|quote|chart|orderbook|ticker|volume|spread)\b/i, 'market_data'],
+  [/\b(?:prices?|quote|chart|orderbook|ticker|volume|spread)\b/i, 'market_data'],
   [/\b(?:credential|api.key|setup|login|connect)\b/i, 'admin'],
   [/\b(?:file|shell|docker|email|sms|sql|webhook|deploy)\b/i, 'infrastructure'],
   [/\b(?:alert|watch|whale|notification|news)\b/i, 'alerts'],
