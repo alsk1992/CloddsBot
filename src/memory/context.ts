@@ -223,7 +223,9 @@ export function discoverClaudeMd(projectRoot?: string, customPaths?: string[]): 
     if (existsSync(pkgPath)) {
       try {
         context.packageJson = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      } catch {}
+      } catch (err) {
+        logger.debug({ path: pkgPath, error: err }, 'Failed to parse package.json');
+      }
     }
 
     // README
@@ -233,7 +235,9 @@ export function discoverClaudeMd(projectRoot?: string, customPaths?: string[]): 
         try {
           context.readme = readFileSync(readmePath, 'utf-8');
           break;
-        } catch {}
+        } catch (err) {
+          logger.debug({ path: readmePath, error: err }, 'Failed to read README');
+        }
       }
     }
 
@@ -242,7 +246,9 @@ export function discoverClaudeMd(projectRoot?: string, customPaths?: string[]): 
     if (existsSync(gitignorePath)) {
       try {
         context.gitIgnore = readFileSync(gitignorePath, 'utf-8');
-      } catch {}
+      } catch (err) {
+        logger.debug({ path: gitignorePath, error: err }, 'Failed to read .gitignore');
+      }
     }
 
     // Codebase structure (top-level files/dirs)
@@ -250,7 +256,9 @@ export function discoverClaudeMd(projectRoot?: string, customPaths?: string[]): 
       context.codebaseStructure = readdirSync(projectRoot)
         .filter(f => !f.startsWith('.') || f === '.env.example')
         .slice(0, 50);
-    } catch {}
+    } catch (err) {
+      logger.debug({ path: projectRoot, error: err }, 'Failed to read codebase structure');
+    }
   }
 
   return context;
@@ -313,7 +321,7 @@ export function createContextManager(
   const compactThreshold = config.compactThreshold ?? DEFAULT_COMPACT_THRESHOLD;
   const minMessagesAfterCompact = config.minMessagesAfterCompact ?? DEFAULT_MIN_MESSAGES;
   const summarizer = config.summarizer;
-  const evictionPolicy = config.evictionPolicy || 'lru';
+  const evictionPolicy = config.evictionPolicy ?? 'lru';
   const dedupeEnabled = config.dedupe ?? false;
   const dedupeThreshold = config.dedupeThreshold ?? 0.92;
   const dedupeWindow = config.dedupeWindow ?? 12;
@@ -337,7 +345,7 @@ export function createContextManager(
    * Calculate context guard result
    */
   function calculateGuard(additionalTokens = 0): ContextGuardResult {
-    const effectiveMax = maxTokens - reserveTokens;
+    const effectiveMax = Math.max(1, maxTokens - reserveTokens);
     const currentTokens = state.totalTokens + additionalTokens;
     const percentUsed = currentTokens / effectiveMax;
 
@@ -371,7 +379,7 @@ export function createContextManager(
     }
 
     const summaryTokens = 500;
-    const inputTokenLimit = Number(process.env.CLODDS_SUMMARY_INPUT_TOKENS || 4000);
+    const inputTokenLimit = Math.max(1, Number(process.env.CLODDS_SUMMARY_INPUT_TOKENS) || 4000);
     const maxDepth = 3;
 
     const toText = (msgs: Message[]) =>
@@ -505,7 +513,7 @@ export function createContextManager(
         };
       }
 
-      const effectiveMax = maxTokens - reserveTokens;
+      const effectiveMax = Math.max(1, maxTokens - reserveTokens);
 
       const scoreMessage = (msg: Message): number => {
         if (evictionPolicy === 'importance') {
@@ -687,7 +695,7 @@ export function createContextManager(
     },
 
     getStats() {
-      const effectiveMax = maxTokens - reserveTokens;
+      const effectiveMax = Math.max(1, maxTokens - reserveTokens);
       return {
         totalTokens: state.totalTokens,
         percentUsed: state.totalTokens / effectiveMax,

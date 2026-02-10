@@ -28,7 +28,7 @@ export async function runDoctor(): Promise<CheckResult[]> {
 
   // 1. Node version check
   const nodeVersion = process.version;
-  const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0], 10);
+  const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0], 10) || 0;
   if (majorVersion >= 22) {
     results.push({
       name: 'Node.js version',
@@ -472,7 +472,7 @@ export async function runDoctor(): Promise<CheckResult[]> {
   }
 
   // 8. Port availability check
-  const port = config.gateway?.port || 18789;
+  const port = config.gateway?.port ?? 18789;
   try {
     const net = await import('net');
     const available = await new Promise<boolean>((resolve) => {

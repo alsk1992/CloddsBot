@@ -176,7 +176,7 @@ export function createRiskEngine(
       checks.push({
         name: 'kill_switch',
         passed: canTrade,
-        message: canTrade ? 'Trading enabled' : deps.safetyManager.getState().disabledReason || 'Trading disabled',
+        message: canTrade ? 'Trading enabled' : deps.safetyManager.getState().disabledReason ?? 'Trading disabled',
       });
       if (!canTrade) {
         return {
@@ -272,7 +272,7 @@ export function createRiskEngine(
         passed: validation.allowed,
         message: validation.allowed
           ? 'Safety checks passed (daily loss, drawdown, concentration)'
-          : validation.reason || 'Safety validation failed',
+          : validation.reason ?? 'Safety validation failed',
       });
       if (!validation.allowed) {
         return {

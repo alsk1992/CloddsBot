@@ -123,7 +123,7 @@ function getClient(config: OpinionConfig): Client {
     rpcUrl: config.rpcUrl || DEFAULT_RPC_URL,
     privateKey: config.privateKey as `0x${string}`,
     vaultAddress: config.vaultAddress as `0x${string}`,
-    chainId: config.chainId || 56,
+    chainId: config.chainId ?? 56,
   };
 
   client = new Client(clientConfig);
@@ -143,9 +143,9 @@ export async function getMarkets(
 ): Promise<OpinionMarket[]> {
   const c = getClient(config);
   const result = await c.getMarkets({
-    page: options?.page || 1,
-    limit: options?.limit || 50,
-    status: options?.status || 'activated',
+    page: options?.page ?? 1,
+    limit: options?.limit ?? 50,
+    status: options?.status ?? 'activated',
   });
   return result.list;
 }
@@ -188,7 +188,7 @@ export async function getPriceHistory(
   try {
     const history = await c.getPriceHistory({
       tokenId,
-      interval: interval || '1h',
+      interval: interval ?? '1h',
       startAt,
     });
     return history.map(p => ({
@@ -208,8 +208,8 @@ export async function getFeeRates(
   try {
     const rates = await c.getFeeRates(tokenId);
     return {
-      takerFeeBps: parseInt(rates.takerFeeBps),
-      makerFeeBps: parseInt(rates.makerFeeBps),
+      takerFeeBps: parseInt(rates.takerFeeBps, 10) || 0,
+      makerFeeBps: parseInt(rates.makerFeeBps, 10) || 0,
     };
   } catch {
     return null;

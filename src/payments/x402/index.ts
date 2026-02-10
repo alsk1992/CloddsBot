@@ -167,6 +167,7 @@ export function createX402Client(config: X402Config = {}): X402Client {
   const autoApproveLimit = config.autoApproveLimit ?? 1.0; // $1 default
   const dryRun = config.dryRun ?? false;
 
+  const MAX_PAYMENT_HISTORY = 1000;
   const paymentHistory: X402PaymentResult[] = [];
 
   // EVM wallet
@@ -186,14 +187,14 @@ export function createX402Client(config: X402Config = {}): X402Client {
   // Convert USD to token amount
   function usdToTokenAmount(usd: number, network: X402Network): string {
     const decimals = USDC_DECIMALS[network];
-    const amount = Math.ceil(usd * Math.pow(10, decimals));
+    const amount = Math.round(usd * Math.pow(10, decimals));
     return amount.toString();
   }
 
   // Parse token amount to USD
   function tokenAmountToUsd(amount: string, network: X402Network): number {
     const decimals = USDC_DECIMALS[network];
-    return parseInt(amount, 10) / Math.pow(10, decimals);
+    return Number(amount) / Math.pow(10, decimals);
   }
 
   // Sign EVM payment using proper EIP-712
@@ -266,6 +267,9 @@ export function createX402Client(config: X402Config = {}): X402Client {
           amount: cheapestOption.maxAmountRequired,
           asset: 'USDC',
         });
+        if (paymentHistory.length > MAX_PAYMENT_HISTORY) {
+          paymentHistory.splice(0, paymentHistory.length - MAX_PAYMENT_HISTORY);
+        }
         return initialResponse;
       }
 
@@ -288,6 +292,9 @@ export function createX402Client(config: X402Config = {}): X402Client {
           amount: cheapestOption.maxAmountRequired,
           asset: 'USDC',
         });
+        if (paymentHistory.length > MAX_PAYMENT_HISTORY) {
+          paymentHistory.splice(0, paymentHistory.length - MAX_PAYMENT_HISTORY);
+        }
         emitter.emit('payment_success', { url, amount: usdAmount, payload });
       } else {
         logger.error({ url, status: paidResponse.status }, 'x402: Payment failed');
@@ -295,6 +302,9 @@ export function createX402Client(config: X402Config = {}): X402Client {
           success: false,
           error: `HTTP ${paidResponse.status}`,
         });
+        if (paymentHistory.length > MAX_PAYMENT_HISTORY) {
+          paymentHistory.splice(0, paymentHistory.length - MAX_PAYMENT_HISTORY);
+        }
         emitter.emit('payment_failed', { url, status: paidResponse.status });
       }
 
@@ -520,7 +530,7 @@ export function createX402Server(
   // Convert USD price to payment details
   function createPaymentDetails(endpoint: string, config: X402EndpointConfig): X402PaymentDetails {
     const decimals = USDC_DECIMALS[serverConfig.network];
-    const amount = Math.ceil(config.priceUsd * Math.pow(10, decimals)).toString();
+    const amount = Math.round(config.priceUsd * Math.pow(10, decimals)).toString();
 
     return {
       accepts: [{
@@ -549,7 +559,8 @@ export function createX402Server(
 
       const result = await response.json() as { valid: boolean; settled?: boolean };
       return result.valid && result.settled !== false;
-    } catch {
+    } catch (err) {
+      logger.error({ err }, 'x402: Server payment verification error');
       return false;
     }
   }
@@ -586,8 +597,14 @@ export function createX402Server(
         return;
       }
 
-      // Parse and verify payment
       try {
+        if (typeof paymentHeader !== 'string' || paymentHeader.length > 10000) {
+          res.status?.(400) || (res.statusCode = 400);
+          res.json?.({ error: 'Payment header too large' }) ||
+            res.end?.(JSON.stringify({ error: 'Payment header too large' }));
+          return;
+        }
+
         const payload: X402PaymentPayload = JSON.parse(
           Buffer.from(paymentHeader, 'base64').toString()
         );
@@ -613,11 +630,14 @@ export function createX402Server(
           return;
         }
 
-        // Track stats
         stats.totalPayments++;
         stats.totalRevenue += endpointConfig.priceUsd;
 
         if (!stats.byEndpoint[path]) {
+          const endpointKeys = Object.keys(stats.byEndpoint);
+          if (endpointKeys.length >= 10000) {
+            delete stats.byEndpoint[endpointKeys[0]];
+          }
           stats.byEndpoint[path] = { count: 0, revenue: 0 };
         }
         stats.byEndpoint[path].count++;
@@ -711,7 +731,7 @@ export function createX402AxiosInterceptor(config: X402Config) {
  */
 export function formatX402Amount(amount: string, network: X402Network): string {
   const decimals = USDC_DECIMALS[network];
-  const value = parseInt(amount, 10) / Math.pow(10, decimals);
+  const value = Number(amount) / Math.pow(10, decimals);
   return `$${value.toFixed(2)} USDC`;
 }
 

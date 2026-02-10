@@ -121,7 +121,7 @@ export function createVolatilityDetector(config: Partial<VolatilityConfig> = {})
     // If we have a baseline, classify relative to it using z-score of volatility.
     // Otherwise use absolute thresholds (as percentages).
     const threshold = baselineStdDev ?? 1;
-    const ratio = threshold > 0 ? stdDev / threshold : stdDev;
+    const ratio = threshold > 1e-12 ? stdDev / threshold : (stdDev > 0 ? cfg.extremeThreshold + 1 : 0);
 
     if (ratio <= cfg.lowThreshold) return 'low';
     if (ratio <= cfg.highThreshold) return 'normal';

@@ -24,7 +24,8 @@ function loadAll(): Record<string, StrategyPreset> {
     if (!existsSync(PRESETS_FILE)) return {};
     const raw = readFileSync(PRESETS_FILE, 'utf-8');
     return JSON.parse(raw) as Record<string, StrategyPreset>;
-  } catch {
+  } catch (err) {
+    logger.warn({ err }, 'Failed to load presets file');
     return {};
   }
 }

@@ -72,7 +72,7 @@ export function createPercolatorFeed(config: PercolatorConfig): PercolatorFeed {
         }
       }
 
-      const spreadBps = bestBid && bestAsk
+      const spreadBps = bestBid && bestAsk && oraclePriceE6 > 0n
         ? Number((bestAsk.price - bestBid.price) * 10000n / oraclePriceE6)
         : 0;
 

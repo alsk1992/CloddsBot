@@ -317,6 +317,17 @@ export function createCircuitBreaker(config: CircuitBreakerConfig): CircuitBreak
 
   function runMonitoringCheck(): void {
     if (!cfg.enabled || state.tripped) return;
+
+    if (marketTrips.size > 1000) {
+      const entries = [...marketTrips.entries()];
+      const cutoff = Date.now() - cfg.cooldownMs;
+      for (const [key, event] of entries) {
+        if (event.timestamp.getTime() < cutoff) {
+          marketTrips.delete(key);
+        }
+      }
+    }
+
     const tripEvent = checkAllConditions();
     if (tripEvent) tripBreaker(tripEvent);
   }
@@ -355,11 +366,10 @@ export function createCircuitBreaker(config: CircuitBreakerConfig): CircuitBreak
         state.consecutiveFailures++;
       }
 
-      if (result.pnl !== undefined && result.pnl < 0) {
-        const lossPct = Math.abs(result.pnl);
-        state.losses.hourly -= lossPct;
-        state.losses.daily -= lossPct;
-        state.losses.weekly -= lossPct;
+      if (result.pnl !== undefined) {
+        state.losses.hourly += result.pnl;
+        state.losses.daily += result.pnl;
+        state.losses.weekly += result.pnl;
       }
 
       if (!state.tripped) {

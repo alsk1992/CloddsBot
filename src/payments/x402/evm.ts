@@ -213,9 +213,9 @@ export async function signEvmPayment(
   option: X402PaymentOption
 ): Promise<X402PaymentPayload> {
   const nonce = randomBytes(16).toString('hex');
-  const validUntil = option.validUntil || Math.floor(Date.now() / 1000) + 300;
+  const validUntil = option.validUntil ?? Math.floor(Date.now() / 1000) + 300;
 
-  const chainId = CHAIN_IDS[option.network] || 8453;
+  const chainId = CHAIN_IDS[option.network] ?? 8453;
 
   const domain: EIP712Domain = {
     ...X402_DOMAIN,
@@ -324,7 +324,7 @@ export function verifyEvmPayment(payload: X402PaymentPayload): boolean {
 
   // Reconstruct the message hash
   const option = payload.paymentOption;
-  const chainId = CHAIN_IDS[option.network] || 8453;
+  const chainId = CHAIN_IDS[option.network] ?? 8453;
   const domain: EIP712Domain = { ...X402_DOMAIN, chainId };
   const message: X402PaymentMessage = {
     scheme: option.scheme,
@@ -333,7 +333,7 @@ export function verifyEvmPayment(payload: X402PaymentPayload): boolean {
     amount: option.maxAmountRequired,
     payTo: option.payTo,
     nonce: payload.nonce,
-    validUntil: option.validUntil || 0,
+    validUntil: option.validUntil ?? 0,
   };
 
   const expectedHash = createTypedDataHash(domain, message);

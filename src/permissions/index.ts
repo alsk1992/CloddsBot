@@ -368,6 +368,7 @@ export function matchesAllowlistPattern(
 
     case 'regex':
       try {
+        if (entry.pattern.length > 1000) return false;
         const re = new RegExp(entry.pattern);
         return re.test(command) || re.test(fullCommand);
       } catch {
@@ -394,16 +395,14 @@ export interface SandboxConfig {
  * Validate a path is within the sandbox
  */
 export function assertSandboxPath(path: string, config: SandboxConfig): void {
+  if (path.includes('\0')) {
+    throw new Error(`Null byte in path: ${path}`);
+  }
+
   const normalizedPath = normalize(resolve(path));
   const normalizedRoot = normalize(resolve(config.root));
 
-  // Check for path traversal
-  if (normalizedPath.includes('..')) {
-    throw new Error(`Path traversal detected: ${path}`);
-  }
-
-  // Check path is within root
-  if (!normalizedPath.startsWith(normalizedRoot)) {
+  if (!normalizedPath.startsWith(normalizedRoot + '/') && normalizedPath !== normalizedRoot) {
     throw new Error(`Path escapes sandbox: ${path}`);
   }
 
@@ -413,7 +412,7 @@ export function assertSandboxPath(path: string, config: SandboxConfig): void {
       const stats = lstatSync(path);
       if (stats.isSymbolicLink()) {
         const realPath = realpathSync(path);
-        if (!realPath.startsWith(normalizedRoot)) {
+        if (!realPath.startsWith(normalizedRoot + '/') && realPath !== normalizedRoot) {
           throw new Error(`Symlink escapes sandbox: ${path} -> ${realPath}`);
         }
       }
@@ -444,6 +443,7 @@ export class ExecApprovalsManager extends EventEmitter {
   private pendingPath: string;
   private decisionsPath: string;
   private pendingApprovals: Map<string, ApprovalRequest> = new Map();
+  private decisionPoller: ReturnType<typeof setInterval> | null = null;
 
   constructor(configPath?: string) {
     super();
@@ -473,10 +473,19 @@ export class ExecApprovalsManager extends EventEmitter {
       });
     }
 
-    const decisionPoller = setInterval(() => {
+    this.decisionPoller = setInterval(() => {
       this.applyDecisionsFromDisk();
     }, 1000);
-    decisionPoller.unref?.();
+    this.decisionPoller.unref?.();
+  }
+
+  destroy(): void {
+    if (this.decisionPoller) {
+      clearInterval(this.decisionPoller);
+      this.decisionPoller = null;
+    }
+    this.pendingApprovals.clear();
+    this.removeAllListeners();
   }
 
   private loadConfig(): ExecApprovalsConfig {
@@ -722,7 +731,8 @@ export class ExecApprovalsManager extends EventEmitter {
       pattern,
       type,
       addedAt: Date.now(),
-      ...options,
+      description: options.description,
+      addedBy: options.addedBy,
     };
 
     this.config.agents[agentId].allowlist.push(entry);
@@ -858,7 +868,7 @@ export class ExecApprovalsManager extends EventEmitter {
     awaitingDecision: boolean = false
   ): ApprovalRequest {
     const security = this.getSecurityConfig(agentId);
-    const timeout = security.approvalTimeout || DEFAULT_APPROVAL_TIMEOUT;
+    const timeout = security.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
 
     const request: ApprovalRequest = {
       id: randomUUID(),
@@ -918,7 +928,7 @@ export class ExecApprovalsManager extends EventEmitter {
 
     // Wait for decision or timeout
     const security = this.getSecurityConfig(agentId);
-    const timeout = security.approvalTimeout || DEFAULT_APPROVAL_TIMEOUT;
+    const timeout = security.approvalTimeout ?? DEFAULT_APPROVAL_TIMEOUT;
 
     return new Promise((resolve) => {
       const timer = setTimeout(() => {

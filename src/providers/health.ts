@@ -32,8 +32,8 @@ export interface ProviderHealthConfig {
 }
 
 const DEFAULT_CONFIG: Required<ProviderHealthConfig> = {
-  intervalMs: Number(process.env.CLODDS_PROVIDER_HEALTH_INTERVAL_MS || 30_000),
-  failureWarnThreshold: Number(process.env.CLODDS_PROVIDER_HEALTH_WARN_AFTER || 3),
+  intervalMs: Number(process.env.CLODDS_PROVIDER_HEALTH_INTERVAL_MS) || 30_000,
+  failureWarnThreshold: Number(process.env.CLODDS_PROVIDER_HEALTH_WARN_AFTER) || 3,
 };
 
 function now(): number {
@@ -55,14 +55,14 @@ export function createProviderHealthMonitor(
 
     for (const [provider, available] of Object.entries(availability)) {
       const prev = statuses.get(provider);
-      const consecutiveFailures = available ? 0 : (prev?.consecutiveFailures || 0) + 1;
+      const consecutiveFailures = available ? 0 : (prev?.consecutiveFailures ?? 0) + 1;
 
       const next: ProviderHealthStatus = {
         provider,
         available,
         lastCheckedAt: checkedAt,
         consecutiveFailures,
-        lastError: available ? undefined : prev?.lastError || 'Unavailable',
+        lastError: available ? undefined : prev?.lastError ?? 'Unavailable',
       };
 
       statuses.set(provider, next);
@@ -102,6 +102,7 @@ export function createProviderHealthMonitor(
           logger.warn({ error }, 'Provider health check failed');
         });
       }, config.intervalMs);
+      if (timer.unref) timer.unref();
 
       logger.info({ intervalMs: config.intervalMs }, 'Provider health monitor started');
     },
@@ -112,6 +113,7 @@ export function createProviderHealthMonitor(
         clearInterval(timer);
         timer = null;
       }
+      monitor.removeAllListeners();
       logger.info('Provider health monitor stopped');
     },
 

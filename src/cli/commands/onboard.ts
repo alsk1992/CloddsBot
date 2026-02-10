@@ -6,18 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
-function question(prompt: string): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
-      resolve(answer.trim());
-    });
-  });
-}
+let rl: readline.Interface;
 
 function spinner(text: string): { stop: (success: boolean, result?: string) => void } {
   const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -107,7 +96,20 @@ async function validateDiscordToken(token: string): Promise<{ valid: boolean; bo
 // MAIN ONBOARD FLOW
 // =============================================================================
 
+function question(prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    rl.question(prompt, (answer) => {
+      resolve(answer.trim());
+    });
+  });
+}
+
 export async function runOnboard(): Promise<void> {
+  rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
   console.log('\n\x1b[1m🎯 Welcome to Clodds Setup!\x1b[0m\n');
   console.log("Let's get you set up with your prediction markets assistant.\n");
   console.log('\x1b[90mThis wizard will:\x1b[0m');

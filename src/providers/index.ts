@@ -93,7 +93,8 @@ export class GeminiProvider implements Provider {
   }
 
   private endpoint(model: string, method: 'generateContent' | 'streamGenerateContent'): string {
-    const cleanModel = model.startsWith('models/') ? model : `models/${model}`;
+    const sanitized = model.replace(/[^a-zA-Z0-9._\-/]/g, '');
+    const cleanModel = sanitized.startsWith('models/') ? sanitized : `models/${sanitized}`;
     return `${this.baseUrl}/${cleanModel}:${method}?key=${this.apiKey}`;
   }
 
@@ -147,16 +148,16 @@ export class GeminiProvider implements Provider {
       modelVersion?: string;
     };
 
-    const content = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+    const content = data.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('') ?? '';
     const finish = data.candidates?.[0]?.finishReason;
 
     return {
       content,
       model: data.modelVersion || model,
       usage: {
-        inputTokens: data.usageMetadata?.promptTokenCount || 0,
-        outputTokens: data.usageMetadata?.candidatesTokenCount || 0,
-        totalTokens: data.usageMetadata?.totalTokenCount || 0,
+        inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+        outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+        totalTokens: data.usageMetadata?.totalTokenCount ?? 0,
       },
       finishReason: finish === 'STOP' ? 'end_turn' : 'end_turn',
       latency: Date.now() - startTime,
@@ -198,7 +199,7 @@ export class GeminiProvider implements Provider {
 
       // Gemini streaming responses are JSON lines.
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -208,12 +209,12 @@ export class GeminiProvider implements Provider {
           const event = JSON.parse(trimmed) as {
             candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
           };
-          const content = event.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+          const content = event.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('') ?? '';
           if (content) {
             yield { content, done: false };
           }
-        } catch {
-          // Ignore malformed chunks.
+        } catch (err) {
+          logger.debug({ error: err }, 'Failed to parse Gemini stream chunk');
         }
       }
     }
@@ -286,7 +287,7 @@ export class AnthropicProvider implements Provider {
 
     const body = {
       model: options.model || this.config.defaultModel,
-      max_tokens: options.maxTokens || 4096,
+      max_tokens: options.maxTokens ?? 4096,
       temperature: options.temperature,
       top_p: options.topP,
       stop_sequences: options.stopSequences,
@@ -300,12 +301,12 @@ export class AnthropicProvider implements Provider {
     const response = await this.request('/v1/messages', body);
 
     return {
-      content: response.content[0]?.text || '',
+      content: response.content[0]?.text ?? '',
       model: response.model,
       usage: {
-        inputTokens: response.usage?.input_tokens || 0,
-        outputTokens: response.usage?.output_tokens || 0,
-        totalTokens: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+        totalTokens: (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0),
       },
       finishReason: response.stop_reason === 'end_turn' ? 'end_turn' :
         response.stop_reason === 'max_tokens' ? 'max_tokens' : 'end_turn',
@@ -319,7 +320,7 @@ export class AnthropicProvider implements Provider {
 
     const body = {
       model: options.model || this.config.defaultModel,
-      max_tokens: options.maxTokens || 4096,
+      max_tokens: options.maxTokens ?? 4096,
       temperature: options.temperature,
       top_p: options.topP,
       stop_sequences: options.stopSequences,
@@ -357,7 +358,7 @@ export class AnthropicProvider implements Provider {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
@@ -435,10 +436,11 @@ export class AnthropicProvider implements Provider {
         // Rate limit
         if (statusCode === 429) {
           const retryAfter = response.headers.get('retry-after');
+          const parsedRetry = retryAfter ? parseInt(retryAfter, 10) : NaN;
           throw new RateLimitError(
             `Anthropic rate limited: ${statusCode} - ${errorText}`,
             statusCode,
-            retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined
+            !isNaN(parsedRetry) ? parsedRetry * 1000 : undefined
           );
         }
 
@@ -497,7 +499,7 @@ export class OpenAIProvider implements Provider {
 
     const body = {
       model: options.model || this.config.defaultModel,
-      max_tokens: options.maxTokens || 4096,
+      max_tokens: options.maxTokens ?? 4096,
       temperature: options.temperature,
       top_p: options.topP,
       stop: options.stopSequences,
@@ -510,12 +512,12 @@ export class OpenAIProvider implements Provider {
     const response = await this.request('/v1/chat/completions', body);
 
     return {
-      content: response.choices[0]?.message?.content || '',
+      content: response.choices[0]?.message?.content ?? '',
       model: response.model,
       usage: {
-        inputTokens: response.usage?.prompt_tokens || 0,
-        outputTokens: response.usage?.completion_tokens || 0,
-        totalTokens: response.usage?.total_tokens || 0,
+        inputTokens: response.usage?.prompt_tokens ?? 0,
+        outputTokens: response.usage?.completion_tokens ?? 0,
+        totalTokens: response.usage?.total_tokens ?? 0,
       },
       finishReason: response.choices[0]?.finish_reason === 'stop' ? 'end_turn' :
         response.choices[0]?.finish_reason === 'length' ? 'max_tokens' : 'end_turn',
@@ -526,7 +528,7 @@ export class OpenAIProvider implements Provider {
   async *stream(messages: Message[], options: CompletionOptions = {}): AsyncIterable<StreamChunk> {
     const body = {
       model: options.model || this.config.defaultModel,
-      max_tokens: options.maxTokens || 4096,
+      max_tokens: options.maxTokens ?? 4096,
       temperature: options.temperature,
       top_p: options.topP,
       stop: options.stopSequences,
@@ -562,7 +564,7 @@ export class OpenAIProvider implements Provider {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
@@ -630,10 +632,11 @@ export class OpenAIProvider implements Provider {
         // Rate limit
         if (statusCode === 429) {
           const retryAfter = response.headers.get('retry-after');
+          const parsedRetry = retryAfter ? parseInt(retryAfter, 10) : NaN;
           throw new RateLimitError(
             `OpenAI rate limited: ${statusCode} - ${errorText}`,
             statusCode,
-            retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined
+            !isNaN(parsedRetry) ? parsedRetry * 1000 : undefined
           );
         }
 
@@ -719,12 +722,12 @@ export class OllamaProvider implements Provider {
       };
 
       return {
-        content: data.message?.content || '',
+        content: data.message?.content ?? '',
         model: data.model,
         usage: {
-          inputTokens: data.prompt_eval_count || 0,
-          outputTokens: data.eval_count || 0,
-          totalTokens: (data.prompt_eval_count || 0) + (data.eval_count || 0),
+          inputTokens: data.prompt_eval_count ?? 0,
+          outputTokens: data.eval_count ?? 0,
+          totalTokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
         },
         finishReason: data.done_reason === 'stop' ? 'end_turn' : 'max_tokens',
         latency: Date.now() - startTime,
@@ -768,7 +771,7 @@ export class OllamaProvider implements Provider {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         if (!line.trim()) continue;
@@ -827,9 +830,9 @@ export class ProviderManager extends EventEmitter {
   }> = new Map();
 
   private readonly circuitConfig = {
-    failureThreshold: Number(process.env.CLODDS_PROVIDER_CB_FAILURE_THRESHOLD || 3),
-    cooldownMs: Number(process.env.CLODDS_PROVIDER_CB_COOLDOWN_MS || 60_000),
-    successResetThreshold: Number(process.env.CLODDS_PROVIDER_CB_SUCCESS_RESET || 2),
+    failureThreshold: Number(process.env.CLODDS_PROVIDER_CB_FAILURE_THRESHOLD) || 3,
+    cooldownMs: Number(process.env.CLODDS_PROVIDER_CB_COOLDOWN_MS) || 60_000,
+    successResetThreshold: Number(process.env.CLODDS_PROVIDER_CB_SUCCESS_RESET) || 2,
   };
 
   private getCircuit(provider: string) {

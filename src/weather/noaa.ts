@@ -138,6 +138,20 @@ export class NOAAClient {
   private pointCache: Map<string, { data: NOAAPoint; timestamp: number }> = new Map();
   private forecastCache: Map<string, { data: WeatherForecast; timestamp: number }> = new Map();
   private readonly cacheTTL = 15 * 60 * 1000; // 15 minutes
+  private readonly maxCacheSize = 500;
+
+  private evictCache<T>(cache: Map<string, { data: T; timestamp: number }>): void {
+    if (cache.size <= this.maxCacheSize) return;
+    let oldestKey: string | null = null;
+    let oldestTs = Infinity;
+    for (const [key, entry] of cache) {
+      if (entry.timestamp < oldestTs) {
+        oldestTs = entry.timestamp;
+        oldestKey = key;
+      }
+    }
+    if (oldestKey) cache.delete(oldestKey);
+  }
 
   /**
    * Get grid point data for coordinates
@@ -186,6 +200,7 @@ export class NOAAClient {
       };
 
       this.pointCache.set(cacheKey, { data: point, timestamp: Date.now() });
+      this.evictCache(this.pointCache);
       return point;
     } catch (error) {
       logger.error('[NOAA] Failed to get point data:', error);
@@ -233,6 +248,7 @@ export class NOAAClient {
       };
 
       this.forecastCache.set(cacheKey, { data: forecast, timestamp: Date.now() });
+      this.evictCache(this.forecastCache);
       return forecast;
     } catch (error) {
       logger.error('[NOAA] Failed to get forecast:', error);
@@ -324,15 +340,15 @@ export class NOAAClient {
       return {
         station: stationId,
         timestamp: props.timestamp,
-        temperature: props.temperature?.value
+        temperature: props.temperature?.value != null
           ? this.celsiusToFahrenheit(props.temperature.value)
           : 0,
         temperatureUnit: 'F',
-        humidity: props.relativeHumidity?.value || 0,
-        windSpeed: props.windSpeed?.value
+        humidity: props.relativeHumidity?.value ?? 0,
+        windSpeed: props.windSpeed?.value != null
           ? Math.round(props.windSpeed.value * 2.237) // m/s to mph
           : 0,
-        windDirection: this.degreesToDirection(props.windDirection?.value || 0),
+        windDirection: this.degreesToDirection(props.windDirection?.value ?? 0),
         description: props.textDescription || 'Unknown',
         precipitationLastHour: props.precipitationLastHour?.value,
       };
@@ -372,7 +388,7 @@ export class NOAAClient {
 
       if (targetDate >= periodStart && targetDate < periodEnd) {
         return {
-          probability: period.probabilityOfPrecipitation.value || 0,
+          probability: period.probabilityOfPrecipitation.value ?? 0,
           period,
         };
       }

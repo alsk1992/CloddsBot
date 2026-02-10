@@ -97,9 +97,10 @@ export function createHftDivergenceEngine(
 
     const tokenId = signal.direction === 'up' ? market.upTokenId : market.downTokenId;
     const price = signal.direction === 'up' ? market.upPrice : market.downPrice;
+    if (price <= 0) return;
     const shares = Math.floor((config.defaultSizeUsd / price) * 100) / 100;
 
-    if (shares < 1) return;
+    if (shares < 1 || !isFinite(shares)) return;
 
     orderInFlight = true;
 

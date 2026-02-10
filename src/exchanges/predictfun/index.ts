@@ -327,7 +327,7 @@ export async function createOrder(
       makerAmount,
       takerAmount,
       nonce: BigInt(Date.now()),
-      feeRateBps: params.feeRateBps || 0,
+      feeRateBps: params.feeRateBps ?? 0,
     });
 
     // Build typed data and sign

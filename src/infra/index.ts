@@ -88,6 +88,10 @@ const DEFAULT_HEALTH_RETRIES = 3;
 // HELPERS
 // =============================================================================
 
+function shellEscape(arg: string): string {
+  return "'" + arg.replace(/'/g, "'\\''") + "'";
+}
+
 function execAsync(command: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     exec(command, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -173,48 +177,48 @@ export class DockerManager {
   async startContainer(config: ServiceConfig): Promise<string> {
     this.services.set(config.name, config);
 
-    const args: string[] = ['run', '-d', '--name', config.name];
+    const args: string[] = ['run', '-d', '--name', shellEscape(config.name)];
 
     // Environment variables
     if (config.env) {
       for (const [key, value] of Object.entries(config.env)) {
-        args.push('-e', `${key}=${value}`);
+        args.push('-e', shellEscape(`${key}=${value}`));
       }
     }
 
     // Ports
     if (config.ports) {
       for (const port of config.ports) {
-        args.push('-p', `${port.host}:${port.container}`);
+        args.push('-p', shellEscape(`${port.host}:${port.container}`));
       }
     }
 
     // Volumes
     if (config.volumes) {
       for (const vol of config.volumes) {
-        args.push('-v', `${vol.host}:${vol.container}`);
+        args.push('-v', shellEscape(`${vol.host}:${vol.container}`));
       }
     }
 
     // Resources
     if (config.resources) {
       if (config.resources.cpus) {
-        args.push('--cpus', config.resources.cpus.toString());
+        args.push('--cpus', shellEscape(config.resources.cpus.toString()));
       }
       if (config.resources.memory) {
-        args.push('-m', config.resources.memory);
+        args.push('-m', shellEscape(config.resources.memory));
       }
     }
 
     // Restart policy
     if (config.restart) {
-      args.push('--restart', config.restart);
+      args.push('--restart', shellEscape(config.restart));
     }
 
     // Image and command
-    args.push(config.image!);
-    if (config.command) args.push(config.command);
-    if (config.args) args.push(...config.args);
+    args.push(shellEscape(config.image!));
+    if (config.command) args.push(shellEscape(config.command));
+    if (config.args) args.push(...config.args.map(shellEscape));
 
     const { stdout } = await execAsync(`docker ${args.join(' ')}`);
     const containerId = stdout.trim();
@@ -243,7 +247,9 @@ export class DockerManager {
       this.healthCheckers.delete(name);
     }
 
-    await execAsync(`docker stop -t ${timeout} ${name}`);
+    const safeName = shellEscape(name);
+    const safeTimeout = Math.max(0, Math.floor(timeout));
+    await execAsync(`docker stop -t ${safeTimeout} ${safeName}`);
 
     this.statuses.set(name, {
       name,
@@ -256,7 +262,8 @@ export class DockerManager {
 
   async removeContainer(name: string, force = false): Promise<void> {
     const flag = force ? '-f' : '';
-    await execAsync(`docker rm ${flag} ${name}`);
+    const safeName = shellEscape(name);
+    await execAsync(`docker rm ${flag} ${safeName}`);
 
     this.services.delete(name);
     this.statuses.delete(name);
@@ -265,12 +272,16 @@ export class DockerManager {
   }
 
   async getLogs(name: string, lines = 100): Promise<string> {
-    const { stdout } = await execAsync(`docker logs --tail ${lines} ${name}`);
+    const safeName = shellEscape(name);
+    const safeLines = Math.max(1, Math.floor(lines));
+    const { stdout } = await execAsync(`docker logs --tail ${safeLines} ${safeName}`);
     return stdout;
   }
 
   async exec(name: string, command: string): Promise<string> {
-    const { stdout } = await execAsync(`docker exec ${name} ${command}`);
+    const safeName = shellEscape(name);
+    const safeCommand = shellEscape(command);
+    const { stdout } = await execAsync(`docker exec ${safeName} sh -c ${safeCommand}`);
     return stdout;
   }
 
@@ -325,8 +336,9 @@ export class DockerManager {
     return Array.from(this.statuses.values());
   }
 
-  onHealthChange(callback: (event: { name: string; health: string }) => void): void {
+  onHealthChange(callback: (event: { name: string; health: string }) => void): () => void {
     this.events.on('healthChange', callback);
+    return () => { this.events.off('healthChange', callback); };
   }
 }
 
@@ -441,15 +453,17 @@ export async function getSystemHealth(): Promise<SystemHealth> {
       const { stdout } = await execAsync('df -k / | tail -1');
       const parts = stdout.trim().split(/\s+/);
       if (parts.length >= 4) {
-        const total = parseInt(parts[1]) * 1024;
-        const used = parseInt(parts[2]) * 1024;
-        const free = parseInt(parts[3]) * 1024;
-        health.disk = {
-          total,
-          free,
-          used,
-          percent: (used / total) * 100,
-        };
+        const total = parseInt(parts[1], 10) * 1024;
+        const used = parseInt(parts[2], 10) * 1024;
+        const free = parseInt(parts[3], 10) * 1024;
+        if (!isNaN(total) && !isNaN(used) && !isNaN(free) && total > 0) {
+          health.disk = {
+            total,
+            free,
+            used,
+            percent: (used / total) * 100,
+          };
+        }
       }
     } catch (e) {
       logger.debug({ err: e }, 'Failed to get disk info');
@@ -585,9 +599,9 @@ export function generateDockerCompose(config: DeploymentConfig): string {
       if (service.healthCheck.command) {
         svc.healthcheck = {
           test: ['CMD-SHELL', service.healthCheck.command],
-          interval: `${(service.healthCheck.interval || 30000) / 1000}s`,
-          timeout: `${(service.healthCheck.timeout || 5000) / 1000}s`,
-          retries: service.healthCheck.retries || 3,
+          interval: `${(service.healthCheck.interval ?? 30000) / 1000}s`,
+          timeout: `${(service.healthCheck.timeout ?? 5000) / 1000}s`,
+          retries: service.healthCheck.retries ?? 3,
         };
       }
     }

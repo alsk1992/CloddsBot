@@ -89,7 +89,9 @@ function getClient(config: BinanceFuturesConfig): USDMClient {
 export async function getPrice(config: BinanceFuturesConfig, symbol: string): Promise<number> {
   const c = getClient(config);
   const ticker = await c.getMarkPrice({ symbol });
-  return parseFloat(String(ticker.markPrice));
+  const price = parseFloat(String(ticker.markPrice));
+  if (Number.isNaN(price)) throw new Error(`Invalid mark price for ${symbol}`);
+  return price;
 }
 
 export async function getFundingRate(config: BinanceFuturesConfig, symbol: string): Promise<FundingRate> {
@@ -144,7 +146,7 @@ export async function getPositions(config: BinanceFuturesConfig): Promise<Positi
       markPrice: parseFloat(String(p.markPrice)),
       unrealizedProfit: parseFloat(String(p.unRealizedProfit)),
       liquidationPrice: parseFloat(String(p.liquidationPrice)),
-      leverage: parseInt(String(p.leverage), 10),
+      leverage: parseInt(String(p.leverage), 10) || 1,
       marginType: p.marginType as 'cross' | 'isolated',
       isolatedMargin: parseFloat(String(p.isolatedMargin)),
       notional: parseFloat(String(p.notional)),
@@ -195,7 +197,7 @@ export async function openLong(
   quantity: number,
   leverage?: number
 ): Promise<OrderResult> {
-  if (leverage) {
+  if (leverage != null) {
     await setLeverage(config, symbol, leverage);
   }
 
@@ -227,10 +229,10 @@ export async function openLong(
     orderId: result.orderId,
     symbol: result.symbol,
     side: result.side as 'BUY' | 'SELL',
-    positionSide: (result.positionSide || 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
+    positionSide: (result.positionSide ?? 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
     type: result.type,
-    price: parseFloat(String(result.price || 0)),
-    avgPrice: parseFloat(String(result.avgPrice || 0)),
+    price: parseFloat(String(result.price ?? 0)),
+    avgPrice: parseFloat(String(result.avgPrice ?? 0)),
     origQty: parseFloat(String(result.origQty)),
     executedQty: parseFloat(String(result.executedQty)),
     status: result.status,
@@ -243,7 +245,7 @@ export async function openShort(
   quantity: number,
   leverage?: number
 ): Promise<OrderResult> {
-  if (leverage) {
+  if (leverage != null) {
     await setLeverage(config, symbol, leverage);
   }
 
@@ -275,10 +277,10 @@ export async function openShort(
     orderId: result.orderId,
     symbol: result.symbol,
     side: result.side as 'BUY' | 'SELL',
-    positionSide: (result.positionSide || 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
+    positionSide: (result.positionSide ?? 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
     type: result.type,
-    price: parseFloat(String(result.price || 0)),
-    avgPrice: parseFloat(String(result.avgPrice || 0)),
+    price: parseFloat(String(result.price ?? 0)),
+    avgPrice: parseFloat(String(result.avgPrice ?? 0)),
     origQty: parseFloat(String(result.origQty)),
     executedQty: parseFloat(String(result.executedQty)),
     status: result.status,
@@ -328,10 +330,10 @@ export async function closePosition(
     orderId: result.orderId,
     symbol: result.symbol,
     side: result.side as 'BUY' | 'SELL',
-    positionSide: (result.positionSide || 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
+    positionSide: (result.positionSide ?? 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
     type: result.type,
-    price: parseFloat(String(result.price || 0)),
-    avgPrice: parseFloat(String(result.avgPrice || 0)),
+    price: parseFloat(String(result.price ?? 0)),
+    avgPrice: parseFloat(String(result.avgPrice ?? 0)),
     origQty: parseFloat(String(result.origQty)),
     executedQty: parseFloat(String(result.executedQty)),
     status: result.status,
@@ -431,7 +433,7 @@ export async function placeLimitOrder(
     type: 'LIMIT',
     quantity,
     price,
-    timeInForce: params?.postOnly ? 'GTX' : (params?.timeInForce as 'GTC' | 'IOC' | 'FOK' || 'GTC'),
+    timeInForce: params?.postOnly ? 'GTX' : ((params?.timeInForce ?? 'GTC') as 'GTC' | 'IOC' | 'FOK'),
     ...(params?.reduceOnly ? { reduceOnly: 'true' } : {}),
   });
 
@@ -439,10 +441,10 @@ export async function placeLimitOrder(
     orderId: result.orderId,
     symbol: result.symbol,
     side: result.side as 'BUY' | 'SELL',
-    positionSide: (result.positionSide || 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
+    positionSide: (result.positionSide ?? 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
     type: result.type,
-    price: parseFloat(String(result.price || 0)),
-    avgPrice: parseFloat(String(result.avgPrice || 0)),
+    price: parseFloat(String(result.price ?? 0)),
+    avgPrice: parseFloat(String(result.avgPrice ?? 0)),
     origQty: parseFloat(String(result.origQty)),
     executedQty: parseFloat(String(result.executedQty)),
     status: result.status,
@@ -465,7 +467,7 @@ export async function placeStopOrder(
       side,
       positionSide: 'BOTH',
       type: params?.price ? 'STOP' : 'STOP_MARKET',
-      price: params?.price || stopPrice,
+      price: params?.price ?? stopPrice,
       avgPrice: 0,
       origQty: quantity,
       executedQty: 0,
@@ -489,10 +491,10 @@ export async function placeStopOrder(
     orderId: result.orderId,
     symbol: result.symbol,
     side: result.side as 'BUY' | 'SELL',
-    positionSide: (result.positionSide || 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
+    positionSide: (result.positionSide ?? 'BOTH') as 'LONG' | 'SHORT' | 'BOTH',
     type: result.type,
-    price: parseFloat(String(result.price || 0)),
-    avgPrice: parseFloat(String(result.avgPrice || 0)),
+    price: parseFloat(String(result.price ?? 0)),
+    avgPrice: parseFloat(String(result.avgPrice ?? 0)),
     origQty: parseFloat(String(result.origQty)),
     executedQty: parseFloat(String(result.executedQty)),
     status: result.status,

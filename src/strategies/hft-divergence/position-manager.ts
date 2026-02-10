@@ -78,6 +78,10 @@ export function createDivPositionManager(
       };
       positions.set(id, pos);
       signalCounts.set(params.strategyTag, (signalCounts.get(params.strategyTag) ?? 0) + 1);
+      if (signalCounts.size > 1000) {
+        const oldest = signalCounts.keys().next().value;
+        if (oldest !== undefined) signalCounts.delete(oldest);
+      }
 
       logger.info(
         { id, asset: pos.asset, dir: pos.direction, tag: pos.strategyTag, price: pos.entryPrice.toFixed(2), shares: pos.shares },
@@ -98,6 +102,7 @@ export function createDivPositionManager(
 
       // Check trailing activation
       const config = getConfig();
+      if (pos.entryPrice <= 0) return;
       const pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
       if (pnlPct >= config.trailingActivationPct) {
         pos.trailingActivated = true;
@@ -110,6 +115,7 @@ export function createDivPositionManager(
 
       for (const pos of positions.values()) {
         const price = pos.currentPrice;
+        if (pos.entryPrice <= 0) continue;
         const pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100;
         const timeLeftSec = (pos.expiresAt - now) / 1000;
 
@@ -132,7 +138,7 @@ export function createDivPositionManager(
         }
 
         // 4. Trailing stop (only after activation)
-        if (pos.trailingActivated && pos.highWaterMark > pos.entryPrice) {
+        if (pos.trailingActivated && pos.highWaterMark > pos.entryPrice && pos.highWaterMark > 0) {
           const dropFromHigh = ((pos.highWaterMark - price) / pos.highWaterMark) * 100;
           if (dropFromHigh >= config.trailingStopPct) {
             exits.push({ positionId: pos.id, reason: 'trailing_stop', exitPrice: price });
@@ -174,6 +180,9 @@ export function createDivPositionManager(
         holdTimeSec,
       };
       closed.push(result);
+      if (closed.length > 5000) {
+        closed.splice(0, closed.length - 5000);
+      }
 
       logger.info(
         {

@@ -178,6 +178,7 @@ export function createPositionManager(getConfig: () => CryptoHftConfig): Positio
       if (!pos) return;
 
       pos.currentPrice = price;
+      if (pos.entryPrice <= 0) return;
       const pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100;
 
       // Track PnL extremes
@@ -190,8 +191,9 @@ export function createPositionManager(getConfig: () => CryptoHftConfig): Positio
         pos.highWaterMark = price;
         pos.hwmConfirmCount = 1;
       } else {
-        const nearHigh = Math.abs(price - pos.highWaterMark) / pos.highWaterMark * 100
-          < config.ratchetConfirmTolerancePct;
+        const nearHigh = pos.highWaterMark > 0
+          && (Math.abs(price - pos.highWaterMark) / pos.highWaterMark * 100
+            < config.ratchetConfirmTolerancePct);
         if (nearHigh) {
           pos.hwmConfirmCount++;
           if (pos.hwmConfirmCount >= config.ratchetConfirmTicks) {
@@ -227,6 +229,7 @@ export function createPositionManager(getConfig: () => CryptoHftConfig): Positio
       for (const pos of positions.values()) {
         const book = getBook(pos.tokenId);
         const price = book?.bestBid ?? pos.currentPrice;
+        if (pos.entryPrice <= 0) continue;
         const pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100;
         const timeLeftSec = (pos.expiresAt - now) / 1000;
         const holdSec = (now - pos.enteredAt) / 1000;
@@ -319,7 +322,7 @@ export function createPositionManager(getConfig: () => CryptoHftConfig): Positio
       positions.delete(positionId);
 
       const exitFeePct = wasMaker ? 0 : takerFeePct(exitPrice);
-      const pnlPct = ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100;
+      const pnlPct = pos.entryPrice > 0 ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
       const grossPnlUsd = (exitPrice - pos.entryPrice) * pos.shares;
       const entryFeeUsd = (pos.entryFeePct / 100) * pos.entryPrice * pos.shares;
       const exitFeeUsd = (exitFeePct / 100) * exitPrice * pos.shares;
@@ -347,6 +350,9 @@ export function createPositionManager(getConfig: () => CryptoHftConfig): Positio
         holdTimeSec,
       };
       closed.push(result);
+      if (closed.length > 5000) {
+        closed.splice(0, closed.length - 5000);
+      }
 
       logger.info(
         {

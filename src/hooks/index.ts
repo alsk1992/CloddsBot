@@ -385,7 +385,7 @@ export function createHooksService(): HooksService {
   let tracingEnabled = process.env.CLODDS_HOOK_TRACE === '1';
   let traceLimit = Math.max(
     10,
-    Number.parseInt(process.env.CLODDS_HOOK_TRACE_LIMIT || '200', 10)
+    Number.parseInt(process.env.CLODDS_HOOK_TRACE_LIMIT ?? '200', 10) || 200
   );
   const traces: HookTraceEntry[] = [];
   const traceFilePath = process.env.CLODDS_HOOK_TRACE_FILE || join(hooksDir, 'trace.log');
@@ -522,13 +522,12 @@ export function createHooksService(): HooksService {
       const execution = EVENT_EXECUTION_MODES[event] ?? 'parallel';
 
       if (execution === 'parallel') {
-        // Fire all hooks in parallel, don't wait
         await Promise.all(
           matching.map(async (hook) => {
             const startedAt = Date.now();
             try {
               if (ctx.abortSignal?.aborted || ctx.cancelled) return;
-              const hookCtx = bindHookState(ctx, hook);
+              const hookCtx = bindHookState(ctx, hook, true);
               await hook.fn(hookCtx);
               recordTrace(hook, event, startedAt, 'ok');
             } catch (error) {
@@ -739,6 +738,10 @@ export function createHooksService(): HooksService {
 
     setState(hookKey, key, value) {
       if (!stateStore.data[hookKey]) {
+        const storeKeys = Object.keys(stateStore.data);
+        if (storeKeys.length >= 10000) {
+          delete stateStore.data[storeKeys[0]];
+        }
         stateStore.data[hookKey] = {};
       }
       stateStore.data[hookKey][key] = value;
@@ -830,9 +833,9 @@ export function createHooksService(): HooksService {
     }
   }
 
-  function bindHookState(ctx: HookContext, hook: Hook): HookContext {
+  function bindHookState(ctx: HookContext, hook: Hook, copy = false): HookContext {
     const hookStateKey = resolveHookStateKey(hook.sourcePath || hook.name || hook.id);
-    const bound: HookContext = ctx;
+    const bound: HookContext = copy ? { ...ctx } : ctx;
     bound.hookId = hook.id;
     bound.hookName = hook.name;
     bound.hookStateKey = hookStateKey;
@@ -845,6 +848,10 @@ export function createHooksService(): HooksService {
     };
     bound.setState = (key: string, value: unknown) => {
       if (!stateStore.data[hookStateKey]) {
+        const storeKeys = Object.keys(stateStore.data);
+        if (storeKeys.length >= 10000) {
+          delete stateStore.data[storeKeys[0]];
+        }
         stateStore.data[hookStateKey] = {};
       }
       stateStore.data[hookStateKey][key] = value;
@@ -898,6 +905,7 @@ export function createHooksService(): HooksService {
           const pattern = Array.isArray(fieldCondition.value)
             ? fieldCondition.value.join('|')
             : fieldCondition.value;
+          if (pattern.length > 1000) return false;
           return new RegExp(pattern).test(String(fieldValue));
         } catch {
           return false;

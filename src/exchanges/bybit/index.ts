@@ -101,7 +101,7 @@ export async function getFundingRate(config: BybitConfig, symbol: string): Promi
     fundingRate: parseFloat(ticker.fundingRate),
     fundingRateTimestamp: parseInt(ticker.nextFundingTime, 10),
     markPrice: parseFloat(ticker.markPrice),
-    indexPrice: parseFloat((ticker as unknown as Record<string, string>).indexPrice || ticker.markPrice),
+    indexPrice: parseFloat((ticker as unknown as Record<string, string>).indexPrice ?? ticker.markPrice),
   };
 }
 
@@ -147,8 +147,8 @@ export async function getPositions(config: BybitConfig): Promise<Position[]> {
       markPrice: parseFloat(p.markPrice),
       unrealisedPnl: parseFloat(p.unrealisedPnl),
       cumRealisedPnl: parseFloat(p.cumRealisedPnl),
-      leverage: parseFloat(p.leverage || '1'),
-      liqPrice: parseFloat(p.liqPrice || '0'),
+      leverage: parseFloat(p.leverage ?? '1'),
+      liqPrice: parseFloat(p.liqPrice ?? '0'),
       positionValue: parseFloat(p.positionValue),
     }));
 }
@@ -167,7 +167,7 @@ export async function getOpenOrders(config: BybitConfig, symbol?: string): Promi
     price: parseFloat(o.price),
     qty: parseFloat(o.qty),
     cumExecQty: parseFloat(o.cumExecQty),
-    avgPrice: parseFloat(o.avgPrice || '0'),
+    avgPrice: parseFloat(o.avgPrice ?? '0'),
     orderStatus: o.orderStatus,
   }));
 }
@@ -201,7 +201,7 @@ export async function openLong(
   qty: number,
   leverage?: number
 ): Promise<OrderResult> {
-  if (leverage) {
+  if (leverage != null) {
     await setLeverage(config, symbol, leverage);
   }
 
@@ -248,7 +248,7 @@ export async function openShort(
   qty: number,
   leverage?: number
 ): Promise<OrderResult> {
-  if (leverage) {
+  if (leverage != null) {
     await setLeverage(config, symbol, leverage);
   }
 
@@ -415,7 +415,7 @@ export async function placeLimitOrder(
     orderType: 'Limit',
     qty: String(qty),
     price: String(price),
-    timeInForce: (params?.timeInForce || 'GTC') as 'GTC' | 'IOC' | 'FOK',
+    timeInForce: (params?.timeInForce ?? 'GTC') as 'GTC' | 'IOC' | 'FOK',
     ...(params?.reduceOnly ? { reduceOnly: true } : {}),
   });
 
@@ -496,13 +496,16 @@ export async function getIncomeHistory(
   const result = await c.getClosedPnL({
     category: 'linear',
     ...(params?.symbol ? { symbol: params.symbol } : {}),
-    limit: params?.limit || 50,
+    limit: params?.limit ?? 50,
   });
 
-  return result.result.list.map((r: { symbol: string; closedPnl: string; createdTime: string }) => ({
-    symbol: r.symbol,
-    type: 'REALIZED_PNL',
-    amount: parseFloat(r.closedPnl),
-    time: new Date(parseInt(r.createdTime, 10)),
-  }));
+  return result.result.list.map((r: { symbol: string; closedPnl: string; createdTime: string }) => {
+    const ts = parseInt(r.createdTime, 10);
+    return {
+      symbol: r.symbol,
+      type: 'REALIZED_PNL',
+      amount: parseFloat(r.closedPnl),
+      time: new Date(Number.isNaN(ts) ? 0 : ts),
+    };
+  });
 }

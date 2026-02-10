@@ -287,7 +287,7 @@ program
   .option('--port <port>', 'Override gateway port')
   .action(async (options: { host: string; scheme: string; port?: string }) => {
     const config = await loadConfig();
-    const port = options.port ? Number.parseInt(options.port, 10) : (config.gateway?.port || 18789);
+    const port = options.port ? (Number.parseInt(options.port, 10) || 18789) : (config.gateway?.port ?? 18789);
     const host = options.host;
     const scheme = options.scheme;
     const portSuffix = port === 80 || port === 443 ? '' : `:${port}`;
@@ -383,7 +383,7 @@ skills
   .action(async (query: string, options: { tags?: string; limit?: string }) => {
     await skillsCommands.search(query, {
       tags: options.tags?.split(','),
-      limit: parseInt(options.limit || '10', 10),
+      limit: parseInt(options.limit ?? '10', 10) || 10,
     });
   });
 

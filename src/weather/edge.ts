@@ -87,7 +87,7 @@ export class WeatherEdgeCalculator {
       o.name.toLowerCase() === 'yes' ||
       o.name.toLowerCase().includes('yes')
     );
-    const marketPrice = yesOutcome?.price || 0.5;
+    const marketPrice = yesOutcome?.price ?? 0.5;
 
     // Calculate edge
     const noaaDecimal = noaaProbability / 100;
@@ -180,6 +180,7 @@ export class WeatherEdgeCalculator {
     // Where b = decimal odds - 1, p = probability, q = 1 - p
     // Simplified for binary markets: f = edge / odds
     const odds = side === 'YES' ? edge.marketPrice : (1 - edge.marketPrice);
+    if (odds <= 0 || odds >= 1) return null;
     const kellyFraction = edgeDecimal / (1 - odds);
 
     // Use fractional Kelly for safety
@@ -320,7 +321,7 @@ export class WeatherEdgeCalculator {
    */
   private calculateSnowProbability(market: WeatherMarket, forecast: ForecastPeriod): number {
     const temp = forecast.temperature;
-    const precipProb = forecast.probabilityOfPrecipitation.value || 0;
+    const precipProb = forecast.probabilityOfPrecipitation.value ?? 0;
 
     // Snow requires cold temps and precipitation
     if (temp > 40) return 5;

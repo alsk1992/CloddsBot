@@ -12,7 +12,7 @@
  * - Kernel hardening (sysctl)
  */
 
-import { execSync, execFileSync, spawnSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, appendFileSync, copyFileSync } from 'fs';
 import { homedir, platform, userInfo } from 'os';
 import { join } from 'path';
@@ -247,7 +247,7 @@ function setupFirewall(options: HardeningOptions): void {
     }
   }
 
-  const sshPort = options.sshPort || 22;
+  const sshPort = options.sshPort ?? 22;
   const allowedPorts = options.allowedPorts || [sshPort, 80, 443];
 
   // Ensure SSH port is always allowed
@@ -302,7 +302,7 @@ function setupFail2ban(options: HardeningOptions): void {
     }
   }
 
-  const sshPort = options.sshPort || 22;
+  const sshPort = options.sshPort ?? 22;
   const jailConfig = `[DEFAULT]
 bantime = 3600
 findtime = 600
@@ -482,7 +482,7 @@ function runSecurityAudit(): void {
     });
 
     const portMatch = sshConfig.match(/^Port\s+(\d+)/m);
-    const sshPort = portMatch ? parseInt(portMatch[1]) : 22;
+    const sshPort = portMatch ? parseInt(portMatch[1], 10) || 22 : 22;
     checks.push({
       name: 'SSH Port',
       status: sshPort !== 22 ? 'pass' : 'warn',
@@ -559,7 +559,12 @@ function runSecurityAudit(): void {
   // Check for running services
   if (isLinux()) {
     try {
-      const services = execSync('ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null', { encoding: 'utf-8' });
+      let services: string;
+      try {
+        services = execFileSync('ss', ['-tlnp'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+      } catch {
+        services = execFileSync('netstat', ['-tlnp'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+      }
       const openPorts = (services.match(/:\d+\s/g) || []).map(p => p.trim().replace(':', ''));
       const uniquePorts = [...new Set(openPorts)].filter(p => p);
       checks.push({
@@ -601,7 +606,7 @@ export async function runSecure(args: string[]): Promise<void> {
   const options: HardeningOptions = {
     dryRun: args.includes('--dry-run') || args.includes('-n'),
     interactive: !args.includes('--yes') && !args.includes('-y'),
-    sshPort: parseInt(args.find(a => a.startsWith('--ssh-port='))?.split('=')[1] || '22'),
+    sshPort: parseInt(args.find(a => a.startsWith('--ssh-port='))?.split('=')[1] ?? '22', 10) || 22,
     skipFirewall: args.includes('--skip-firewall'),
     skipFail2ban: args.includes('--skip-fail2ban'),
     skipSsh: args.includes('--skip-ssh'),

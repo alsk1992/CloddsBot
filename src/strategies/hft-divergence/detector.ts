@@ -208,8 +208,11 @@ export function createDivergenceDetector(
         const freshnessConfidence = Math.max(0, 1 - polyFreshnessSec / config.maxPolyFreshnessSec);
         const confidence = moveConfidence * 0.7 + freshnessConfidence * 0.3;
 
-        // Track signal counts
         signalCounts.set(strategyTag, (signalCounts.get(strategyTag) ?? 0) + 1);
+        if (signalCounts.size > 1000) {
+          const oldest = signalCounts.keys().next().value;
+          if (oldest !== undefined) signalCounts.delete(oldest);
+        }
 
         signals.push({
           asset,

@@ -45,6 +45,9 @@ export function createPriceBuffer(maxAgeSec = 180): PriceBuffer {
     while (prices.length > 0 && prices[prices.length - 1].ts < cutoff) {
       prices.pop();
     }
+    if (prices.length > 2000) {
+      prices.length = 2000;
+    }
   }
 
   function inWindow(windowSec: number): Array<{ price: number; ts: number }> {
@@ -235,8 +238,7 @@ export function evaluateMeanReversion(
 
   // Don't fight order flow — check OBI
   const obi = book?.obi ?? 0;
-  if (direction === 'up' && obi < cfg.minObi) return null;   // Sellers dominating, don't buy up
-  if (direction === 'down' && -obi < cfg.minObi) return null;
+  if (obi < cfg.minObi) return null;
 
   const confidence = Math.min(1, (1 - price) * 1.5);
 

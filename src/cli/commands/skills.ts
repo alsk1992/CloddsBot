@@ -142,7 +142,7 @@ export function createSkillsCommands(): SkillsCommands {
       try {
         const results = await registry.search(query, {
           tags: options.tags,
-          limit: options.limit || 10,
+          limit: options.limit ?? 10,
         });
 
         if (results.length === 0) {

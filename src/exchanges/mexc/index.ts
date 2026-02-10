@@ -134,7 +134,7 @@ export async function getFundingRate(config: MexcConfig, symbol: string): Promis
     fundingRate: data.fundingRate,
     nextSettleTime: data.nextSettleTime,
     markPrice: data.markPrice,
-    indexPrice: data.indexPrice || data.markPrice,
+    indexPrice: data.indexPrice ?? data.markPrice,
   };
 }
 
@@ -253,7 +253,7 @@ export async function openLong(
   leverage?: number,
   openType?: number // 1=Isolated, 2=Cross
 ): Promise<OrderResult> {
-  if (leverage) {
+  if (leverage != null) {
     await setLeverage(config, symbol, leverage);
   }
 
@@ -277,8 +277,8 @@ export async function openLong(
     side: 1, // 1=Open Long
     type: 5, // 5=Market
     vol,
-    leverage: leverage || 10,
-    openType: openType || 1, // 1=Isolated, 2=Cross
+    leverage: leverage ?? 10,
+    openType: openType ?? 1, // 1=Isolated, 2=Cross
   }) as { orderId: string };
 
   return {
@@ -301,7 +301,7 @@ export async function openShort(
   leverage?: number,
   openType?: number // 1=Isolated, 2=Cross
 ): Promise<OrderResult> {
-  if (leverage) {
+  if (leverage != null) {
     await setLeverage(config, symbol, leverage);
   }
 
@@ -325,8 +325,8 @@ export async function openShort(
     side: 3, // 3=Open Short
     type: 5, // 5=Market
     vol,
-    leverage: leverage || 10,
-    openType: openType || 1,
+    leverage: leverage ?? 10,
+    openType: openType ?? 1,
   }) as { orderId: string };
 
   return {
@@ -465,8 +465,8 @@ export async function placeLimitOrder(
     type: 1, // 1=Limit
     vol,
     price,
-    leverage: params?.leverage || 10,
-    openType: params?.openType || 1,
+    leverage: params?.leverage ?? 10,
+    openType: params?.openType ?? 1,
   }) as { orderId: string };
 
   return {
@@ -497,7 +497,7 @@ export async function placeStopOrder(
       symbol,
       side,
       orderType: params?.price ? 1 : 5,
-      price: params?.price || triggerPrice,
+      price: params?.price ?? triggerPrice,
       vol,
       dealVol: 0,
       dealAvgPrice: 0,
@@ -512,7 +512,7 @@ export async function placeStopOrder(
     vol,
     triggerPrice,
     triggerType: 1, // 1=trigger by mark price
-    openType: params?.openType || 1,
+    openType: params?.openType ?? 1,
   };
 
   if (params?.price) {
@@ -526,7 +526,7 @@ export async function placeStopOrder(
     symbol,
     side,
     orderType: params?.price ? 1 : 5,
-    price: params?.price || triggerPrice,
+    price: params?.price ?? triggerPrice,
     vol,
     dealVol: 0,
     dealAvgPrice: 0,
@@ -547,7 +547,7 @@ export async function getIncomeHistory(
 ): Promise<IncomeRecord[]> {
   const reqParams: Record<string, string | number> = {
     page_num: 1,
-    page_size: params?.limit || 50,
+    page_size: params?.limit ?? 50,
   };
   if (params?.symbol) reqParams.symbol = params.symbol;
 
@@ -560,7 +560,7 @@ export async function getIncomeHistory(
   return data.map((d) => ({
     symbol: d.symbol,
     type: 'REALIZED_PNL',
-    amount: d.realisedPnl || 0,
-    time: new Date(d.closeTime || Date.now()),
+    amount: d.realisedPnl ?? 0,
+    time: new Date(d.closeTime ?? Date.now()),
   }));
 }

@@ -151,6 +151,7 @@ export interface OrderResult {
 // SDK CLIENT CACHE
 // =============================================================================
 
+const SDK_CACHE_MAX = 10;
 const sdkCache = new Map<string, Hyperliquid>();
 
 function getSDK(config: HyperliquidConfig): Hyperliquid {
@@ -158,9 +159,13 @@ function getSDK(config: HyperliquidConfig): Hyperliquid {
 
   let sdk = sdkCache.get(key);
   if (!sdk) {
+    if (sdkCache.size >= SDK_CACHE_MAX) {
+      const oldest = sdkCache.keys().next().value!;
+      sdkCache.delete(oldest);
+    }
     sdk = new Hyperliquid({
       privateKey: config.privateKey,
-      testnet: config.testnet || false,
+      testnet: config.testnet ?? false,
       walletAddress: config.walletAddress,
       vaultAddress: config.vaultAddress,
     });
@@ -230,9 +235,9 @@ export async function getFundingRates(): Promise<Array<{ coin: string; funding: 
   const contexts = data[1];
   return meta.universe.map((asset, i) => ({
     coin: asset.name,
-    funding: contexts[i]?.funding || '0',
-    premium: contexts[i]?.premium || '0',
-    openInterest: contexts[i]?.openInterest || '0',
+    funding: contexts[i]?.funding ?? '0',
+    premium: contexts[i]?.premium ?? '0',
+    openInterest: contexts[i]?.openInterest ?? '0',
   }));
 }
 
@@ -304,8 +309,8 @@ export async function getCandles(
     type: 'candleSnapshot',
     coin,
     interval,
-    startTime: startTime || Date.now() - 24 * 60 * 60 * 1000,
-    endTime: endTime || Date.now(),
+    startTime: startTime ?? Date.now() - 24 * 60 * 60 * 1000,
+    endTime: endTime ?? Date.now(),
   });
 
   return data.map(c => ({
@@ -383,9 +388,9 @@ export async function getUserPoints(userAddress: string): Promise<PointsData> {
     });
 
     return {
-      total: parseFloat(data.total || '0'),
-      daily: parseFloat(data.daily || '0'),
-      rank: data.rank || 0,
+      total: parseFloat(data.total ?? '0'),
+      daily: parseFloat(data.daily ?? '0'),
+      rank: data.rank ?? 0,
       breakdown: { trading: 0, referrals: 0, hlp: 0, staking: 0 },
     };
   } catch {
@@ -850,7 +855,7 @@ export async function placePerpOrder(
     let limitPx = order.price;
     if (!limitPx || order.type === 'MARKET') {
       const mids = await getAllMids();
-      const mid = parseFloat(mids[order.coin] || '0');
+      const mid = parseFloat(mids[order.coin] ?? '0');
       limitPx = order.side === 'BUY' ? mid * 1.005 : mid * 0.995;
     }
 
@@ -862,7 +867,7 @@ export async function placePerpOrder(
       sz: order.size,
       limit_px: limitPx,
       order_type: { limit: { tif } },
-      reduce_only: order.reduceOnly || false,
+      reduce_only: order.reduceOnly ?? false,
     });
 
     // Extract order ID from response
@@ -909,7 +914,7 @@ export async function placeSpotOrder(
       sz: order.size,
       limit_px: order.price,
       order_type: { limit: { tif } },
-      reduce_only: order.reduceOnly || false,
+      reduce_only: order.reduceOnly ?? false,
     });
 
     const status = result?.response?.data?.statuses?.[0];
@@ -999,9 +1004,9 @@ export async function modifyOrder(
       coin: order.coin,
       is_buy: order.side === 'BUY',
       sz: order.size,
-      limit_px: order.price || 0,
+      limit_px: order.price ?? 0,
       order_type: { limit: { tif } },
-      reduce_only: order.reduceOnly || false,
+      reduce_only: order.reduceOnly ?? false,
     });
     return { success: true, orderId: oid };
   } catch (error) {
@@ -1032,9 +1037,9 @@ export async function batchModifyOrders(
           coin: order.coin,
           is_buy: order.side === 'BUY',
           sz: order.size,
-          limit_px: order.price || 0,
+          limit_px: order.price ?? 0,
           order_type: { limit: { tif } },
-          reduce_only: order.reduceOnly || false,
+          reduce_only: order.reduceOnly ?? false,
         },
       };
     });
@@ -1234,8 +1239,8 @@ export async function placeTwapOrder(
       is_buy: order.side === 'BUY',
       sz: order.size,
       minutes: order.durationMinutes,
-      reduce_only: order.reduceOnly || false,
-      randomize: order.randomize || false,
+      reduce_only: order.reduceOnly ?? false,
+      randomize: order.randomize ?? false,
     });
 
     const twapId = result?.response?.data?.status?.running?.twapId;
@@ -1260,7 +1265,9 @@ export async function cancelTwap(
 
   try {
     const sdk = getSDK(config);
-    await sdk.exchange.cancelTwapOrder({ coin, twap_id: parseInt(twapId) });
+    const id = parseInt(twapId, 10);
+    if (Number.isNaN(id)) throw new Error(`Invalid TWAP ID: ${twapId}`);
+    await sdk.exchange.cancelTwapOrder({ coin, twap_id: id });
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1471,7 +1478,7 @@ export class HyperliquidWebSocket extends EventEmitter {
         enableWs: true,
         privateKey: this.config?.privateKey,
         walletAddress: this.config?.walletAddress,
-        testnet: this.config?.testnet || false,
+        testnet: this.config?.testnet ?? false,
       });
 
       await this.sdk.connect();

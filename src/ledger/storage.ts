@@ -343,7 +343,7 @@ export class LedgerStorage {
       calibration,
       avgConfidence: avgConf?.avg,
       pnlTotal: pnlResult?.total,
-      winRate: pnlResult?.total_with_pnl ? (pnlResult.wins / pnlResult.total_with_pnl) * 100 : undefined,
+      winRate: pnlResult?.total_with_pnl ? ((pnlResult.wins ?? 0) / pnlResult.total_with_pnl) * 100 : undefined,
     };
   }
 
@@ -367,14 +367,15 @@ export class LedgerStorage {
       [cutoff]
     );
 
-    const result = this.db.get<{ changes: number }>(
-      `SELECT changes() as changes FROM trade_ledger WHERE 0=1`
+    const countResult = this.db.get<{ count: number }>(
+      `SELECT COUNT(*) as count FROM trade_ledger WHERE timestamp < ?`,
+      [cutoff]
     );
+    const count = countResult?.count ?? 0;
 
     this.db.run(`DELETE FROM trade_ledger WHERE timestamp < ?`, [cutoff]);
 
-    // Get actual count deleted
-    return result?.changes || 0;
+    return count;
   }
 
   /**
@@ -441,26 +442,31 @@ export class LedgerStorage {
     hash: string | null;
     anchor_tx: string | null;
   }): DecisionRecord {
+    const safeParse = (json: string | null, fallback: unknown = {}): unknown => {
+      if (!json) return undefined;
+      try { return JSON.parse(json); } catch { return fallback; }
+    };
+
     return {
       id: row.id,
       userId: row.user_id,
-      sessionId: row.session_id || undefined,
+      sessionId: row.session_id ?? undefined,
       timestamp: row.timestamp,
       category: row.category as DecisionCategory,
       action: row.action,
-      platform: row.platform || undefined,
-      marketId: row.market_id || undefined,
-      inputs: JSON.parse(row.inputs),
-      analysis: row.analysis ? JSON.parse(row.analysis) : undefined,
-      constraints: JSON.parse(row.constraints),
+      platform: row.platform ?? undefined,
+      marketId: row.market_id ?? undefined,
+      inputs: safeParse(row.inputs, {}) as DecisionRecord['inputs'],
+      analysis: safeParse(row.analysis) as DecisionRecord['analysis'],
+      constraints: (safeParse(row.constraints, []) ?? []) as DecisionRecord['constraints'],
       confidence: row.confidence ?? undefined,
       decision: row.decision as DecisionRecord['decision'],
       reason: row.reason,
-      outcome: row.outcome ? JSON.parse(row.outcome) : undefined,
+      outcome: safeParse(row.outcome) as DecisionRecord['outcome'],
       pnl: row.pnl ?? undefined,
       accurate: row.accurate !== null ? row.accurate === 1 : undefined,
-      hash: row.hash || undefined,
-      anchorTx: row.anchor_tx || undefined,
+      hash: row.hash ?? undefined,
+      anchorTx: row.anchor_tx ?? undefined,
     };
   }
 

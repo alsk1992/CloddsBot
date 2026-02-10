@@ -249,9 +249,9 @@ async function fetchPolymarketPositions(auth: PolymarketApiKeyAuth): Promise<Pos
     const data = (await response.json()) as PolymarketPosition[];
 
     return data.map((p) => {
-      const shares = parseFloat(p.size);
-      const avgPrice = parseFloat(p.avgPrice);
-      const currentPrice = parseFloat(p.cur_price);
+      const shares = parseFloat(p.size) || 0;
+      const avgPrice = parseFloat(p.avgPrice) || 0;
+      const currentPrice = parseFloat(p.cur_price) || 0;
       const costBasis = shares * avgPrice;
       const value = shares * currentPrice;
       const unrealizedPnL = value - costBasis;
@@ -271,7 +271,7 @@ async function fetchPolymarketPositions(auth: PolymarketApiKeyAuth): Promise<Pos
         costBasis,
         unrealizedPnL,
         unrealizedPnLPct,
-        realizedPnL: parseFloat(p.realized_pnl || '0'),
+        realizedPnL: parseFloat(p.realized_pnl ?? '0') || 0,
       };
     });
   } catch (error) {
@@ -299,7 +299,7 @@ async function fetchPolymarketBalance(auth: PolymarketApiKeyAuth): Promise<Portf
     }
 
     const data = (await response.json()) as PolymarketBalanceResponse;
-    const total = parseFloat(data.balance) / 1e6; // USDC has 6 decimals
+    const total = (parseFloat(data.balance) || 0) / 1e6; // USDC has 6 decimals
 
     // Calculate locked USDC from open buy orders
     let locked = 0;
@@ -320,8 +320,8 @@ async function fetchPolymarketBalance(auth: PolymarketApiKeyAuth): Promise<Portf
         for (const order of orders) {
           if (order.side === 'BUY') {
             const remaining =
-              parseFloat(order.original_size) - parseFloat(order.size_matched);
-            locked += remaining * parseFloat(order.price);
+              (parseFloat(order.original_size) || 0) - (parseFloat(order.size_matched) || 0);
+            locked += remaining * (parseFloat(order.price) || 0);
           }
         }
       }
@@ -507,7 +507,7 @@ async function fetchHyperliquidPositions(
         const entryPrice = parseFloat(p.entryPx);
         const unrealizedPnL = parseFloat(p.unrealizedPnl);
         const isLong = parseFloat(p.szi) > 0;
-        const currentPrice = shares > 0 ? entryPrice + unrealizedPnL / shares : entryPrice;
+        const currentPrice = shares > 1e-12 ? entryPrice + unrealizedPnL / shares : entryPrice;
         const costBasis = shares * entryPrice;
         const value = shares * currentPrice;
         const unrealizedPnLPct = costBasis > 0 ? (unrealizedPnL / costBasis) * 100 : 0;
@@ -527,7 +527,7 @@ async function fetchHyperliquidPositions(
           unrealizedPnLPct,
           realizedPnL: 0,
           side: isLong ? 'long' as const : 'short' as const,
-          liquidationPrice: parseFloat(p.liquidationPx) || undefined,
+          liquidationPrice: p.liquidationPx ? parseFloat(p.liquidationPx) : undefined,
         };
       });
   } catch (error) {
@@ -587,7 +587,7 @@ async function fetchBinancePositions(
           realizedPnL: 0,
           leverage: p.leverage,
           marginType: p.marginType,
-          liquidationPrice: p.liquidationPrice || undefined,
+          liquidationPrice: p.liquidationPrice ?? undefined,
           notionalValue: Math.abs(p.notional),
           side: isLong ? 'long' as const : 'short' as const,
         };
@@ -646,7 +646,7 @@ async function fetchBybitPositions(
           unrealizedPnLPct,
           realizedPnL: p.cumRealisedPnl,
           leverage: p.leverage,
-          liquidationPrice: p.liqPrice || undefined,
+          liquidationPrice: p.liqPrice ?? undefined,
           notionalValue: p.positionValue,
           side: isLong ? 'long' as const : 'short' as const,
         };
@@ -705,7 +705,7 @@ async function fetchMexcPositions(
           unrealizedPnLPct,
           realizedPnL: p.realisedPnl,
           leverage: p.leverage,
-          liquidationPrice: p.liquidatePrice || undefined,
+          liquidationPrice: p.liquidatePrice ?? undefined,
           notionalValue: p.positionValue,
           side: isLong ? 'long' as const : 'short' as const,
         };
@@ -741,7 +741,7 @@ async function fetchMexcBalance(
 // =============================================================================
 
 export function createPortfolioService(config: PortfolioConfig, db?: Database): PortfolioService {
-  const cacheTtl = (config.cacheTtlSeconds || 30) * 1000;
+  const cacheTtl = (config.cacheTtlSeconds ?? 30) * 1000;
   let cachedPositions: Position[] | null = null;
   let cachedBalances: PortfolioBalance[] | null = null;
   let lastFetch = 0;
@@ -1016,7 +1016,7 @@ export function createPortfolioService(config: PortfolioConfig, db?: Database): 
           return {
             positionA: positionA.id,
             positionB: positionB.id,
-            correlation: 0.7 + sharedEntities.length * 0.1,
+            correlation: Math.min(1.0, 0.7 + sharedEntities.length * 0.1),
             correlationType: 'positive',
             reason: `Same category (${categoryA}) with shared entities: ${sharedEntities.join(', ')}`,
           };
@@ -1182,7 +1182,8 @@ export function createPortfolioService(config: PortfolioConfig, db?: Database): 
       // Max HHI = 10000 (single position), Min HHI = 10000/n (equal distribution)
       const maxHhi = 10000;
       const minHhi = positions.length > 0 ? 10000 / positions.length : 0;
-      const normalizedHhi = ((hhi - minHhi) / (maxHhi - minHhi)) * 100;
+      const denominator = maxHhi - minHhi;
+      const normalizedHhi = denominator > 0 ? ((hhi - minHhi) / denominator) * 100 : 100;
       const diversificationScore = Math.max(0, 100 - normalizedHhi);
 
       // Risk level thresholds

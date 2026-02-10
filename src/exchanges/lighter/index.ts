@@ -153,8 +153,8 @@ export async function getOrderbook(market: string, depth = 20): Promise<LighterO
 
 export async function getPrice(market: string): Promise<{ bid: number; ask: number; mid: number }> {
   const ob = await getOrderbook(market, 1);
-  const bid = ob.bids[0]?.price || 0;
-  const ask = ob.asks[0]?.price || 0;
+  const bid = ob.bids[0]?.price ?? 0;
+  const ask = ob.asks[0]?.price ?? 0;
   const mid = bid && ask ? (bid + ask) / 2 : bid || ask;
   return { bid, ask, mid };
 }
@@ -213,8 +213,8 @@ export async function placeOrder(
           type: params.type || (params.price ? 'LIMIT' : 'MARKET'),
           price: params.price?.toString(),
           size: params.size.toString(),
-          reduceOnly: params.reduceOnly || false,
-          postOnly: params.postOnly || false,
+          reduceOnly: params.reduceOnly ?? false,
+          postOnly: params.postOnly ?? false,
         },
       }
     );

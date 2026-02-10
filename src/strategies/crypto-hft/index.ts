@@ -208,6 +208,7 @@ export function createCryptoHftEngine(
   }
 
   function computeShares(price: number): number {
+    if (price <= 0) return config.minShares;
     const raw = config.sizeUsd / price;
     return Math.max(config.minShares, Math.min(config.maxShares, Math.floor(raw * 100) / 100));
   }

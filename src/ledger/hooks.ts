@@ -82,8 +82,16 @@ export function createLedgerHooks(
   beforeTool: (ctx: HookContext) => void;
   afterTool: (ctx: HookContext) => void;
 } {
-  // Track pending decisions by tool call ID
-  const pendingDecisions = new Map<string, string>();
+  const pendingDecisions = new Map<string, { id: string; ts: number }>();
+
+  const evictStale = () => {
+    if (pendingDecisions.size > 500) {
+      const cutoff = Date.now() - 300_000;
+      for (const [key, entry] of pendingDecisions) {
+        if (entry.ts < cutoff) pendingDecisions.delete(key);
+      }
+    }
+  };
 
   return {
     /**
@@ -125,11 +133,11 @@ export function createLedgerHooks(
       // Capture and store the ID for later update
       const decisionId = storage.capture(record, { hashIntegrity: config.hashIntegrity });
 
-      // Store for afterTool to update
       const callId = `${toolName}-${Date.now()}`;
-      pendingDecisions.set(callId, decisionId);
+      pendingDecisions.set(callId, { id: decisionId, ts: Date.now() });
       ctx.data.ledgerCallId = callId;
       ctx.data.ledgerDecisionId = decisionId;
+      evictStale();
     },
 
     /**
@@ -171,17 +179,17 @@ function extractInputs(
   };
 
   // Common fields
-  if (params.platform) inputs.platform = params.platform;
-  if (params.market) inputs.market = params.market;
-  if (params.marketId) inputs.marketId = params.marketId;
-  if (params.side) inputs.side = params.side;
-  if (params.size) inputs.size = params.size;
-  if (params.price) inputs.price = params.price;
-  if (params.amount) inputs.amount = params.amount;
-  if (params.address) inputs.address = params.address;
-  if (params.wallet) inputs.wallet = params.wallet;
-  if (params.token) inputs.token = params.token;
-  if (params.leverage) inputs.leverage = params.leverage;
+  if (params.platform !== undefined) inputs.platform = params.platform;
+  if (params.market !== undefined) inputs.market = params.market;
+  if (params.marketId !== undefined) inputs.marketId = params.marketId;
+  if (params.side !== undefined) inputs.side = params.side;
+  if (params.size !== undefined) inputs.size = params.size;
+  if (params.price !== undefined) inputs.price = params.price;
+  if (params.amount !== undefined) inputs.amount = params.amount;
+  if (params.address !== undefined) inputs.address = params.address;
+  if (params.wallet !== undefined) inputs.wallet = params.wallet;
+  if (params.token !== undefined) inputs.token = params.token;
+  if (params.leverage !== undefined) inputs.leverage = params.leverage;
 
   return inputs;
 }
@@ -190,16 +198,16 @@ function extractConstraints(params: Record<string, unknown>): ConstraintEvaluati
   const constraints: ConstraintEvaluation[] = [];
 
   // If the tool params include constraint info, extract it
-  if (params.maxSize) {
+  if (params.maxSize !== undefined) {
     constraints.push({
       type: 'max_order_size',
       rule: 'Maximum order size',
       threshold: params.maxSize as number,
-      passed: true, // If we got here, it passed
+      passed: true,
     });
   }
 
-  if (params.maxExposure) {
+  if (params.maxExposure !== undefined) {
     constraints.push({
       type: 'max_exposure',
       rule: 'Maximum exposure',
@@ -419,7 +427,7 @@ export function integrateCopyTrader(
         type: 'max_order_size',
         rule: `Max position ${target.config.maxPositionSol} SOL`,
         threshold: target.config.maxPositionSol,
-        actual: result.solSpent || trade.solAmount * target.config.multiplier,
+        actual: result.solSpent ?? trade.solAmount * target.config.multiplier,
         passed: true,
       },
     ];

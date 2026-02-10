@@ -198,13 +198,13 @@ export function createMemoryService(
     fs.mkdirSync(memoryDir, { recursive: true });
   }
 
-  // Schedule cleanup every hour
-  setInterval(() => {
+  const cleanupTimer = setInterval(() => {
     const cleaned = service.cleanup();
     if (cleaned > 0) {
       logger.info({ cleaned }, 'Cleaned up expired memories');
     }
   }, 60 * 60 * 1000);
+  if (cleanupTimer.unref) cleanupTimer.unref();
 
   const service: MemoryService = {
     remember(userId, channel, type, key, value, expiresInHours) {
@@ -314,9 +314,9 @@ export function createMemoryService(
     },
 
     search(userId, channel, query) {
-      const queryLower = query.toLowerCase();
+      const queryLower = query.toLowerCase().replace(/[%_]/g, '\\$&');
       const rows = db.query<MemoryRow>(
-        'SELECT * FROM user_memory WHERE userId = ? AND channel = ? AND (LOWER(key) LIKE ? OR LOWER(value) LIKE ?) ORDER BY updatedAt DESC',
+        "SELECT * FROM user_memory WHERE userId = ? AND channel = ? AND (LOWER(key) LIKE ? ESCAPE '\\' OR LOWER(value) LIKE ? ESCAPE '\\') ORDER BY updatedAt DESC",
         [userId, channel, `%${queryLower}%`, `%${queryLower}%`]
       );
 
@@ -505,7 +505,7 @@ export function createMemoryService(
       const expiredRows = db.query<{ cnt: number }>(
         'SELECT COUNT(*) as cnt FROM user_memory WHERE expiresAt IS NOT NULL AND expiresAt < datetime("now")'
       );
-      const count = expiredRows[0]?.cnt || 0;
+      const count = expiredRows[0]?.cnt ?? 0;
 
       if (count > 0) {
         db.run(

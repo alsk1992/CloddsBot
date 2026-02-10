@@ -84,6 +84,7 @@ const PRECIP_PATTERNS = [
 export class WeatherMarketFinder {
   private marketCache: Map<string, { data: WeatherMarket[]; timestamp: number }> = new Map();
   private readonly cacheTTL = 5 * 60 * 1000; // 5 minutes
+  private readonly maxCacheSize = 100;
 
   /**
    * Get all active weather markets from Polymarket
@@ -126,6 +127,10 @@ export class WeatherMarketFinder {
         filtered = filtered.filter(m => m.active);
       }
 
+      if (this.marketCache.size >= this.maxCacheSize) {
+        const oldestKey = this.marketCache.keys().next().value;
+        if (oldestKey !== undefined) this.marketCache.delete(oldestKey);
+      }
       this.marketCache.set(cacheKey, { data: filtered, timestamp: Date.now() });
       return filtered;
     } catch (error) {
@@ -170,8 +175,8 @@ export class WeatherMarketFinder {
           const markets = await response.json() as RawMarket[];
           allMarkets.push(...markets);
         }
-      } catch {
-        // Continue with other keywords
+      } catch (err) {
+        logger.debug({ keyword, err }, '[WeatherMarkets] Keyword search failed');
       }
     }
 
@@ -184,8 +189,8 @@ export class WeatherMarketFinder {
         const markets = await response.json() as RawMarket[];
         allMarkets.push(...markets);
       }
-    } catch {
-      // Continue without tag results
+    } catch (err) {
+      logger.debug({ err }, '[WeatherMarkets] Tag-based search failed');
     }
 
     // Deduplicate by ID
@@ -232,7 +237,7 @@ export class WeatherMarketFinder {
       const outcomes: WeatherOutcome[] = (raw.tokens || []).map((t: RawToken) => ({
         id: t.token_id,
         name: t.outcome,
-        price: parseFloat(t.price) || 0,
+        price: Number.isFinite(parseFloat(t.price)) ? parseFloat(t.price) : 0,
         tokenId: t.token_id,
       }));
 
@@ -251,8 +256,8 @@ export class WeatherMarketFinder {
         targetDate,
         endDate: new Date(raw.endDate),
         outcomes,
-        volume: raw.volume || 0,
-        liquidity: raw.liquidity || 0,
+        volume: raw.volume ?? 0,
+        liquidity: raw.liquidity ?? 0,
         active: raw.active !== false && raw.closed !== true,
       };
     } catch (error) {
@@ -346,7 +351,10 @@ export class WeatherMarketFinder {
       for (const pattern of TEMP_PATTERNS) {
         const match = text.match(pattern);
         if (match) {
-          return { threshold: parseInt(match[1]), unit: '°F', comparison };
+          const parsed = parseInt(match[1], 10);
+          if (!isNaN(parsed)) {
+            return { threshold: parsed, unit: '°F', comparison };
+          }
         }
       }
     }

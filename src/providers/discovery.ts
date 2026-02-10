@@ -424,8 +424,8 @@ function calculateCost(model: string, inputTokens: number, outputTokens: number)
   const metadata = KNOWN_MODELS[model];
   if (!metadata) return 0;
 
-  const inputCost = (inputTokens / 1000) * (metadata.inputCostPer1k || 0);
-  const outputCost = (outputTokens / 1000) * (metadata.outputCostPer1k || 0);
+  const inputCost = (inputTokens / 1000) * (metadata.inputCostPer1k ?? 0);
+  const outputCost = (outputTokens / 1000) * (metadata.outputCostPer1k ?? 0);
   return inputCost + outputCost;
 }
 
@@ -458,7 +458,7 @@ export class GroqProvider implements Provider {
       body: JSON.stringify({
         model: options.model || this.defaultModel,
         messages,
-        max_tokens: options.maxTokens || 4096,
+        max_tokens: options.maxTokens ?? 4096,
         temperature: options.temperature,
         top_p: options.topP,
         stop: options.stopSequences,
@@ -476,12 +476,12 @@ export class GroqProvider implements Provider {
     };
 
     return {
-      content: data.choices[0]?.message?.content || '',
+      content: data.choices[0]?.message?.content ?? '',
       model: data.model,
       usage: {
-        inputTokens: data.usage?.prompt_tokens || 0,
-        outputTokens: data.usage?.completion_tokens || 0,
-        totalTokens: data.usage?.total_tokens || 0,
+        inputTokens: data.usage?.prompt_tokens ?? 0,
+        outputTokens: data.usage?.completion_tokens ?? 0,
+        totalTokens: data.usage?.total_tokens ?? 0,
       },
       finishReason: data.choices[0]?.finish_reason === 'stop' ? 'end_turn' : 'max_tokens',
       latency: Date.now() - startTime,
@@ -498,7 +498,7 @@ export class GroqProvider implements Provider {
       body: JSON.stringify({
         model: options.model || this.defaultModel,
         messages,
-        max_tokens: options.maxTokens || 4096,
+        max_tokens: options.maxTokens ?? 4096,
         temperature: options.temperature,
         stream: true,
       }),
@@ -520,7 +520,7 @@ export class GroqProvider implements Provider {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
@@ -535,7 +535,9 @@ export class GroqProvider implements Provider {
             if (content) {
               yield { content, done: false };
             }
-          } catch {}
+          } catch (err) {
+            logger.debug({ error: err }, 'Failed to parse Groq SSE chunk');
+          }
         }
       }
     }
@@ -584,7 +586,7 @@ export class TogetherProvider implements Provider {
       body: JSON.stringify({
         model: options.model || this.defaultModel,
         messages,
-        max_tokens: options.maxTokens || 4096,
+        max_tokens: options.maxTokens ?? 4096,
         temperature: options.temperature,
         top_p: options.topP,
         stop: options.stopSequences,
@@ -602,12 +604,12 @@ export class TogetherProvider implements Provider {
     };
 
     return {
-      content: data.choices[0]?.message?.content || '',
+      content: data.choices[0]?.message?.content ?? '',
       model: data.model,
       usage: {
-        inputTokens: data.usage?.prompt_tokens || 0,
-        outputTokens: data.usage?.completion_tokens || 0,
-        totalTokens: data.usage?.total_tokens || 0,
+        inputTokens: data.usage?.prompt_tokens ?? 0,
+        outputTokens: data.usage?.completion_tokens ?? 0,
+        totalTokens: data.usage?.total_tokens ?? 0,
       },
       finishReason: data.choices[0]?.finish_reason === 'stop' ? 'end_turn' : 'max_tokens',
       latency: Date.now() - startTime,
@@ -624,7 +626,7 @@ export class TogetherProvider implements Provider {
       body: JSON.stringify({
         model: options.model || this.defaultModel,
         messages,
-        max_tokens: options.maxTokens || 4096,
+        max_tokens: options.maxTokens ?? 4096,
         temperature: options.temperature,
         stream: true,
       }),
@@ -646,7 +648,7 @@ export class TogetherProvider implements Provider {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
@@ -661,7 +663,9 @@ export class TogetherProvider implements Provider {
             if (content) {
               yield { content, done: false };
             }
-          } catch {}
+          } catch (err) {
+            logger.debug({ error: err }, 'Failed to parse Together SSE chunk');
+          }
         }
       }
     }
@@ -715,7 +719,7 @@ export class FireworksProvider implements Provider {
       body: JSON.stringify({
         model: options.model || this.defaultModel,
         messages,
-        max_tokens: options.maxTokens || 4096,
+        max_tokens: options.maxTokens ?? 4096,
         temperature: options.temperature,
         top_p: options.topP,
         stop: options.stopSequences,
@@ -733,12 +737,12 @@ export class FireworksProvider implements Provider {
     };
 
     return {
-      content: data.choices[0]?.message?.content || '',
+      content: data.choices[0]?.message?.content ?? '',
       model: data.model,
       usage: {
-        inputTokens: data.usage?.prompt_tokens || 0,
-        outputTokens: data.usage?.completion_tokens || 0,
-        totalTokens: data.usage?.total_tokens || 0,
+        inputTokens: data.usage?.prompt_tokens ?? 0,
+        outputTokens: data.usage?.completion_tokens ?? 0,
+        totalTokens: data.usage?.total_tokens ?? 0,
       },
       finishReason: data.choices[0]?.finish_reason === 'stop' ? 'end_turn' : 'max_tokens',
       latency: Date.now() - startTime,
@@ -755,7 +759,7 @@ export class FireworksProvider implements Provider {
       body: JSON.stringify({
         model: options.model || this.defaultModel,
         messages,
-        max_tokens: options.maxTokens || 4096,
+        max_tokens: options.maxTokens ?? 4096,
         temperature: options.temperature,
         top_p: options.topP,
         stop: options.stopSequences,
@@ -779,7 +783,7 @@ export class FireworksProvider implements Provider {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      buffer = lines.pop() ?? '';
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
@@ -798,8 +802,8 @@ export class FireworksProvider implements Provider {
           if (content) {
             yield { content, done: false };
           }
-        } catch {
-          // Ignore malformed streaming chunks.
+        } catch (err) {
+          logger.debug({ error: err }, 'Failed to parse Fireworks SSE chunk');
         }
       }
     }
@@ -987,7 +991,9 @@ export async function runDiagnostics(
       if (info.available) {
         try {
           info.models = await provider.listModels();
-        } catch {}
+        } catch (err) {
+          logger.debug({ provider: name, error: err }, 'Failed to list models during diagnostics');
+        }
       }
     } catch (err) {
       info.lastError = String(err);

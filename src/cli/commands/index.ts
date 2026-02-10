@@ -216,6 +216,10 @@ export function createSessionCommands(program: Command): void {
         }
         console.log('Cleared all sessions');
       } else if (sessionId) {
+        if (sessionId.includes('..') || sessionId.includes('/') || sessionId.includes('\\')) {
+          console.log('Invalid session ID');
+          return;
+        }
         const sessionPath = join(sessionsDir, `${sessionId}.json`);
         if (existsSync(sessionPath)) {
           const { unlinkSync } = require('fs');
@@ -255,6 +259,7 @@ export function createCronCommands(program: Command): void {
       const ms = schedule.everyMs as number;
       if (!ms || ms <= 0) return 'every ?';
       const mins = Math.round(ms / 60000);
+      if (mins <= 0) return 'every <1m';
       return mins >= 60 ? `every ${Math.round(mins / 60)}h` : `every ${mins}m`;
     }
     if (schedule.kind === 'cron') {
@@ -820,7 +825,7 @@ export function createMemoryCommands(program: Command): void {
     .option('-l, --limit <n>', 'Limit results', '50')
     .action(async (userId: string, options: { type?: string; channel?: string; limit?: string }) => {
       await withDb((db) => {
-        const limit = parseInt(options.limit || '50', 10);
+        const limit = parseInt(options.limit ?? '50', 10) || 50;
         let query = 'SELECT * FROM user_memory WHERE userId = ?';
         const params: (string | number)[] = [userId];
 
@@ -906,7 +911,7 @@ export function createMemoryCommands(program: Command): void {
           const countBefore = db.query<{ count: number }>('SELECT COUNT(*) as count FROM user_memory WHERE userId = ?', [userId]);
           db.run(query, params);
           const countAfter = db.query<{ count: number }>('SELECT COUNT(*) as count FROM user_memory WHERE userId = ?', [userId]);
-          const deleted = (countBefore[0]?.count || 0) - (countAfter[0]?.count || 0);
+          const deleted = (countBefore[0]?.count ?? 0) - (countAfter[0]?.count ?? 0);
           console.log(`Cleared ${deleted} memories for ${userId}`);
         } catch (e) {
           console.log('No memories to clear (table not initialized)');
@@ -932,7 +937,8 @@ export function createMemoryCommands(program: Command): void {
 
         try {
           const rows = db.query<Record<string, unknown>>(query, params);
-          const output = options.output || `${userId}-memories.json`;
+          const rawOutput = options.output ?? `${userId}-memories.json`;
+          const output = rawOutput.replace(/\.\./g, '_');
 
           if (rows.length === 0) {
             console.log(`No memories to export for ${userId}`);
@@ -954,7 +960,8 @@ export function createMemoryCommands(program: Command): void {
     .action(async (userId: string, query: string, options: { channel?: string }) => {
       await withDb((db) => {
         let sql = 'SELECT * FROM user_memory WHERE userId = ? AND (key LIKE ? OR value LIKE ?)';
-        const searchPattern = `%${query}%`;
+        const escapedQuery = query.replace(/[%_\\]/g, '\\$&');
+        const searchPattern = `%${escapedQuery}%`;
         const params: string[] = [userId, searchPattern, searchPattern];
 
         if (options.channel) {
@@ -1037,6 +1044,10 @@ export function createHookCommands(program: Command): void {
 
       const stats = statSync(resolved);
       const hookName = resolved.split('/').filter(Boolean).pop()!;
+      if (!hookName || hookName === '..' || hookName === '.' || hookName.includes('/') || hookName.includes('\\')) {
+        console.error('Invalid hook name derived from path');
+        return;
+      }
       const destDir = join(hooksDir, hookName);
       if (!existsSync(destDir)) {
         mkdirSync(destDir, { recursive: true });
@@ -1057,6 +1068,10 @@ export function createHookCommands(program: Command): void {
     .command('uninstall <name>')
     .description('Uninstall a hook')
     .action(async (name: string) => {
+      if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+        console.log('Invalid hook name');
+        return;
+      }
       const hooksDir = getHooksDir();
       const target = join(hooksDir, name);
       if (!existsSync(target)) {
@@ -1072,6 +1087,10 @@ export function createHookCommands(program: Command): void {
     .command('enable <name>')
     .description('Enable a hook')
     .action(async (name: string) => {
+      if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+        console.log('Invalid hook name');
+        return;
+      }
       const hooksDir = getHooksDir();
       const target = join(hooksDir, name);
       if (!existsSync(target)) {
@@ -1086,6 +1105,10 @@ export function createHookCommands(program: Command): void {
     .command('disable <name>')
     .description('Disable a hook')
     .action(async (name: string) => {
+      if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+        console.log('Invalid hook name');
+        return;
+      }
       const hooksDir = getHooksDir();
       const target = join(hooksDir, name);
       if (!existsSync(target)) {
@@ -1392,7 +1415,7 @@ export function createMcpCommands(program: Command): void {
 
       // Try to spawn the process and check if it starts
       const { spawn } = require('child_process');
-      const timeout = parseInt(options.timeout || '5000', 10);
+      const timeout = parseInt(options.timeout ?? '5000', 10) || 5000;
 
       try {
         const proc = spawn(serverConfig.command, serverConfig.args || [], {
@@ -1402,34 +1425,35 @@ export function createMcpCommands(program: Command): void {
 
         let output = '';
         let errorOutput = '';
+        const MAX_OUTPUT = 4096;
 
         proc.stdout.on('data', (data: Buffer) => {
-          output += data.toString();
+          if (output.length < MAX_OUTPUT) output += data.toString().slice(0, MAX_OUTPUT - output.length);
         });
 
         proc.stderr.on('data', (data: Buffer) => {
-          errorOutput += data.toString();
+          if (errorOutput.length < MAX_OUTPUT) errorOutput += data.toString().slice(0, MAX_OUTPUT - errorOutput.length);
         });
 
+        let startTimer: ReturnType<typeof setTimeout> | undefined;
+        let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
         const result = await Promise.race([
           new Promise<'started'>((resolve) => {
-            // If process emits any data or stays alive for a bit, consider it started
-            setTimeout(() => resolve('started'), 1000);
+            startTimer = setTimeout(() => resolve('started'), 1000);
           }),
-          new Promise<'error'>((_, reject) => {
-            proc.on('error', (err: Error) => reject(err));
-          }),
-          new Promise<'exited'>((resolve) => {
+          new Promise<'error' | 'exited'>((resolve) => {
+            proc.on('error', () => resolve('error'));
             proc.on('exit', (code: number) => {
               if (code !== 0) resolve('exited');
             });
           }),
           new Promise<'timeout'>((resolve) => {
-            setTimeout(() => resolve('timeout'), timeout);
+            timeoutTimer = setTimeout(() => resolve('timeout'), timeout);
           }),
         ]);
 
-        // Kill the process after test
+        clearTimeout(startTimer);
+        clearTimeout(timeoutTimer);
         proc.kill();
 
         if (result === 'started' || result === 'timeout') {
@@ -1740,7 +1764,7 @@ export function createUsageCommands(program: Command): void {
     .option('-d, --days <days>', 'Number of days', '7')
     .action(async (options: { days?: string }) => {
       await withDb((db) => {
-        const days = parseInt(options.days || '7', 10);
+        const days = parseInt(options.days ?? '7', 10) || 7;
         const since = new Date();
         since.setDate(since.getDate() - days);
         const sinceStr = since.toISOString();
@@ -1784,7 +1808,7 @@ export function createUsageCommands(program: Command): void {
     .option('-d, --days <days>', 'Number of days', '7')
     .action(async (options: { days?: string }) => {
       await withDb((db) => {
-        const days = parseInt(options.days || '7', 10);
+        const days = parseInt(options.days ?? '7', 10) || 7;
         const since = new Date();
         since.setDate(since.getDate() - days);
         const sinceStr = since.toISOString();
@@ -1837,8 +1861,8 @@ export function createUsageCommands(program: Command): void {
     .option('-l, --limit <n>', 'Limit results', '20')
     .action(async (options: { days?: string; limit?: string }) => {
       await withDb((db) => {
-        const days = parseInt(options.days || '7', 10);
-        const limit = parseInt(options.limit || '20', 10);
+        const days = parseInt(options.days ?? '7', 10) || 7;
+        const limit = parseInt(options.limit ?? '20', 10) || 20;
         const since = new Date();
         since.setDate(since.getDate() - days);
         const sinceStr = since.toISOString();
@@ -1893,7 +1917,7 @@ export function createUsageCommands(program: Command): void {
     .option('--csv', 'Export as CSV instead of JSON')
     .action(async (options: { output?: string; days?: string; csv?: boolean }) => {
       await withDb((db) => {
-        const days = parseInt(options.days || '30', 10);
+        const days = parseInt(options.days ?? '30', 10) || 30;
         const since = new Date();
         since.setDate(since.getDate() - days);
         const sinceStr = since.toISOString();
@@ -1923,8 +1947,10 @@ export function createUsageCommands(program: Command): void {
               headers.join(','),
               ...rows.map(row => headers.map(h => {
                 const val = row[h];
-                if (typeof val === 'string' && val.includes(',')) return `"${val}"`;
-                return val;
+                if (val == null) return '';
+                const str = String(val);
+                if (str.includes(',') || str.includes('"') || str.includes('\n')) return `"${str.replace(/"/g, '""')}"`;
+                return str;
               }).join(','))
             ].join('\n');
             writeFileSync(output, csvContent);
@@ -2587,7 +2613,7 @@ export function createLedgerCommands(program: Command): void {
 
         const uid = userId || 'default';
         const records = storage.list(uid, {
-          limit: parseInt(options?.limit || '20', 10),
+          limit: parseInt(options?.limit ?? '20', 10) || 20,
           category: options?.category as import('../../ledger/types').DecisionCategory,
           decision: options?.decision as import('../../ledger/types').DecisionOutcome,
           platform: options?.platform,
@@ -2683,7 +2709,7 @@ export function createLedgerCommands(program: Command): void {
     .option('-d, --days <n>', 'Retention days', '90')
     .option('-y, --yes', 'Skip confirmation')
     .action(async (options: { days?: string; yes?: boolean }) => {
-      const days = parseInt(options.days || '90', 10);
+      const days = parseInt(options.days ?? '90', 10) || 90;
 
       if (!options.yes) {
         console.log(`\n⚠️  This will delete decisions older than ${days} days.`);

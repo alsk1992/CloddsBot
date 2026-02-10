@@ -199,7 +199,7 @@ export async function signSolanaPayment(
     payTo: option.payTo,
     nonce,
     timestamp,
-    validUntil: option.validUntil || timestamp + 300,
+    validUntil: option.validUntil ?? timestamp + 300,
   });
 
   const messageBytes = new TextEncoder().encode(message);
@@ -251,7 +251,7 @@ export async function verifySolanaPayment(payload: X402PaymentPayload): Promise<
       payTo: payload.paymentOption.payTo,
       nonce: payload.nonce,
       timestamp: payload.timestamp,
-      validUntil: payload.paymentOption.validUntil || payload.timestamp + 300,
+      validUntil: payload.paymentOption.validUntil ?? payload.timestamp + 300,
     });
 
     const messageBytes = new TextEncoder().encode(message);
@@ -291,7 +291,7 @@ export function verifySolanaPaymentSync(payload: X402PaymentPayload): boolean {
       payTo: payload.paymentOption.payTo,
       nonce: payload.nonce,
       timestamp: payload.timestamp,
-      validUntil: payload.paymentOption.validUntil || payload.timestamp + 300,
+      validUntil: payload.paymentOption.validUntil ?? payload.timestamp + 300,
     });
 
     const messageBytes = new TextEncoder().encode(message);

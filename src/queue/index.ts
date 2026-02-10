@@ -53,7 +53,7 @@ function getChatKey(message: IncomingMessage): string {
 
 export function createMessageQueue(configInput?: Config['messages']): MessageQueue {
   const config: QueueConfig = {
-    mode: configInput?.queue?.mode || DEFAULT_CONFIG.mode,
+    mode: configInput?.queue?.mode ?? DEFAULT_CONFIG.mode,
     debounceMs: configInput?.queue?.debounceMs ?? DEFAULT_CONFIG.debounceMs,
     cap: configInput?.queue?.cap ?? DEFAULT_CONFIG.cap,
     responsePrefix: configInput?.responsePrefix,
