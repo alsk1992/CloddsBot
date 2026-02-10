@@ -44,9 +44,9 @@ async function main(): Promise<void> {
 
   // Build Redis connection — config.queue.redis takes priority, env vars as fallback
   const redis: RedisOptions = {
-    host: config.queue?.redis?.host || process.env.REDIS_HOST || 'localhost',
-    port: config.queue?.redis?.port ?? parseInt(process.env.REDIS_PORT || '6379', 10),
-    password: config.queue?.redis?.password || process.env.REDIS_PASSWORD || undefined,
+    host: config.queue?.redis?.host ?? process.env.REDIS_HOST ?? 'localhost',
+    port: config.queue?.redis?.port ?? (parseInt(process.env.REDIS_PORT ?? '6379', 10) || 6379),
+    password: config.queue?.redis?.password ?? process.env.REDIS_PASSWORD ?? undefined,
     maxRetriesPerRequest: null, // Required by BullMQ
   };
 
@@ -107,7 +107,7 @@ async function main(): Promise<void> {
 
   const executionService = createExecutionService(execConfig);
   const concurrency = config.queue?.concurrency
-    ?? parseInt(process.env.WORKER_CONCURRENCY || '10', 10);
+    ?? (parseInt(process.env.WORKER_CONCURRENCY ?? '10', 10) || 10);
 
   logger.info({
     redis: { host: redis.host, port: redis.port },

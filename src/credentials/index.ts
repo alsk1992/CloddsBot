@@ -188,7 +188,7 @@ export function createCredentialsManager(db: Database): CredentialsManager {
         });
       }
 
-      logger.info(`Stored credentials for user ${userId} on ${platform}`);
+      logger.info({ userId, platform }, 'Stored credentials');
     },
 
     async getCredentials<T>(userId: string, platform: Platform): Promise<T | null> {
@@ -197,7 +197,7 @@ export function createCredentialsManager(db: Database): CredentialsManager {
 
       // Check cooldown
       if (creds.cooldownUntil && new Date() < creds.cooldownUntil) {
-        logger.warn(`Credentials for ${userId}/${platform} in cooldown until ${creds.cooldownUntil}`);
+        logger.warn({ userId, platform }, 'Credentials in cooldown');
         return null;
       }
 
@@ -226,7 +226,7 @@ export function createCredentialsManager(db: Database): CredentialsManager {
 
         return parsed as T;
       } catch (err) {
-        logger.error(`Failed to decrypt credentials for ${userId}/${platform}: ${err}`);
+        logger.error({ userId, platform }, 'Failed to decrypt credentials');
         return null;
       }
     },
@@ -238,7 +238,7 @@ export function createCredentialsManager(db: Database): CredentialsManager {
 
     async deleteCredentials(userId, platform) {
       db.deleteTradingCredentials(userId, platform);
-      logger.info(`Deleted credentials for user ${userId} on ${platform}`);
+      logger.info({ userId, platform }, 'Deleted credentials');
     },
 
     async markSuccess(userId, platform) {
@@ -274,7 +274,7 @@ export function createCredentialsManager(db: Database): CredentialsManager {
           updatedAt: new Date(),
         });
 
-        logger.warn(`Auth failure for ${userId}/${platform}, cooldown until ${cooldownUntil}`);
+        logger.warn({ userId, platform }, 'Auth failure, cooldown applied');
       }
     },
 
@@ -305,7 +305,8 @@ export function createCredentialsManager(db: Database): CredentialsManager {
 
       // Get user settings for limits
       const user = db.getUser(userId);
-      const maxOrderSize = user?.settings?.maxOrderSize ?? 100; // Default $100
+      const raw = user?.settings?.maxOrderSize;
+      const maxOrderSize = (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) ? raw : 100;
 
       return {
         userId,

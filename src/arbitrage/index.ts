@@ -258,10 +258,18 @@ export function createArbitrageService(
   async function fetchPrice(platform: Platform, marketId: string, outcome?: string): Promise<number | null> {
     const key = cacheKey(platform, marketId);
     const cached = priceCache.get(key);
+    const now = Date.now();
 
     // Use cache if fresh (< 5 seconds)
-    if (cached && Date.now() - cached.timestamp < 5000) {
+    if (cached && now - cached.timestamp < 5000) {
       return cached.price;
+    }
+
+    // Evict stale entries to prevent unbounded growth
+    if (priceCache.size > 10_000) {
+      for (const [k, v] of priceCache) {
+        if (now - v.timestamp > 60_000) priceCache.delete(k);
+      }
     }
 
     const provider = priceProviders.get(platform);
@@ -269,7 +277,7 @@ export function createArbitrageService(
 
     const price = await provider.getPrice(marketId, outcome);
     if (price !== null) {
-      priceCache.set(key, { price, timestamp: Date.now() });
+      priceCache.set(key, { price, timestamp: now });
     }
 
     return price;
@@ -369,6 +377,7 @@ export function createArbitrageService(
     const intersection = new Set([...words1].filter((x) => words2.has(x)));
     const union = new Set([...words1, ...words2]);
 
+    if (union.size === 0) return 0;
     return intersection.size / union.size;
   }
 
@@ -650,7 +659,7 @@ export function createArbitrageService(
 
     getPrice(platform, marketId) {
       const cached = priceCache.get(cacheKey(platform, marketId));
-      return cached?.price || null;
+      return cached?.price ?? null;
     },
 
     formatOpportunities() {
@@ -714,7 +723,7 @@ export function feedToPriceProvider(
         ? market.outcomes.find((o) => o.name.toLowerCase() === outcome.toLowerCase())
         : market.outcomes[0];
 
-      return outcomeData?.price || null;
+      return outcomeData?.price ?? null;
     },
     getMarket: feed.getMarket,
     searchMarkets: feed.searchMarkets,

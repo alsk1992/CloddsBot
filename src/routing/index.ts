@@ -329,10 +329,13 @@ export function createRoutingService(config?: Partial<RoutingConfig>): RoutingSe
         return keywords.some((keyword) => textLower.includes(keyword));
 
       case 'regex':
-        // Match regex pattern
+        if (binding.pattern.length > 200) {
+          logger.warn({ pattern: binding.pattern }, 'Regex pattern too long');
+          return false;
+        }
         try {
           const regex = new RegExp(binding.pattern, 'i');
-          return regex.test(text);
+          return regex.test(text.slice(0, 10000));
         } catch {
           logger.warn({ pattern: binding.pattern }, 'Invalid regex pattern');
           return false;

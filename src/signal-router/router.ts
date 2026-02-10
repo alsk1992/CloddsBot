@@ -99,7 +99,7 @@ export function createSignalRouter(
 
   function recordSkip(reason: string): void {
     stats.signalsRejected++;
-    stats.skipReasons[reason] = (stats.skipReasons[reason] || 0) + 1;
+    stats.skipReasons[reason] = (stats.skipReasons[reason] ?? 0) + 1;
   }
 
   function recordExecution(exec: SignalExecution): void {
@@ -117,6 +117,12 @@ export function createSignalRouter(
 
   function setCooldown(key: string): void {
     marketCooldowns.set(key, Date.now() + cfg.cooldownMs);
+    if (marketCooldowns.size > 10_000) {
+      const now = Date.now();
+      for (const [k, until] of marketCooldowns) {
+        if (now >= until) marketCooldowns.delete(k);
+      }
+    }
   }
 
   // ── Validation ───────────────────────────────────────────────────────────

@@ -75,6 +75,8 @@ export interface LRUCache<K = string, V = unknown> {
   size(): number;
   /** Prune expired entries */
   prune(): number;
+  /** Stop background cleanup timer */
+  destroy(): void;
 }
 
 // =============================================================================
@@ -181,9 +183,24 @@ export function createCache<K = string, V = unknown>(
       return existing;
     }
 
-    const value = await compute();
-    set(key, value, ttl);
-    return value;
+    const serializedKey = getSerializedKey(key);
+    const pending = inflight.get(serializedKey);
+    if (pending) {
+      return pending;
+    }
+
+    const promise = (async () => {
+      try {
+        const value = await compute();
+        set(key, value, ttl);
+        return value;
+      } finally {
+        inflight.delete(serializedKey);
+      }
+    })();
+
+    inflight.set(serializedKey, promise);
+    return promise;
   }
 
   function set(key: K, value: V, ttl?: number): void {
@@ -280,12 +297,17 @@ export function createCache<K = string, V = unknown>(
   function prune(): number {
     let pruned = 0;
     const now = Date.now();
+    const expiredKeys: string[] = [];
 
     for (const [serializedKey, entry] of cache) {
       if (entry.expiresAt > 0 && now > entry.expiresAt) {
-        evict(serializedKey, 'expired');
-        pruned++;
+        expiredKeys.push(serializedKey);
       }
+    }
+
+    for (const key of expiredKeys) {
+      evict(key, 'expired');
+      pruned++;
     }
 
     return pruned;
@@ -304,6 +326,8 @@ export function createCache<K = string, V = unknown>(
     cleanupInterval.unref();
   }
 
+  const inflight = new Map<string, Promise<V>>();
+
   return {
     get,
     getOrSet,
@@ -316,6 +340,12 @@ export function createCache<K = string, V = unknown>(
     keys,
     size,
     prune,
+    destroy() {
+      clearInterval(cleanupInterval);
+      cache.clear();
+      keyMap.clear();
+      inflight.clear();
+    },
   };
 }
 

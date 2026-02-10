@@ -151,9 +151,9 @@ async function fetchPolymarketTrades(
     const data = (await response.json()) as PolymarketTrade[];
 
     return data.map((t) => {
-      const shares = parseFloat(t.size);
-      const price = parseFloat(t.price);
-      const feeRate = parseFloat(t.fee_rate_bps || '0') / 10000;
+      const shares = parseFloat(t.size) || 0;
+      const price = parseFloat(t.price) || 0;
+      const feeRate = (parseFloat(t.fee_rate_bps ?? '0') || 0) / 10000;
       const value = shares * price;
       const fee = value * feeRate;
 
@@ -343,6 +343,11 @@ export function createTradeHistoryService(
       // Keep sorted
       trades.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
+      // Cap in-memory trades to prevent unbounded growth
+      if (trades.length > 5000) {
+        trades.length = 5000;
+      }
+
       logger.info({ fetched: allTrades.length, total: trades.length }, 'Fetched trades');
       return allTrades;
     },
@@ -451,7 +456,7 @@ export function createTradeHistoryService(
       const marketPnL = new Map<string, number>();
       for (const trade of periodTrades) {
         const key = `${trade.platform}_${trade.marketId}_${trade.outcome}`;
-        const current = marketPnL.get(key) || 0;
+        const current = marketPnL.get(key) ?? 0;
         const tradeValue = trade.side === 'sell' ? trade.value : -trade.value;
         marketPnL.set(key, current + tradeValue - trade.fee);
       }

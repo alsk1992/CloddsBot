@@ -161,7 +161,7 @@ export interface PluginService {
   /** Register a plugin */
   register(plugin: Plugin): void;
   /** Unregister a plugin */
-  unregister(pluginId: string): void;
+  unregister(pluginId: string): Promise<void>;
   /** Enable a plugin */
   enable(pluginId: string): Promise<void>;
   /** Disable a plugin */
@@ -184,6 +184,8 @@ export interface PluginService {
   tick(): Promise<void>;
   /** Load plugins from directory */
   loadFromDirectory(dir?: string): Promise<number>;
+  /** Stop the plugin service and clear timers */
+  destroy(): void;
   /** Subscribe to events */
   on<K extends keyof PluginServiceEvents>(event: K, fn: PluginServiceEvents[K]): void;
   off<K extends keyof PluginServiceEvents>(event: K, fn: PluginServiceEvents[K]): void;
@@ -249,7 +251,12 @@ export function createPluginService(): PluginService {
       },
 
       setSettings<T>(settings: Partial<T>) {
-        registered.settings = { ...registered.settings, ...settings };
+        const safe = Object.fromEntries(
+          Object.entries(settings as Record<string, unknown>).filter(
+            ([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype',
+          ),
+        );
+        registered.settings = { ...registered.settings, ...safe };
         allSettings[pluginId] = registered.settings;
         saveAllSettings(allSettings);
       },
@@ -278,6 +285,7 @@ export function createPluginService(): PluginService {
           return (registered.storage[key] as T) ?? null;
         },
         set<T>(key: string, value: T) {
+          if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
           registered.storage[key] = value;
           writeFileSync(storageFile, JSON.stringify(registered.storage, null, 2));
         },
@@ -322,12 +330,12 @@ export function createPluginService(): PluginService {
       logger.info({ pluginId: plugin.meta.id, name: plugin.meta.name }, 'Plugin registered');
     },
 
-    unregister(pluginId) {
+    async unregister(pluginId) {
       const registered = plugins.get(pluginId);
       if (!registered) return;
 
       if (registered.state === 'enabled') {
-        this.disable(pluginId);
+        await this.disable(pluginId);
       }
 
       plugins.delete(pluginId);
@@ -486,6 +494,7 @@ export function createPluginService(): PluginService {
 
         for (const file of files) {
           if (!file.endsWith('.js') && !file.endsWith('.mjs')) continue;
+          if (file.includes('..') || file.includes('/') || file.includes('\\')) continue;
 
           try {
             const pluginPath = join(dir, file);
@@ -507,6 +516,14 @@ export function createPluginService(): PluginService {
       }
 
       return count;
+    },
+
+    destroy() {
+      if (tickInterval) {
+        clearInterval(tickInterval);
+        tickInterval = null;
+      }
+      emitter.removeAllListeners();
     },
 
     on(event, fn) {
@@ -560,13 +577,13 @@ export const counterPlugin: Plugin = {
   onEnable(ctx) {
     ctx.onMessage((msg) => {
       const counts = ctx.storage.get<Record<string, number>>('counts') || {};
-      counts[msg.userId] = (counts[msg.userId] || 0) + 1;
+      counts[msg.userId] = (counts[msg.userId] ?? 0) + 1;
       ctx.storage.set('counts', counts);
     });
 
     ctx.registerCommand('mycount', (_, cmdCtx) => {
       const counts = ctx.storage.get<Record<string, number>>('counts') || {};
-      const count = counts[cmdCtx.userId] || 0;
+      const count = counts[cmdCtx.userId] ?? 0;
       return `You've sent ${count} messages`;
     }, 'Show your message count');
 
@@ -589,7 +606,7 @@ export const reminderPlugin: Plugin = {
         return 'Usage: /remind <minutes> <message>';
       }
 
-      const minutes = parseInt(args[0]);
+      const minutes = parseInt(args[0], 10);
       const message = args.slice(1).join(' ');
 
       if (isNaN(minutes) || minutes < 1) {

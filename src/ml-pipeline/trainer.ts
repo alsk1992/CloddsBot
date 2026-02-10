@@ -52,7 +52,7 @@ export function combinedToMarketFeatures(cf: CombinedFeatures | null): MarketFea
       buyRatio: signals?.buyPressure ?? 0.5,
     },
     orderbook: {
-      bidAskRatio: ob ? (ob.askDepth > 0 ? ob.bidDepth / ob.askDepth : 1) : 1,
+      bidAskRatio: ob && ob.askDepth > 0 ? ob.bidDepth / ob.askDepth : 1,
       imbalanceScore: ob?.imbalance ?? 0,
       spreadPct: ob?.spreadPct ?? 0.02,
       depth10Pct: ob ? (ob.bidDepthAt5Pct + ob.askDepthAt5Pct) : 0,

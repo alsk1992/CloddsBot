@@ -198,10 +198,11 @@ function matchCondition(text: string, condition: RuleCondition): { matched: bool
 
     case 'regex': {
       if (!condition.pattern) return { matched: false, captures: [] };
+      if (condition.pattern.length > 200) return { matched: false, captures: [] };
       try {
         const flags = condition.ignoreCase ? 'i' : '';
         const regex = new RegExp(condition.pattern, flags);
-        const match = text.match(regex);
+        const match = text.slice(0, 10000).match(regex);
         return {
           matched: !!match,
           captures: match ? match.slice(1) : [],
@@ -213,7 +214,7 @@ function matchCondition(text: string, condition: RuleCondition): { matched: bool
 
     case 'keywords': {
       const keywords = condition.keywords || [];
-      const minKeywords = condition.minKeywords || 1;
+      const minKeywords = condition.minKeywords ?? 1;
       const matched = keywords.filter(kw => {
         const kwLower = condition.ignoreCase ? kw.toLowerCase() : kw;
         return testText.includes(kwLower);
@@ -241,7 +242,8 @@ function replaceVariables(template: string, variables: Record<string, string>): 
 export function createAutoReplyService(): AutoReplyService {
   const emitter = new EventEmitter();
   const rules = new Map<string, AutoReplyRule>();
-  const cooldowns = new Map<string, number>(); // ruleId:userId -> timestamp
+  const MAX_COOLDOWN_ENTRIES = 10000;
+  const cooldowns = new Map<string, number>();
 
   /** Get cooldown key */
   function getCooldownKey(ruleId: string, userId: string, perUser: boolean): string {
@@ -261,11 +263,20 @@ export function createAutoReplyService(): AutoReplyService {
     return false;
   }
 
-  /** Set cooldown for rule */
   function setCooldown(rule: AutoReplyRule, userId: string): void {
     if (!rule.cooldownMs) return;
 
     const key = getCooldownKey(rule.id, userId, rule.perUserCooldown || false);
+    if (cooldowns.size >= MAX_COOLDOWN_ENTRIES) {
+      const now = Date.now();
+      for (const [k, ts] of cooldowns) {
+        if (now - ts > 3600000) cooldowns.delete(k);
+      }
+      if (cooldowns.size >= MAX_COOLDOWN_ENTRIES) {
+        const oldest = cooldowns.keys().next().value;
+        if (oldest !== undefined) cooldowns.delete(oldest);
+      }
+    }
     cooldowns.set(key, Date.now());
   }
 

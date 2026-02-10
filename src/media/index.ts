@@ -9,7 +9,7 @@
  * - Image resizing for vision models
  */
 
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync } from 'fs';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync as fsWriteFileSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join, basename, extname } from 'path';
 import { pipeline } from 'stream/promises';
@@ -163,16 +163,19 @@ function getExtension(mimeType: string): string {
 }
 
 /** Download file from URL */
-async function downloadFile(url: string, dest: string, options: DownloadOptions = {}): Promise<{ mimeType: string; size: number }> {
+async function downloadFile(url: string, dest: string, options: DownloadOptions = {}, _redirectCount = 0): Promise<{ mimeType: string; size: number }> {
+  if (_redirectCount > 10) {
+    throw new Error('Too many redirects');
+  }
+
   return new Promise((resolve, reject) => {
-    const maxSize = options.maxSize || MAX_FILE_SIZE;
+    const maxSize = options.maxSize ?? MAX_FILE_SIZE;
     const parsedUrl = new URL(url);
     const protocol = parsedUrl.protocol === 'https:' ? https : http;
 
     const req = protocol.get(url, { headers: options.headers }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        // Follow redirect
-        downloadFile(res.headers.location, dest, options).then(resolve).catch(reject);
+        downloadFile(res.headers.location, dest, options, _redirectCount + 1).then(resolve).catch(reject);
         return;
       }
 
@@ -204,8 +207,7 @@ async function downloadFile(url: string, dest: string, options: DownloadOptions 
         const buffer = Buffer.concat(chunks);
         const mimeType = res.headers['content-type']?.split(';')[0] || detectMimeType(buffer);
 
-        // Write to disk
-        require('fs').writeFileSync(dest, buffer);
+        fsWriteFileSync(dest, buffer);
 
         resolve({ mimeType, size: buffer.length });
       });
@@ -231,15 +233,16 @@ export function createMediaService(): MediaService {
   // In-memory index of files (could be persisted to DB)
   const files = new Map<string, MediaFile>();
 
-  // Load existing files on startup
   try {
     const existing = readdirSync(MEDIA_DIR);
     for (const filename of existing) {
       const filePath = join(MEDIA_DIR, filename);
       const stat = statSync(filePath);
-      const id = filename.replace(/\.[^.]+$/, ''); // Remove extension
-      const buffer = readFileSync(filePath);
-      const mimeType = detectMimeType(buffer);
+      if (!stat.isFile()) continue;
+      const id = filename.replace(/\.[^.]+$/, '');
+      const ext = extname(filename);
+      const mimeEntry = Object.entries(MIME_TYPES).find(([, v]) => v.ext === ext);
+      const mimeType = mimeEntry ? mimeEntry[0] : 'application/octet-stream';
 
       files.set(id, {
         id,
@@ -253,7 +256,7 @@ export function createMediaService(): MediaService {
     if (existing.length > 0) {
       logger.debug({ count: existing.length }, 'Loaded existing media files');
     }
-  } catch (e) {
+  } catch {
     // Directory might be empty or not exist yet
   }
 
@@ -267,8 +270,7 @@ export function createMediaService(): MediaService {
         const ext = getExtension(mimeType);
         const finalPath = join(MEDIA_DIR, `${id}${ext}`);
 
-        // Rename temp file
-        require('fs').renameSync(tempPath, finalPath);
+        renameSync(tempPath, finalPath);
 
         const file: MediaFile = {
           id,
@@ -299,7 +301,7 @@ export function createMediaService(): MediaService {
       const ext = getExtension(mimeType);
       const filePath = join(MEDIA_DIR, `${id}${ext}`);
 
-      require('fs').writeFileSync(filePath, buffer);
+      fsWriteFileSync(filePath, buffer);
 
       const file: MediaFile = {
         id,
@@ -474,7 +476,7 @@ function validateAudioFile(audioPath: string, options?: TranscriptionOptions): v
   }
 
   const stats = statSync(audioPath);
-  const envMaxBytes = Number(process.env.CLODDS_TRANSCRIBE_MAX_BYTES || 0);
+  const envMaxBytes = Number(process.env.CLODDS_TRANSCRIBE_MAX_BYTES ?? 0);
   const maxBytes =
     options?.maxBytes ??
     (envMaxBytes > 0 ? envMaxBytes : DEFAULT_TRANSCRIBE_MAX_BYTES);

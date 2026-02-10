@@ -325,11 +325,11 @@ export class NeynarClient {
   private mapUser = (u: any): FarcasterUser => ({
     fid: u.fid,
     username: u.username,
-    displayName: u.display_name || u.username,
+    displayName: u.display_name ?? u.username,
     pfpUrl: u.pfp_url,
     bio: u.profile?.bio?.text,
-    followerCount: u.follower_count || 0,
-    followingCount: u.following_count || 0,
+    followerCount: u.follower_count ?? 0,
+    followingCount: u.following_count ?? 0,
     verifiedAddresses: u.verified_addresses,
     activeStatus: u.active_status,
   });
@@ -339,10 +339,10 @@ export class NeynarClient {
     text: c.text,
     author: this.mapUser(c.author),
     timestamp: c.timestamp,
-    replies: { count: c.replies?.count || 0 },
+    replies: { count: c.replies?.count ?? 0 },
     reactions: {
-      likes: c.reactions?.likes_count || 0,
-      recasts: c.reactions?.recasts_count || 0,
+      likes: c.reactions?.likes_count ?? 0,
+      recasts: c.reactions?.recasts_count ?? 0,
     },
     embeds: c.embeds,
     parentHash: c.parent_hash,
@@ -355,7 +355,7 @@ export class NeynarClient {
     name: ch.name,
     description: ch.description,
     imageUrl: ch.image_url,
-    followerCount: ch.follower_count || 0,
+    followerCount: ch.follower_count ?? 0,
     leadFid: ch.lead?.fid,
   });
 }

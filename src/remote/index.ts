@@ -16,6 +16,18 @@ import { logger } from '../utils/logger';
 
 const execAsync = promisify(exec);
 
+function validatePort(port: number): void {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid port number: ${port}`);
+  }
+}
+
+function validateHostname(host: string): void {
+  if (!/^[a-zA-Z0-9._-]+$/.test(host)) {
+    throw new Error(`Invalid hostname: ${host}`);
+  }
+}
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -60,7 +72,6 @@ export class TunnelManager extends EventEmitter {
   private tunnels: Map<string, TunnelInfo> = new Map();
   private counter = 0;
 
-  /** Create an SSH tunnel */
   async createSshTunnel(config: {
     localPort: number;
     remoteHost: string;
@@ -69,6 +80,13 @@ export class TunnelManager extends EventEmitter {
     sshUser?: string;
     sshKey?: string;
   }): Promise<TunnelInfo> {
+    validatePort(config.localPort);
+    validatePort(config.remotePort);
+    validateHostname(config.remoteHost);
+    validateHostname(config.sshHost);
+    if (config.sshUser && !/^[a-zA-Z0-9._-]+$/.test(config.sshUser)) {
+      throw new Error(`Invalid SSH user: ${config.sshUser}`);
+    }
     const id = `ssh-${++this.counter}`;
 
     const args = [
@@ -133,13 +151,19 @@ export class TunnelManager extends EventEmitter {
     }
   }
 
-  /** Create an ngrok tunnel */
   async createNgrokTunnel(config: {
     localPort: number;
     authToken?: string;
     subdomain?: string;
     region?: string;
   }): Promise<TunnelInfo> {
+    validatePort(config.localPort);
+    if (config.subdomain && !/^[a-zA-Z0-9-]+$/.test(config.subdomain)) {
+      throw new Error(`Invalid subdomain: ${config.subdomain}`);
+    }
+    if (config.region && !/^[a-z]{2}$/.test(config.region)) {
+      throw new Error(`Invalid region: ${config.region}`);
+    }
     const id = `ngrok-${++this.counter}`;
 
     const tunnel: TunnelInfo = {
@@ -213,11 +237,14 @@ export class TunnelManager extends EventEmitter {
     }
   }
 
-  /** Create a Cloudflare tunnel */
   async createCloudflareTunnel(config: {
     localPort: number;
     hostname?: string;
   }): Promise<TunnelInfo> {
+    validatePort(config.localPort);
+    if (config.hostname && !/^[a-zA-Z0-9._-]+$/.test(config.hostname)) {
+      throw new Error(`Invalid hostname: ${config.hostname}`);
+    }
     const id = `cf-${++this.counter}`;
 
     const tunnel: TunnelInfo = {
@@ -248,13 +275,15 @@ export class TunnelManager extends EventEmitter {
       let output = '';
 
       proc.stderr?.on('data', (data) => {
-        output += data.toString();
-        // Look for the URL in cloudflared output
+        if (output.length < 50000) {
+          output += data.toString();
+        }
         const match = output.match(/https:\/\/[^\s]+\.trycloudflare\.com/);
         if (match && !tunnel.publicUrl) {
           tunnel.publicUrl = match[0];
           tunnel.status = 'connected';
           this.emit('connect', tunnel);
+          output = '';
         }
       });
 
@@ -288,11 +317,14 @@ export class TunnelManager extends EventEmitter {
     }
   }
 
-  /** Create a localtunnel */
   async createLocaltunnel(config: {
     localPort: number;
     subdomain?: string;
   }): Promise<TunnelInfo> {
+    validatePort(config.localPort);
+    if (config.subdomain && !/^[a-zA-Z0-9-]+$/.test(config.subdomain)) {
+      throw new Error(`Invalid subdomain: ${config.subdomain}`);
+    }
     const id = `lt-${++this.counter}`;
 
     const tunnel: TunnelInfo = {
@@ -511,15 +543,17 @@ export class PortForwarder {
   private processes: Map<string, ChildProcess> = new Map();
   private counter = 0;
 
-  /** Create a port forward using socat */
   async forward(config: {
     localPort: number;
     remoteHost: string;
     remotePort: number;
     protocol?: 'tcp' | 'udp';
   }): Promise<PortForward> {
+    validatePort(config.localPort);
+    validatePort(config.remotePort);
+    validateHostname(config.remoteHost);
     const id = `pf-${++this.counter}`;
-    const protocol = config.protocol || 'tcp';
+    const protocol = config.protocol ?? 'tcp';
 
     const pf: PortForward = {
       id,
@@ -540,7 +574,7 @@ export class PortForwarder {
         `${socatRemote}:${config.remoteHost}:${config.remotePort}`,
       ], {
         stdio: 'ignore',
-        detached: true,
+        detached: false,
       });
 
       this.processes.set(id, proc);

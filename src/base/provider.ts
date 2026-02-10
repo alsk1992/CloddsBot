@@ -158,9 +158,23 @@ export async function getBlockNumber(config?: BaseProviderConfig): Promise<bigin
 }
 
 export function formatEther(wei: bigint): string {
-  return (Number(wei) / 1e18).toFixed(6);
+  const negative = wei < 0n;
+  const abs = negative ? -wei : wei;
+  const whole = abs / 10n ** 18n;
+  const frac = abs % 10n ** 18n;
+  const fracStr = frac.toString().padStart(18, '0').slice(0, 6);
+  return `${negative ? '-' : ''}${whole}.${fracStr}`;
 }
 
 export function parseEther(ether: string): bigint {
-  return BigInt(Math.floor(parseFloat(ether) * 1e18));
+  const trimmed = ether.trim();
+  if (trimmed === '' || isNaN(Number(trimmed))) {
+    throw new Error(`Invalid ether value: ${ether}`);
+  }
+  const negative = trimmed.startsWith('-');
+  const abs = negative ? trimmed.slice(1) : trimmed;
+  const [whole = '0', frac = ''] = abs.split('.');
+  const paddedFrac = (frac + '000000000000000000').slice(0, 18);
+  const result = BigInt(whole) * 10n ** 18n + BigInt(paddedFrac);
+  return negative ? -result : result;
 }

@@ -42,6 +42,7 @@ function parseCronField(field: string, min: number, max: number): number[] {
   // Handle */n (step)
   if (field.startsWith('*/')) {
     const step = parseInt(field.slice(2), 10);
+    if (isNaN(step) || step <= 0) return values;
     for (let i = min; i <= max; i += step) {
       values.push(i);
     }
@@ -54,11 +55,16 @@ function parseCronField(field: string, min: number, max: number): number[] {
     // Handle range (n-m)
     if (part.includes('-')) {
       const [start, end] = part.split('-').map((n) => parseInt(n, 10));
-      for (let i = start; i <= end; i++) {
-        values.push(i);
+      if (!isNaN(start) && !isNaN(end)) {
+        for (let i = start; i <= end; i++) {
+          values.push(i);
+        }
       }
     } else {
-      values.push(parseInt(part, 10));
+      const val = parseInt(part, 10);
+      if (!isNaN(val)) {
+        values.push(val);
+      }
     }
   }
 

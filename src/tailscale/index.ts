@@ -9,12 +9,12 @@
  * - MagicDNS support
  */
 
-import { exec, spawn, ChildProcess } from 'child_process';
+import { execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // =============================================================================
 // TYPES
@@ -69,20 +69,18 @@ export class TailscaleClient extends EventEmitter {
   private serveProcess: ChildProcess | null = null;
   private funnelProcess: ChildProcess | null = null;
 
-  /** Check if Tailscale is installed */
   async isInstalled(): Promise<boolean> {
     try {
-      await execAsync('which tailscale');
+      await execFileAsync('which', ['tailscale']);
       return true;
     } catch {
       return false;
     }
   }
 
-  /** Check if Tailscale is running */
   async isRunning(): Promise<boolean> {
     try {
-      const { stdout } = await execAsync('tailscale status --json');
+      const { stdout } = await execFileAsync('tailscale', ['status', '--json']);
       const status = JSON.parse(stdout);
       return status.BackendState === 'Running';
     } catch {
@@ -90,9 +88,8 @@ export class TailscaleClient extends EventEmitter {
     }
   }
 
-  /** Get Tailscale status */
   async getStatus(): Promise<TailscaleStatus> {
-    const { stdout } = await execAsync('tailscale status --json');
+    const { stdout } = await execFileAsync('tailscale', ['status', '--json']);
     const data = JSON.parse(stdout);
 
     const self: TailscaleNode = {
@@ -133,10 +130,9 @@ export class TailscaleClient extends EventEmitter {
     };
   }
 
-  /** Get this machine's Tailscale IP */
   async getIP(): Promise<string | null> {
     try {
-      const { stdout } = await execAsync('tailscale ip -4');
+      const { stdout } = await execFileAsync('tailscale', ['ip', '-4']);
       return stdout.trim();
     } catch {
       return null;
@@ -153,26 +149,24 @@ export class TailscaleClient extends EventEmitter {
     }
   }
 
-  /** Start Tailscale Serve */
   async serve(config: ServeConfig): Promise<string> {
     const port = config.port;
     const path = config.path || '/';
 
-    // Stop any existing serve
     await this.serveStop();
 
     const args = ['serve'];
 
     if (config.https !== false) {
-      args.push('--https=' + port);
+      args.push('--https=' + String(port));
     } else {
-      args.push('--http=' + port);
+      args.push('--http=' + String(port));
     }
 
     args.push(`localhost:${port}${path}`);
 
     try {
-      await execAsync(`tailscale ${args.join(' ')}`);
+      await execFileAsync('tailscale', args);
       const dnsName = await this.getDnsName();
       const url = `https://${dnsName}${path}`;
 
@@ -185,10 +179,9 @@ export class TailscaleClient extends EventEmitter {
     }
   }
 
-  /** Stop Tailscale Serve */
   async serveStop(): Promise<void> {
     try {
-      await execAsync('tailscale serve off');
+      await execFileAsync('tailscale', ['serve', 'off']);
       logger.info('Tailscale Serve stopped');
       this.emit('serve:stop');
     } catch {
@@ -196,26 +189,23 @@ export class TailscaleClient extends EventEmitter {
     }
   }
 
-  /** Get Serve status */
   async serveStatus(): Promise<ServeStatus | null> {
     try {
-      const { stdout } = await execAsync('tailscale serve status --json');
+      const { stdout } = await execFileAsync('tailscale', ['serve', 'status', '--json']);
       return JSON.parse(stdout);
     } catch {
       return null;
     }
   }
 
-  /** Start Tailscale Funnel (public internet access) */
   async funnel(config: FunnelConfig): Promise<string> {
     const port = config.port;
     const path = config.path || '/';
 
-    // Stop any existing funnel
     await this.funnelStop();
 
     try {
-      await execAsync(`tailscale funnel ${port}${path}`);
+      await execFileAsync('tailscale', ['funnel', `${port}${path}`]);
       const dnsName = await this.getDnsName();
       const url = `https://${dnsName}${path}`;
 
@@ -228,10 +218,9 @@ export class TailscaleClient extends EventEmitter {
     }
   }
 
-  /** Stop Tailscale Funnel */
   async funnelStop(): Promise<void> {
     try {
-      await execAsync('tailscale funnel off');
+      await execFileAsync('tailscale', ['funnel', 'off']);
       logger.info('Tailscale Funnel stopped');
       this.emit('funnel:stop');
     } catch {
@@ -239,20 +228,18 @@ export class TailscaleClient extends EventEmitter {
     }
   }
 
-  /** Check if Funnel is available for this account */
   async funnelAvailable(): Promise<boolean> {
     try {
-      const { stdout } = await execAsync('tailscale funnel status --json');
+      const { stdout } = await execFileAsync('tailscale', ['funnel', 'status', '--json']);
       return !stdout.includes('not available');
     } catch {
       return false;
     }
   }
 
-  /** Ping a peer */
   async ping(target: string, count = 1): Promise<{ latency: number; online: boolean }> {
     try {
-      const { stdout } = await execAsync(`tailscale ping -c ${count} ${target}`);
+      const { stdout } = await execFileAsync('tailscale', ['ping', '-c', String(count), target]);
       const match = stdout.match(/in (\d+(?:\.\d+)?)\s*ms/);
       const latency = match ? parseFloat(match[1]) : 0;
       return { latency, online: true };
@@ -261,30 +248,27 @@ export class TailscaleClient extends EventEmitter {
     }
   }
 
-  /** Send a file to a peer */
   async sendFile(target: string, filePath: string): Promise<void> {
     try {
-      await execAsync(`tailscale file cp "${filePath}" ${target}:`);
+      await execFileAsync('tailscale', ['file', 'cp', filePath, `${target}:`]);
       logger.info({ target, filePath }, 'File sent via Tailscale');
     } catch (error) {
       throw new Error(`Failed to send file: ${error}`);
     }
   }
 
-  /** Get pending incoming files */
   async getIncomingFiles(): Promise<Array<{ name: string; size: number; from: string }>> {
     try {
-      const { stdout } = await execAsync('tailscale file get --json');
+      const { stdout } = await execFileAsync('tailscale', ['file', 'get', '--json']);
       return JSON.parse(stdout) || [];
     } catch {
       return [];
     }
   }
 
-  /** Accept incoming files */
   async acceptFiles(destDir: string): Promise<string[]> {
     try {
-      const { stdout } = await execAsync(`tailscale file get "${destDir}"`);
+      const { stdout } = await execFileAsync('tailscale', ['file', 'get', destDir]);
       const files = stdout.trim().split('\n').filter(Boolean);
       return files;
     } catch {
@@ -325,7 +309,6 @@ export class TailscaleClient extends EventEmitter {
     });
   }
 
-  /** Login to Tailscale */
   async login(options?: { authKey?: string; hostname?: string }): Promise<void> {
     const args = ['up'];
 
@@ -337,20 +320,18 @@ export class TailscaleClient extends EventEmitter {
       args.push('--hostname', options.hostname);
     }
 
-    await execAsync(`tailscale ${args.join(' ')}`);
+    await execFileAsync('tailscale', args);
     logger.info('Tailscale logged in');
   }
 
-  /** Logout from Tailscale */
   async logout(): Promise<void> {
-    await execAsync('tailscale logout');
+    await execFileAsync('tailscale', ['logout']);
     logger.info('Tailscale logged out');
   }
 
-  /** Set machine tags (requires admin) */
   async setTags(tags: string[]): Promise<void> {
     const tagArgs = tags.map(t => t.startsWith('tag:') ? t : `tag:${t}`).join(',');
-    await execAsync(`tailscale up --advertise-tags=${tagArgs}`);
+    await execFileAsync('tailscale', ['up', `--advertise-tags=${tagArgs}`]);
   }
 }
 

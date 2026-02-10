@@ -126,6 +126,19 @@ function toWhatsApp(text: string): string {
   return result;
 }
 
+function sanitizeHtmlAttr(val: string): string {
+  return val.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function sanitizeUrl(url: string): string {
+  const decoded = url.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  const trimmed = decoded.trim().toLowerCase();
+  if (trimmed.startsWith('javascript:') || trimmed.startsWith('data:') || trimmed.startsWith('vbscript:')) {
+    return '';
+  }
+  return sanitizeHtmlAttr(decoded);
+}
+
 /** Convert markdown to HTML */
 function toHtml(text: string): string {
   let result = text;
@@ -153,10 +166,16 @@ function toHtml(text: string): string {
   result = result.replace(/~~(.+?)~~/g, '<del>$1</del>');
 
   // Links
-  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
+    const safeUrl = sanitizeUrl(url);
+    return safeUrl ? `<a href="${safeUrl}">${linkText}</a>` : linkText;
+  });
 
   // Images
-  result = result.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+  result = result.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    const safeUrl = sanitizeUrl(url);
+    return safeUrl ? `<img src="${safeUrl}" alt="${sanitizeHtmlAttr(alt.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'))}>` : alt;
+  });
 
   // Headings
   result = result.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
@@ -354,12 +373,12 @@ export function extractLinks(text: string): Array<{ text: string; url: string }>
 /** Check if text contains markdown */
 export function hasMarkdown(text: string): boolean {
   return (
-    PATTERNS.bold.test(text) ||
-    PATTERNS.italic.test(text) ||
-    PATTERNS.code.test(text) ||
-    PATTERNS.codeBlock.test(text) ||
-    PATTERNS.link.test(text) ||
-    PATTERNS.heading.test(text)
+    /\*\*(.+?)\*\*/.test(text) ||
+    /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/.test(text) ||
+    /`([^`]+)`/.test(text) ||
+    /```(\w*)\n?([\s\S]*?)```/.test(text) ||
+    /\[([^\]]+)\]\(([^)]+)\)/.test(text) ||
+    /^(#{1,6}) (.+)$/m.test(text)
   );
 }
 

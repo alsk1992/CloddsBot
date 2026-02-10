@@ -9,13 +9,17 @@
  * - Image management
  */
 
-import { exec, spawn, ChildProcess } from 'child_process';
+import { execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
 import { randomBytes } from 'crypto';
 import { logger } from '../utils/logger';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+function sanitizeDockerName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, '');
+}
 
 // =============================================================================
 // TYPES
@@ -105,19 +109,17 @@ export class DockerClient extends EventEmitter {
     this.prefix = prefix;
   }
 
-  /** Check if Docker is available */
   async isAvailable(): Promise<boolean> {
     try {
-      await execAsync('docker info');
+      await execFileAsync('docker', ['info']);
       return true;
     } catch {
       return false;
     }
   }
 
-  /** Get Docker version */
   async getVersion(): Promise<{ client: string; server: string }> {
-    const { stdout } = await execAsync('docker version --format "{{.Client.Version}}|{{.Server.Version}}"');
+    const { stdout } = await execFileAsync('docker', ['version', '--format', '{{.Client.Version}}|{{.Server.Version}}']);
     const [client, server] = stdout.trim().split('|');
     return { client, server };
   }
@@ -127,7 +129,7 @@ export class DockerClient extends EventEmitter {
     const args = ['ps', '--format', '{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}'];
     if (all) args.push('-a');
 
-    const { stdout } = await execAsync(`docker ${args.join(' ')}`);
+    const { stdout } = await execFileAsync('docker', args);
     const lines = stdout.trim().split('\n').filter(Boolean);
 
     return lines.map(line => {
@@ -165,8 +167,7 @@ export class DockerClient extends EventEmitter {
   async run(config: ContainerConfig): Promise<string> {
     const args = ['run'];
 
-    // Name
-    const name = config.name || `${this.prefix}-${randomBytes(4).toString('hex')}`;
+    const name = sanitizeDockerName(config.name || `${this.prefix}-${randomBytes(4).toString('hex')}`);
     args.push('--name', name);
 
     // Detach
@@ -181,14 +182,12 @@ export class DockerClient extends EventEmitter {
     // Auto-remove
     if (config.autoRemove) args.push('--rm');
 
-    // Environment
     if (config.env) {
       for (const [key, value] of Object.entries(config.env)) {
         args.push('-e', `${key}=${value}`);
       }
     }
 
-    // Volumes
     if (config.volumes) {
       for (const vol of config.volumes) {
         const mode = vol.readonly ? ':ro' : '';
@@ -196,7 +195,6 @@ export class DockerClient extends EventEmitter {
       }
     }
 
-    // Ports
     if (config.ports) {
       for (const port of config.ports) {
         const proto = port.protocol || 'tcp';
@@ -204,22 +202,18 @@ export class DockerClient extends EventEmitter {
       }
     }
 
-    // Network
     if (config.network) {
       args.push('--network', config.network);
     }
 
-    // Working directory
     if (config.workdir) {
       args.push('-w', config.workdir);
     }
 
-    // User
     if (config.user) {
       args.push('-u', config.user);
     }
 
-    // Resource limits
     if (config.memory) {
       args.push('-m', config.memory);
     }
@@ -227,19 +221,16 @@ export class DockerClient extends EventEmitter {
       args.push('--cpus', String(config.cpus));
     }
 
-    // Read-only
     if (config.readonly) {
       args.push('--read-only');
     }
 
-    // Labels
     if (config.labels) {
       for (const [key, value] of Object.entries(config.labels)) {
         args.push('-l', `${key}=${value}`);
       }
     }
 
-    // Capabilities
     if (config.privileged) {
       args.push('--privileged');
     }
@@ -254,15 +245,13 @@ export class DockerClient extends EventEmitter {
       }
     }
 
-    // Image
     args.push(config.image);
 
-    // Command
     if (config.command) {
       args.push(...config.command);
     }
 
-    const { stdout } = await execAsync(`docker ${args.join(' ')}`);
+    const { stdout } = await execFileAsync('docker', args);
     const containerId = stdout.trim();
 
     logger.info({ containerId, name, image: config.image }, 'Container started');
@@ -271,26 +260,23 @@ export class DockerClient extends EventEmitter {
     return containerId;
   }
 
-  /** Stop a container */
   async stop(containerId: string, timeout = 10): Promise<void> {
-    await execAsync(`docker stop -t ${timeout} ${containerId}`);
+    await execFileAsync('docker', ['stop', '-t', String(timeout), containerId]);
     logger.info({ containerId }, 'Container stopped');
     this.emit('container:stop', { id: containerId });
   }
 
-  /** Kill a container */
   async kill(containerId: string, signal = 'KILL'): Promise<void> {
-    await execAsync(`docker kill -s ${signal} ${containerId}`);
+    await execFileAsync('docker', ['kill', '-s', signal, containerId]);
     logger.info({ containerId }, 'Container killed');
     this.emit('container:kill', { id: containerId });
   }
 
-  /** Remove a container */
   async remove(containerId: string, force = false): Promise<void> {
     const args = ['rm'];
     if (force) args.push('-f');
     args.push(containerId);
-    await execAsync(`docker ${args.join(' ')}`);
+    await execFileAsync('docker', args);
     logger.info({ containerId }, 'Container removed');
     this.emit('container:remove', { id: containerId });
   }
@@ -319,14 +305,14 @@ export class DockerClient extends EventEmitter {
     args.push(containerId, ...command);
 
     try {
-      const { stdout, stderr } = await execAsync(`docker ${args.join(' ')}`);
+      const { stdout, stderr } = await execFileAsync('docker', args);
       return { stdout, stderr, exitCode: 0 };
     } catch (error) {
       const err = error as { stdout?: string; stderr?: string; code?: number };
       return {
         stdout: err.stdout || '',
         stderr: err.stderr || '',
-        exitCode: err.code || 1,
+        exitCode: err.code ?? 1,
       };
     }
   }
@@ -340,30 +326,29 @@ export class DockerClient extends EventEmitter {
   }): Promise<string> {
     const args = ['logs'];
 
-    if (options?.tail) args.push('--tail', String(options.tail));
+    if (options?.tail != null) args.push('--tail', String(options.tail));
     if (options?.since) args.push('--since', options.since);
     if (options?.timestamps) args.push('-t');
 
     args.push(containerId);
 
-    const { stdout, stderr } = await execAsync(`docker ${args.join(' ')}`);
+    const { stdout, stderr } = await execFileAsync('docker', args);
     return stdout + stderr;
   }
 
-  /** Stream container logs */
   streamLogs(containerId: string, options?: { tail?: number }): ChildProcess {
     const args = ['logs', '-f'];
-    if (options?.tail) args.push('--tail', String(options.tail));
+    if (options?.tail != null) args.push('--tail', String(options.tail));
     args.push(containerId);
 
     return spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
   }
 
-  /** Get container stats */
   async stats(containerId: string): Promise<ContainerStats> {
-    const { stdout } = await execAsync(
-      `docker stats ${containerId} --no-stream --format "{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}"`
-    );
+    const { stdout } = await execFileAsync('docker', [
+      'stats', containerId, '--no-stream',
+      '--format', '{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}'
+    ]);
 
     const parts = stdout.trim().split('|');
 
@@ -395,11 +380,10 @@ export class DockerClient extends EventEmitter {
     };
   }
 
-  /** List images */
   async listImages(): Promise<DockerImage[]> {
-    const { stdout } = await execAsync(
-      'docker images --format "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}"'
-    );
+    const { stdout } = await execFileAsync('docker', [
+      'images', '--format', '{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}'
+    ]);
 
     const lines = stdout.trim().split('\n').filter(Boolean);
 
@@ -427,10 +411,9 @@ export class DockerClient extends EventEmitter {
     });
   }
 
-  /** Pull an image */
   async pull(image: string): Promise<void> {
     logger.info({ image }, 'Pulling Docker image');
-    await execAsync(`docker pull ${image}`);
+    await execFileAsync('docker', ['pull', image]);
     logger.info({ image }, 'Docker image pulled');
     this.emit('image:pull', { image });
   }
@@ -457,7 +440,7 @@ export class DockerClient extends EventEmitter {
     args.push(path);
 
     logger.info({ path, tag: options?.tag }, 'Building Docker image');
-    const { stdout } = await execAsync(`docker ${args.join(' ')}`);
+    const { stdout } = await execFileAsync('docker', args);
 
     // Extract image ID from output
     const match = stdout.match(/Successfully built ([a-f0-9]+)/);
@@ -469,12 +452,11 @@ export class DockerClient extends EventEmitter {
     return imageId;
   }
 
-  /** Remove an image */
   async removeImage(imageId: string, force = false): Promise<void> {
     const args = ['rmi'];
     if (force) args.push('-f');
     args.push(imageId);
-    await execAsync(`docker ${args.join(' ')}`);
+    await execFileAsync('docker', args);
     this.emit('image:remove', { id: imageId });
   }
 
@@ -494,13 +476,12 @@ export class DockerClient extends EventEmitter {
 
     args.push(name);
 
-    const { stdout } = await execAsync(`docker ${args.join(' ')}`);
+    const { stdout } = await execFileAsync('docker', args);
     return stdout.trim();
   }
 
-  /** Remove a network */
   async removeNetwork(name: string): Promise<void> {
-    await execAsync(`docker network rm ${name}`);
+    await execFileAsync('docker', ['network', 'rm', name]);
   }
 
   /** Prune unused resources */
@@ -512,16 +493,16 @@ export class DockerClient extends EventEmitter {
     all?: boolean;
   }): Promise<void> {
     if (options?.all || options?.containers) {
-      await execAsync('docker container prune -f');
+      await execFileAsync('docker', ['container', 'prune', '-f']);
     }
     if (options?.all || options?.images) {
-      await execAsync('docker image prune -f');
+      await execFileAsync('docker', ['image', 'prune', '-f']);
     }
     if (options?.all || options?.volumes) {
-      await execAsync('docker volume prune -f');
+      await execFileAsync('docker', ['volume', 'prune', '-f']);
     }
     if (options?.all || options?.networks) {
-      await execAsync('docker network prune -f');
+      await execFileAsync('docker', ['network', 'prune', '-f']);
     }
   }
 }
@@ -539,13 +520,13 @@ export class Sandbox {
     this.config = {
       image: config.image || 'python:3.11-slim',
       name: config.name || `sandbox-${randomBytes(4).toString('hex')}`,
-      timeout: config.timeout || 30000,
+      timeout: config.timeout ?? 30000,
       memoryLimit: config.memoryLimit || '256m',
-      cpuLimit: config.cpuLimit || 0.5,
+      cpuLimit: config.cpuLimit ?? 0.5,
       networkEnabled: config.networkEnabled ?? false,
       workdir: config.workdir || '/sandbox',
-      env: config.env || {},
-      mounts: config.mounts || [],
+      env: config.env ?? {},
+      mounts: config.mounts ?? [],
     };
   }
 
@@ -604,9 +585,9 @@ export class Sandbox {
         capDrop: ['ALL'],
       });
 
-      // Wait for completion with timeout
+      let timeoutId: NodeJS.Timeout;
       const timeoutPromise = new Promise<SandboxResult>((resolve) => {
-        setTimeout(async () => {
+        timeoutId = setTimeout(async () => {
           try {
             await this.docker.kill(containerId);
           } catch {}
@@ -632,12 +613,14 @@ export class Sandbox {
         };
       })();
 
-      return Promise.race([execPromise, timeoutPromise]);
+      const result = await Promise.race([execPromise, timeoutPromise]);
+      clearTimeout(timeoutId!);
+      return result;
     } catch (error) {
       const err = error as { stdout?: string; stderr?: string; code?: number };
       return {
-        exitCode: err.code || 1,
-        stdout: err.stdout || '',
+        exitCode: err.code ?? 1,
+        stdout: err.stdout ?? '',
         stderr: err.stderr || String(error),
         duration: Date.now() - startTime,
         timedOut: false,
@@ -710,8 +693,8 @@ export class Sandbox {
     } catch (error) {
       const err = error as { stdout?: string; stderr?: string; code?: number };
       return {
-        exitCode: err.code || 1,
-        stdout: err.stdout || '',
+        exitCode: err.code ?? 1,
+        stdout: err.stdout ?? '',
         stderr: err.stderr || String(error),
         duration: Date.now() - startTime,
         timedOut: false,

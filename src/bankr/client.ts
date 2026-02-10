@@ -71,8 +71,8 @@ export class BankrClient {
   constructor(config: BankrConfig) {
     this.apiKey = config.apiKey;
     this.apiUrl = config.apiUrl || 'https://api.bankr.bot';
-    this.pollInterval = config.pollInterval || 2000;
-    this.maxPollTime = config.maxPollTime || 300000;
+    this.pollInterval = config.pollInterval ?? 2000;
+    this.maxPollTime = config.maxPollTime ?? 300000;
   }
 
   /**
@@ -181,7 +181,7 @@ export class BankrClient {
       timeout?: number;
     }
   ): Promise<JobResult> {
-    const timeout = options?.timeout || this.maxPollTime;
+    const timeout = options?.timeout ?? this.maxPollTime;
     const startTime = Date.now();
     let lastUpdateCount = 0;
 

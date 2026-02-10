@@ -71,11 +71,29 @@ const MAX_CONTENT_LENGTH = 1024 * 1024; // 1MB
 // HELPERS
 // =============================================================================
 
+function isAllowedUrl(urlString: string): boolean {
+  try {
+    const parsed = new URL(urlString);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '0.0.0.0') return false;
+    if (hostname.startsWith('10.') || hostname.startsWith('192.168.') || hostname.startsWith('172.')) return false;
+    if (hostname === '169.254.169.254' || hostname.endsWith('.internal') || hostname.endsWith('.local')) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Fetch URL content */
 async function fetchUrl(url: string, options: FetchOptions = {}): Promise<{ content: string; contentType: string; finalUrl: string }> {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT;
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
+
+  if (!isAllowedUrl(url)) {
+    throw new Error('URL not allowed: blocked or private address');
+  }
 
   let redirectCount = 0;
   let currentUrl = url;
@@ -142,6 +160,9 @@ async function fetchUrl(url: string, options: FetchOptions = {}): Promise<{ cont
     });
 
     if ('redirect' in result) {
+      if (!isAllowedUrl(result.redirect)) {
+        throw new Error('Redirect URL not allowed: blocked or private address');
+      }
       currentUrl = result.redirect;
       redirectCount++;
       continue;
@@ -210,8 +231,8 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&#x27;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
-    .replace(/&#x([a-fA-F0-9]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)));
+    .replace(/&#(\d+);/g, (_, code) => { const n = parseInt(code, 10); return isNaN(n) ? '' : String.fromCodePoint(n); })
+    .replace(/&#x([a-fA-F0-9]+);/g, (_, code) => { const n = parseInt(code, 16); return isNaN(n) ? '' : String.fromCodePoint(n); });
 }
 
 /** Extract charset from content type or meta */

@@ -278,8 +278,8 @@ export class Repl extends EventEmitter {
     this.commands = commands;
     this.promptString = options.prompt || color('> ', 'cyan');
     this.history = new HistoryManager(
-      options.historyFile || join(homedir(), '.clodds', 'history'),
-      options.historySize || 1000
+      options.historyFile ?? join(homedir(), '.clodds', 'history'),
+      options.historySize ?? 1000
     );
     this.autocomplete = options.autocomplete;
   }
@@ -391,11 +391,10 @@ export class Repl extends EventEmitter {
     const args: Record<string, string> = {};
     if (command.args) {
       command.args.forEach((arg, i) => {
-        args[arg.name] = parsed.args[i] || arg.default || '';
+        args[arg.name] = parsed.args[i] ?? arg.default ?? '';
       });
     }
 
-    // Map options
     const options: Record<string, unknown> = {};
     if (command.options) {
       for (const opt of command.options) {
@@ -464,7 +463,7 @@ export class Repl extends EventEmitter {
     console.log('\n' + bold('Available Commands:') + '\n');
 
     const commands = this.commands.all();
-    const maxLen = Math.max(...commands.map(c => c.name.length));
+    const maxLen = commands.length > 0 ? Math.max(...commands.map(c => c.name.length)) : 0;
 
     for (const cmd of commands) {
       const padding = ' '.repeat(maxLen - cmd.name.length + 2);
@@ -565,7 +564,7 @@ export class CLI {
     const cmdArgs: Record<string, string> = {};
     if (command.args) {
       command.args.forEach((arg, i) => {
-        cmdArgs[arg.name] = parsed.args[i] || arg.default || '';
+        cmdArgs[arg.name] = parsed.args[i] ?? arg.default ?? '';
         if (arg.required && !cmdArgs[arg.name]) {
           errorLog(`Missing required argument: ${arg.name}`);
           process.exit(1);

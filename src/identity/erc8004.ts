@@ -132,6 +132,7 @@ async function buildOwnerIndex(
           if (!log.args) continue;
 
           const { from, to, tokenId } = log.args;
+          if (tokenId > BigInt(Number.MAX_SAFE_INTEGER)) continue;
           const agentId = Number(tokenId);
 
           // Remove from previous owner
@@ -368,7 +369,11 @@ export function createERC8004Client(
         (log: ethers.Log) => log.topics[0] === ethers.id('Registered(uint256,string,address)')
       );
 
-      const agentId = event ? Number(BigInt(event.topics[1])) : 0;
+      let agentId = 0;
+      if (event) {
+        const raw = BigInt(event.topics[1]);
+        agentId = raw <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(raw) : 0;
+      }
 
       logger.info({ agentId, txHash: receipt.hash }, 'Agent registered');
 
@@ -690,9 +695,13 @@ export function parseAgentId(formatted: string): { agentId: number; chainId: num
   const match = formatted.match(/^eip155:(\d+):(0x[a-fA-F0-9]+):(\d+)$/);
   if (!match) return null;
 
+  const chainId = parseInt(match[1], 10);
+  const agentId = parseInt(match[3], 10);
+  if (!Number.isFinite(chainId) || !Number.isFinite(agentId)) return null;
+
   return {
-    chainId: parseInt(match[1], 10),
+    chainId,
     registry: match[2],
-    agentId: parseInt(match[3], 10),
+    agentId,
   };
 }

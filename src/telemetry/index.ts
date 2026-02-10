@@ -54,6 +54,10 @@ export interface Metric {
   timestamp: number;
 }
 
+const MAX_SPANS = 10000;
+const MAX_ACTIVE_SPANS = 1000;
+const MAX_BUFFER_SIZE = 5000;
+
 // In-memory storage for demo (real impl would use OTEL SDK)
 const spans = new Map<string, Span>();
 const metrics = new Map<string, Metric[]>();
@@ -76,6 +80,7 @@ export class TelemetryService {
   private spanBuffer: Span[] = [];
   private metricBuffer: Metric[] = [];
   private flushInterval: NodeJS.Timeout | null = null;
+  private metricsServer: import('http').Server | null = null;
 
   constructor(config: TelemetryConfig) {
     this.config = config;
@@ -89,7 +94,10 @@ export class TelemetryService {
   private startFlushInterval(): void {
     this.flushInterval = setInterval(() => {
       this.flush();
-    }, 10000); // Flush every 10 seconds
+    }, 10000);
+    if (this.flushInterval && typeof this.flushInterval === 'object' && 'unref' in this.flushInterval) {
+      (this.flushInterval as NodeJS.Timeout).unref();
+    }
   }
 
   /**
@@ -115,7 +123,15 @@ export class TelemetryService {
       events: [],
     };
 
+    if (spans.size >= MAX_SPANS) {
+      const firstKey = spans.keys().next().value;
+      if (firstKey) spans.delete(firstKey);
+    }
     spans.set(spanId, span);
+    if (activeSpans.size >= MAX_ACTIVE_SPANS) {
+      const firstKey = activeSpans.keys().next().value;
+      if (firstKey) activeSpans.delete(firstKey);
+    }
     activeSpans.set(traceId, spanId);
 
     logger.debug({ traceId, spanId, name }, 'Started trace');
@@ -139,6 +155,10 @@ export class TelemetryService {
       events: [],
     };
 
+    if (spans.size >= MAX_SPANS) {
+      const firstKey = spans.keys().next().value;
+      if (firstKey) spans.delete(firstKey);
+    }
     spans.set(spanId, span);
     activeSpans.set(parentSpan.traceId, spanId);
 
@@ -156,13 +176,16 @@ export class TelemetryService {
     if (error) {
       span.attributes['error.type'] = error.name;
       span.attributes['error.message'] = error.message;
-      span.attributes['error.stack'] = error.stack;
     }
 
     // Calculate duration
     span.attributes['duration_ms'] = span.endTime - span.startTime;
 
-    // Add to buffer for export
+    spans.delete(span.spanId);
+
+    if (this.spanBuffer.length >= MAX_BUFFER_SIZE) {
+      this.spanBuffer.splice(0, this.spanBuffer.length - MAX_BUFFER_SIZE + 1);
+    }
     this.spanBuffer.push(span);
 
     // Restore parent span as active
@@ -216,6 +239,9 @@ export class TelemetryService {
       timestamp: Date.now(),
     };
 
+    if (this.metricBuffer.length >= MAX_BUFFER_SIZE) {
+      this.metricBuffer.splice(0, this.metricBuffer.length - MAX_BUFFER_SIZE + 1);
+    }
     this.metricBuffer.push(metric);
     logger.debug({ name, value, labels }, 'Recorded counter');
   }
@@ -237,6 +263,9 @@ export class TelemetryService {
       timestamp: Date.now(),
     };
 
+    if (this.metricBuffer.length >= MAX_BUFFER_SIZE) {
+      this.metricBuffer.splice(0, this.metricBuffer.length - MAX_BUFFER_SIZE + 1);
+    }
     this.metricBuffer.push(metric);
     logger.debug({ name, value, labels }, 'Recorded gauge');
   }
@@ -258,6 +287,9 @@ export class TelemetryService {
       timestamp: Date.now(),
     };
 
+    if (this.metricBuffer.length >= MAX_BUFFER_SIZE) {
+      this.metricBuffer.splice(0, this.metricBuffer.length - MAX_BUFFER_SIZE + 1);
+    }
     this.metricBuffer.push(metric);
     logger.debug({ name, value, labels }, 'Recorded histogram');
   }
@@ -281,8 +313,10 @@ export class TelemetryService {
         await this.exportSpansOTLP(spansToExport);
       } catch (error) {
         logger.warn({ error }, 'Failed to export spans to OTLP');
-        // Re-add to buffer for retry
-        this.spanBuffer.push(...spansToExport);
+        const available = MAX_BUFFER_SIZE - this.spanBuffer.length;
+        if (available > 0) {
+          this.spanBuffer.push(...spansToExport.slice(0, available));
+        }
       }
     }
 
@@ -467,7 +501,7 @@ export class TelemetryService {
    */
   startMetricsServer(port?: number): void {
     const http = require('http');
-    const metricsPort = port || this.config.metricsPort || 9090;
+    const metricsPort = port ?? this.config.metricsPort ?? 9090;
 
     const server = http.createServer((req: any, res: any) => {
       if (req.url === '/metrics') {
@@ -478,6 +512,7 @@ export class TelemetryService {
         res.end('Not found');
       }
     });
+    this.metricsServer = server;
 
     server.listen(metricsPort, () => {
       logger.info({ port: metricsPort }, 'Prometheus metrics server started');
@@ -490,8 +525,15 @@ export class TelemetryService {
   async shutdown(): Promise<void> {
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
+      this.flushInterval = null;
+    }
+    if (this.metricsServer) {
+      this.metricsServer.close();
+      this.metricsServer = null;
     }
     await this.flush();
+    spans.clear();
+    activeSpans.clear();
     logger.info('Telemetry service shutdown');
   }
 }

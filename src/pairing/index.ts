@@ -15,6 +15,7 @@ import { Database } from '../db/index';
 import { logger } from '../utils/logger';
 import { networkInterfaces } from 'os';
 import { execSync } from 'child_process';
+import { randomInt } from 'crypto';
 
 // =============================================================================
 // LOCAL & TAILNET DETECTION
@@ -239,7 +240,7 @@ export interface PairingService {
 function generateCode(): string {
   let code = '';
   for (let i = 0; i < CODE_LENGTH; i++) {
-    code += PAIRING_CHARS[Math.floor(Math.random() * PAIRING_CHARS.length)];
+    code += PAIRING_CHARS[randomInt(PAIRING_CHARS.length)];
   }
   return code;
 }
@@ -331,8 +332,7 @@ export function createPairingService(db: Database, configInput?: PairingConfig):
 
   loadFromDb();
 
-  // Cleanup expired requests periodically
-  setInterval(() => {
+  const cleanupInterval = setInterval(() => {
     const now = new Date();
     for (const [code, req] of pendingRequests) {
       if (now > req.expiresAt) {
@@ -340,7 +340,8 @@ export function createPairingService(db: Database, configInput?: PairingConfig):
         db.run('DELETE FROM pairing_requests WHERE code = ?', [code]);
       }
     }
-  }, 60000); // Check every minute
+  }, 60000);
+  if (cleanupInterval.unref) cleanupInterval.unref();
 
   return {
     checkAutoApprove(channel, userId, remoteAddress?) {
@@ -434,6 +435,7 @@ export function createPairingService(db: Database, configInput?: PairingConfig):
 
     async validateCode(code) {
       const upperCode = code.toUpperCase().trim();
+      if (upperCode.length !== CODE_LENGTH || !/^[A-Z2-9]+$/.test(upperCode)) return null;
       const request = pendingRequests.get(upperCode);
 
       if (!request) return null;

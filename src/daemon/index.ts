@@ -8,7 +8,7 @@
  * - Log management
  */
 
-import { execSync, execFileSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { existsSync, writeFileSync, unlinkSync, readFileSync } from 'fs';
 import { homedir, platform } from 'os';
 import { join } from 'path';
@@ -88,8 +88,8 @@ RestartSec=10
 WantedBy=default.target`;
         const servicePath = getSystemdService();
         writeFileSync(servicePath, service);
-        execSync('systemctl --user daemon-reload');
-        execSync('systemctl --user enable clodds');
+        execFileSync('systemctl', ['--user', 'daemon-reload']);
+        execFileSync('systemctl', ['--user', 'enable', 'clodds']);
         logger.info('Daemon installed (systemd)');
       } else {
         throw new Error(`Unsupported platform: ${os}`);
@@ -106,11 +106,11 @@ WantedBy=default.target`;
         logger.info('Daemon uninstalled');
       } else if (os === 'linux') {
         const servicePath = getSystemdService();
-        execSync('systemctl --user disable clodds');
+        execFileSync('systemctl', ['--user', 'disable', 'clodds']);
         if (existsSync(servicePath)) {
           unlinkSync(servicePath);
         }
-        execSync('systemctl --user daemon-reload');
+        execFileSync('systemctl', ['--user', 'daemon-reload']);
         logger.info('Daemon uninstalled');
       }
     },
@@ -119,7 +119,7 @@ WantedBy=default.target`;
       if (os === 'darwin') {
         execFileSync('launchctl', ['start', SERVICE_NAME]);
       } else if (os === 'linux') {
-        execSync('systemctl --user start clodds');
+        execFileSync('systemctl', ['--user', 'start', 'clodds']);
       }
       logger.info('Daemon started');
     },
@@ -128,7 +128,7 @@ WantedBy=default.target`;
       if (os === 'darwin') {
         execFileSync('launchctl', ['stop', SERVICE_NAME]);
       } else if (os === 'linux') {
-        execSync('systemctl --user stop clodds');
+        execFileSync('systemctl', ['--user', 'stop', 'clodds']);
       }
       logger.info('Daemon stopped');
     },
@@ -151,7 +151,7 @@ WantedBy=default.target`;
           const pid = parseInt(parts[0], 10);
           return { installed: true, running: !isNaN(pid) && pid > 0, pid: isNaN(pid) ? undefined : pid };
         } else if (os === 'linux') {
-          const output = execSync('systemctl --user is-active clodds', { encoding: 'utf-8' });
+          const output = execFileSync('systemctl', ['--user', 'is-active', 'clodds'], { encoding: 'utf-8' });
           return { installed: true, running: output.trim() === 'active' };
         }
       } catch {

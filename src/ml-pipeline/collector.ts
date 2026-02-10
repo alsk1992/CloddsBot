@@ -35,6 +35,8 @@ export function createMLCollector(
 ): MLCollector {
   let labelTimer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
+  let boundSignalRouter: SignalRouter | null = null;
+  let boundTradeLogger: TradeLogger | null = null;
 
   // Ensure table exists
   db.run(`
@@ -117,7 +119,7 @@ export function createMLCollector(
   function labelOutcomes(): void {
     if (stopped) return;
 
-    const horizonMs = HORIZON_MS[config.outcomeHorizon] || HORIZON_MS['1h'];
+    const horizonMs = HORIZON_MS[config.outcomeHorizon] ?? HORIZON_MS['1h'];
     const cutoff = new Date(Date.now() - horizonMs).toISOString();
 
     // Get unlabeled samples that are old enough
@@ -202,12 +204,12 @@ export function createMLCollector(
 
   function start(signalRouter: SignalRouter, tradeLogger: TradeLogger | null): void {
     stopped = false;
+    boundSignalRouter = signalRouter;
+    boundTradeLogger = tradeLogger;
 
-    // Capture executed and dry_run signals
     signalRouter.on('executed', captureSignal);
     signalRouter.on('dry_run', captureSignal);
 
-    // Link trades if trade logger available
     if (tradeLogger) {
       tradeLogger.on('tradesLinked', linkTrade);
     }
@@ -229,6 +231,15 @@ export function createMLCollector(
     if (labelTimer) {
       clearInterval(labelTimer);
       labelTimer = null;
+    }
+    if (boundSignalRouter) {
+      boundSignalRouter.off('executed', captureSignal);
+      boundSignalRouter.off('dry_run', captureSignal);
+      boundSignalRouter = null;
+    }
+    if (boundTradeLogger) {
+      boundTradeLogger.off('tradesLinked', linkTrade);
+      boundTradeLogger = null;
     }
     logger.info('[ml-collector] Stopped');
   }

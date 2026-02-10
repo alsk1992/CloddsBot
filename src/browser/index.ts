@@ -92,16 +92,18 @@ class CDPConnection extends EventEmitter {
     const message = JSON.stringify({ id, method, params });
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.ws!.send(message);
-
-      // Timeout after 30s
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`CDP timeout: ${method}`));
         }
       }, 30000);
+
+      this.pending.set(id, {
+        resolve: (v: unknown) => { clearTimeout(timer); resolve(v); },
+        reject: (e: Error) => { clearTimeout(timer); reject(e); },
+      });
+      this.ws!.send(message);
     });
   }
 
@@ -143,15 +145,17 @@ function createPage(cdp: CDPConnection, targetId: string): BrowserPage {
       await cdp.send('Page.navigate', { url });
       currentUrl = url;
 
-      // Wait for load
       await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          cdp.off('Page.loadEventFired', handler);
+          resolve();
+        }, 30000);
         const handler = () => {
+          clearTimeout(timer);
           cdp.off('Page.loadEventFired', handler);
           resolve();
         };
         cdp.on('Page.loadEventFired', handler);
-        // Timeout fallback
-        setTimeout(resolve, 30000);
       });
 
       logger.debug({ url }, 'Page navigated');
@@ -163,7 +167,7 @@ function createPage(cdp: CDPConnection, targetId: string): BrowserPage {
         expression: `
           (function() {
             const el = document.querySelector(${JSON.stringify(selector)});
-            if (!el) throw new Error('Element not found: ${selector}');
+            if (!el) throw new Error('Element not found: ' + ${JSON.stringify(selector)});
             const rect = el.getBoundingClientRect();
             return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
           })()
@@ -187,7 +191,7 @@ function createPage(cdp: CDPConnection, targetId: string): BrowserPage {
       });
 
       // Type each character
-      const delay = options.delay || 0;
+      const delay = options.delay ?? 0;
       for (const char of text) {
         await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', text: char });
         await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', text: char });
@@ -254,7 +258,7 @@ function createPage(cdp: CDPConnection, targetId: string): BrowserPage {
     },
 
     async waitForSelector(selector, options = {}) {
-      const timeout = options.timeout || 30000;
+      const timeout = options.timeout ?? 30000;
       const start = Date.now();
 
       while (Date.now() - start < timeout) {
@@ -271,7 +275,7 @@ function createPage(cdp: CDPConnection, targetId: string): BrowserPage {
     },
 
     async waitForNavigation(options = {}) {
-      const timeout = options.timeout || 30000;
+      const timeout = options.timeout ?? 30000;
 
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Navigation timeout')), timeout);
@@ -456,6 +460,10 @@ export function createBrowserService(): BrowserService {
         }
       }
 
+      if (process) {
+        try { process.kill('SIGKILL'); } catch {}
+        process = null;
+      }
       throw new Error('Browser failed to start');
     },
 
@@ -475,11 +483,17 @@ export function createBrowserService(): BrowserService {
       await cdp.send('Runtime.enable');
       await cdp.send('Network.enable');
 
-      const page = createPage(cdp, target.id);
-      pages.push(page);
+      const innerPage = createPage(cdp, target.id);
+      const originalClose = innerPage.close.bind(innerPage);
+      innerPage.close = async () => {
+        await originalClose();
+        const idx = pages.indexOf(innerPage);
+        if (idx !== -1) pages.splice(idx, 1);
+      };
+      pages.push(innerPage);
 
       logger.debug({ targetId: target.id }, 'New page created');
-      return page;
+      return innerPage;
     },
 
     async pages() {

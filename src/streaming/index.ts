@@ -260,11 +260,18 @@ export function createStreamingService(configInput?: StreamConfig): StreamingSer
   // Flush interval timer
   let flushTimer: ReturnType<typeof setInterval> | null = null;
 
+  const MAX_CONTEXTS = 1000;
+  const CONTEXT_TTL_MS = 5 * 60 * 1000;
+
   if (config.enabled) {
-    // Start periodic flush check
     flushTimer = setInterval(() => {
       const now = Date.now();
-      for (const ctx of contexts.values()) {
+      for (const [key, ctx] of contexts.entries()) {
+        if (now - ctx.lastFlush > CONTEXT_TTL_MS) {
+          ctx.isClosed = true;
+          contexts.delete(key);
+          continue;
+        }
         if (
           !ctx.isClosed &&
           ctx.buffer.length >= config.minChunkSize &&
@@ -276,6 +283,10 @@ export function createStreamingService(configInput?: StreamConfig): StreamingSer
         }
       }
     }, config.flushIntervalMs);
+
+    if (flushTimer && typeof flushTimer === 'object' && 'unref' in flushTimer) {
+      flushTimer.unref();
+    }
   }
 
   const service: StreamingService = {
@@ -290,6 +301,17 @@ export function createStreamingService(configInput?: StreamConfig): StreamingSer
 
     createContext(platform: string, chatId: string): StreamContext {
       const key = `${platform}:${chatId}`;
+
+      const existing = contexts.get(key);
+      if (existing && !existing.isClosed) {
+        existing.isClosed = true;
+      }
+
+      if (contexts.size >= MAX_CONTEXTS) {
+        const firstKey = contexts.keys().next().value;
+        if (firstKey) contexts.delete(firstKey);
+      }
+
       const ctx: StreamContext = {
         platform,
         chatId,
@@ -343,14 +365,12 @@ export function createStreamingService(configInput?: StreamConfig): StreamingSer
     async close(ctx: StreamContext): Promise<void> {
       if (ctx.isClosed) return;
 
-      ctx.isClosed = true;
-
-      // Final flush
       if (ctx.buffer.length > 0 && sendCallback && !ctx.interrupted) {
         await this.flush(ctx);
       }
 
-      // Remove from active contexts
+      ctx.isClosed = true;
+
       const key = `${ctx.platform}:${ctx.chatId}`;
       contexts.delete(key);
     },

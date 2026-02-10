@@ -60,7 +60,8 @@ function loadTranslations(locale: Locale): Record<string, unknown> {
     const translations = JSON.parse(content);
     translationsCache.set(locale, translations);
     return translations;
-  } catch {
+  } catch (err) {
+    console.error(`Failed to load locale ${locale}: ${err instanceof Error ? err.message : String(err)}`);
     return {};
   }
 }

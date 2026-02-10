@@ -75,6 +75,9 @@ export interface SessionConfig {
 // SESSION MANAGER
 // =============================================================================
 
+const MAX_MESSAGES_PER_SESSION = 10000;
+const MAX_INVITES = 1000;
+
 export class SessionManager extends EventEmitter {
   private sessions: Map<string, Session> = new Map();
   private invites: Map<string, SessionInvite> = new Map();
@@ -85,6 +88,7 @@ export class SessionManager extends EventEmitter {
 
   constructor(config: SessionConfig = {}) {
     super();
+    this.setMaxListeners(50);
     this.config = {
       maxParticipants: config.maxParticipants ?? 10,
       allowAnonymous: config.allowAnonymous ?? false,
@@ -190,7 +194,7 @@ export class SessionManager extends EventEmitter {
       throw new Error('Session is not active');
     }
 
-    if (session.participants.length >= (this.config.maxParticipants || 10)) {
+    if (session.participants.length >= (this.config.maxParticipants ?? 10)) {
       throw new Error('Session is full');
     }
 
@@ -258,7 +262,11 @@ export class SessionManager extends EventEmitter {
       this.messages.set(sessionId, []);
     }
 
-    this.messages.get(sessionId)!.push(message);
+    const msgs = this.messages.get(sessionId)!;
+    msgs.push(message);
+    if (msgs.length > MAX_MESSAGES_PER_SESSION) {
+      msgs.splice(0, msgs.length - MAX_MESSAGES_PER_SESSION);
+    }
     session.updatedAt = new Date();
     this.emit('message', message);
 
@@ -321,6 +329,15 @@ export class SessionManager extends EventEmitter {
       expiresAt: new Date(Date.now() + (options.expiresIn || 24 * 60 * 60 * 1000)),
       accepted: false,
     };
+
+    if (this.invites.size >= MAX_INVITES) {
+      const now = new Date();
+      for (const [id, inv] of this.invites) {
+        if (inv.accepted || now > inv.expiresAt) {
+          this.invites.delete(id);
+        }
+      }
+    }
 
     this.invites.set(invite.id, invite);
     this.emit('invite:create', invite);
@@ -485,6 +502,10 @@ export class SessionSync {
     this.syncInterval = setInterval(() => {
       this.syncAll();
     }, interval);
+
+    if (this.syncInterval.unref) {
+      this.syncInterval.unref();
+    }
   }
 
   /** Stop syncing */
@@ -536,8 +557,8 @@ export class SessionSync {
         // Merge remote state with local state
         // This is a simplified sync - real implementation would handle conflicts
       }
-    } catch {
-      // Peer unreachable
+    } catch (error) {
+      logger.debug({ url, error }, 'Peer unreachable during sync');
     }
   }
 }
@@ -558,4 +579,11 @@ export function createSessionSync(manager: SessionManager): SessionSync {
 // DEFAULT INSTANCES
 // =============================================================================
 
-export const sessions = new SessionManager();
+let _defaultSessions: SessionManager | null = null;
+
+export function getDefaultSessionManager(): SessionManager {
+  if (!_defaultSessions) {
+    _defaultSessions = new SessionManager();
+  }
+  return _defaultSessions;
+}

@@ -12,14 +12,14 @@
  * - Application control
  */
 
-import { exec, execSync, execFileSync, spawn } from 'child_process';
+import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir, platform } from 'os';
 import { promisify } from 'util';
 import { logger } from '../utils/logger';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // =============================================================================
 // TYPES
@@ -88,12 +88,11 @@ function assertMacOS(): void {
 export async function runAppleScript(script: string): Promise<string> {
   assertMacOS();
 
-  // Write script to temp file to handle multi-line scripts better
   const tempFile = join(tmpdir(), `clodds-applescript-${Date.now()}.scpt`);
   writeFileSync(tempFile, script);
 
   try {
-    const { stdout } = await execAsync(`osascript ${tempFile}`);
+    const { stdout } = await execFileAsync('osascript', [tempFile]);
     return stdout.trim();
   } finally {
     try { unlinkSync(tempFile); } catch {}
@@ -162,8 +161,8 @@ export async function dialog(options: DialogOptions): Promise<DialogResult> {
     script += ` buttons {${buttons}}`;
   }
 
-  if (options.defaultButton) {
-    script += ` default button ${options.defaultButton}`;
+  if (options.defaultButton !== undefined) {
+    script += ` default button ${Math.floor(options.defaultButton)}`;
   }
 
   if (options.icon) {
@@ -424,18 +423,20 @@ export async function moveToTrash(path: string): Promise<void> {
 export async function spotlight(query: string, limit = 20): Promise<SpotlightResult[]> {
   assertMacOS();
 
-  const { stdout } = await execAsync(`mdfind -limit ${limit} "${query.replace(/"/g, '\\"')}"`);
+  const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
+  const { stdout } = await execFileAsync('mdfind', ['-limit', String(safeLimit), query]);
   const paths = stdout.trim().split('\n').filter(Boolean);
 
-  return paths.map(path => ({
-    path,
-    name: path.split('/').pop() || '',
+  return paths.map(p => ({
+    path: p,
+    name: p.split('/').pop() || '',
   }));
 }
 
 /** Search for files by name */
 export async function findByName(name: string, limit = 20): Promise<SpotlightResult[]> {
-  return spotlight(`kMDItemDisplayName == "*${name}*"cd`, limit);
+  const safeName = name.replace(/[\\*"]/g, '');
+  return spotlight(`kMDItemDisplayName == "*${safeName}*"cd`, limit);
 }
 
 /** Search for files by type */
@@ -477,7 +478,7 @@ export async function isMuted(): Promise<boolean> {
 export async function getBrightness(): Promise<number> {
   assertMacOS();
   try {
-    const { stdout } = await execAsync('brightness -l | grep brightness | head -1');
+    const { stdout } = await execFileAsync('brightness', ['-l']);
     const match = stdout.match(/brightness\s+([\d.]+)/);
     return match ? parseFloat(match[1]) : 1;
   } catch {
@@ -489,9 +490,8 @@ export async function getBrightness(): Promise<number> {
 export async function setBrightness(level: number): Promise<void> {
   assertMacOS();
   try {
-    await execAsync(`brightness ${Math.max(0, Math.min(1, level))}`);
+    await execFileAsync('brightness', [String(Math.max(0, Math.min(1, level)))]);
   } catch {
-    // brightness command might not be installed
     logger.warn('brightness command not available');
   }
 }
@@ -520,7 +520,7 @@ export async function setDarkMode(enabled: boolean): Promise<void> {
 /** Sleep display */
 export async function sleepDisplay(): Promise<void> {
   assertMacOS();
-  await execAsync('pmset displaysleepnow');
+  await execFileAsync('pmset', ['displaysleepnow']);
 }
 
 /** Lock screen */
@@ -534,7 +534,7 @@ export async function lockScreen(): Promise<void> {
 /** Start screensaver */
 export async function startScreensaver(): Promise<void> {
   assertMacOS();
-  await execAsync('open -a ScreenSaverEngine');
+  await execFileAsync('open', ['-a', 'ScreenSaverEngine']);
 }
 
 // =============================================================================
@@ -545,25 +545,25 @@ export async function startScreensaver(): Promise<void> {
 export async function say(text: string, voice?: string, rate?: number): Promise<void> {
   assertMacOS();
 
-  let cmd = `say "${text.replace(/"/g, '\\"')}"`;
-  if (voice) cmd += ` -v "${voice}"`;
-  if (rate) cmd += ` -r ${rate}`;
+  const args = [text];
+  if (voice) { args.push('-v', voice); }
+  if (rate) { args.push('-r', String(rate)); }
 
-  await execAsync(cmd);
+  await execFileAsync('say', args);
 }
 
 /** Get available voices */
 export async function getVoices(): Promise<string[]> {
   assertMacOS();
-  const { stdout } = await execAsync('say -v ?');
-  return stdout.trim().split('\n').map(line => line.split(/\s+/)[0]);
+  const { stdout } = await execFileAsync('say', ['-v', '?']);
+  return stdout.trim().split('\n').map(line => line.split(/\s+/)[0]).filter(Boolean);
 }
 
 /** Stop speaking */
 export function stopSpeaking(): void {
   if (!isMacOS()) return;
   try {
-    execSync('killall say', { stdio: 'ignore' });
+    execFileSync('killall', ['say'], { stdio: 'ignore' });
   } catch {}
 }
 
@@ -574,14 +574,19 @@ export function stopSpeaking(): void {
 /** Get clipboard content */
 export async function getClipboard(): Promise<string> {
   assertMacOS();
-  const { stdout } = await execAsync('pbpaste');
+  const { stdout } = await execFileAsync('pbpaste', []);
   return stdout;
 }
 
 /** Set clipboard content */
 export async function setClipboard(text: string): Promise<void> {
   assertMacOS();
-  await execAsync(`echo "${text.replace(/"/g, '\\"')}" | pbcopy`);
+  const proc = spawn('pbcopy', [], { stdio: ['pipe', 'ignore', 'ignore'] });
+  proc.stdin.end(text);
+  await new Promise<void>((resolve, reject) => {
+    proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`pbcopy exited with ${code}`)));
+    proc.on('error', reject);
+  });
 }
 
 // =============================================================================
@@ -593,8 +598,8 @@ export async function getKeychainPassword(service: string, account: string): Pro
   assertMacOS();
 
   try {
-    const { stdout } = await execAsync(
-      `security find-generic-password -s "${service}" -a "${account}" -w`
+    const { stdout } = await execFileAsync(
+      'security', ['find-generic-password', '-s', service, '-a', account, '-w']
     );
     return stdout.trim();
   } catch {
@@ -606,13 +611,12 @@ export async function getKeychainPassword(service: string, account: string): Pro
 export async function setKeychainPassword(service: string, account: string, password: string): Promise<void> {
   assertMacOS();
 
-  // Delete existing first (if any)
   try {
-    await execAsync(`security delete-generic-password -s "${service}" -a "${account}"`);
+    await execFileAsync('security', ['delete-generic-password', '-s', service, '-a', account]);
   } catch {}
 
-  await execAsync(
-    `security add-generic-password -s "${service}" -a "${account}" -w "${password}"`
+  await execFileAsync(
+    'security', ['add-generic-password', '-s', service, '-a', account, '-w', password]
   );
 }
 
@@ -620,7 +624,7 @@ export async function setKeychainPassword(service: string, account: string, pass
 export async function deleteKeychainPassword(service: string, account: string): Promise<void> {
   assertMacOS();
 
-  await execAsync(`security delete-generic-password -s "${service}" -a "${account}"`);
+  await execFileAsync('security', ['delete-generic-password', '-s', service, '-a', account]);
 }
 
 // =============================================================================
@@ -633,13 +637,9 @@ function escapeString(str: string): string {
 
 /** Open URL in default browser */
 export async function openUrl(url: string): Promise<void> {
-  // Validate URL to prevent command injection
   if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('file://')) {
     throw new Error('Invalid URL: must start with http://, https://, or file://');
   }
-
-  const { execFile } = require('child_process');
-  const execFileAsync = promisify(execFile);
 
   if (isMacOS()) {
     await execFileAsync('open', [url]);
@@ -654,9 +654,6 @@ export async function openUrl(url: string): Promise<void> {
 export async function openFile(filePath: string, app?: string): Promise<void> {
   assertMacOS();
 
-  const { execFile } = require('child_process');
-  const execFileAsync = promisify(execFile);
-
   if (app) {
     await execFileAsync('open', ['-a', app, filePath]);
   } else {
@@ -665,19 +662,15 @@ export async function openFile(filePath: string, app?: string): Promise<void> {
 }
 
 /** Get default application for file type */
-export async function getDefaultApp(path: string): Promise<string | null> {
+export async function getDefaultApp(filePath: string): Promise<string | null> {
   assertMacOS();
 
   try {
-    const { stdout } = await execAsync(
-      `mdls -name kMDItemContentType "${path}" | grep kMDItemContentType | cut -d '"' -f2`
-    );
-    const contentType = stdout.trim();
+    const { stdout } = await execFileAsync('mdls', ['-name', 'kMDItemContentType', filePath]);
+    const match = stdout.match(/kMDItemContentType\s*=\s*"([^"]+)"/);
+    if (!match) return null;
 
-    const { stdout: appPath } = await execAsync(
-      `/usr/bin/defaults read com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers | plutil -extract 0 raw - 2>/dev/null || echo ""`
-    );
-    return appPath.trim() || null;
+    return match[1] || null;
   } catch {
     return null;
   }

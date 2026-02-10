@@ -60,10 +60,11 @@ function bm25Score(
     const tf = docTerms.filter((t) => t === term).length;
     if (tf === 0) continue;
 
-    const idf = idfScores.get(term) || 0;
+    const idf = idfScores.get(term) ?? 0;
+    const safeAvgDocLen = avgDocLen > 0 ? avgDocLen : 1;
     const tfNormalized =
       (tf * (BM25_K1 + 1)) /
-      (tf + BM25_K1 * (1 - BM25_B + BM25_B * (docLen / avgDocLen)));
+      (tf + BM25_K1 * (1 - BM25_B + BM25_B * (docLen / safeAvgDocLen)));
 
     score += idf * tfNormalized;
   }
@@ -85,8 +86,8 @@ export function bm25Search<T>(
 
   // Tokenize all documents
   const tokenizedDocs = items.map((item) => tokenize(getContent(item)));
-  const avgDocLen =
-    tokenizedDocs.reduce((sum, doc) => sum + doc.length, 0) / tokenizedDocs.length;
+  const totalDocLen = tokenizedDocs.reduce((sum, doc) => sum + doc.length, 0);
+  const avgDocLen = tokenizedDocs.length > 0 ? totalDocLen / tokenizedDocs.length : 1;
 
   // Calculate IDF for query terms
   const idfScores = new Map<string, number>();
@@ -126,12 +127,12 @@ function reciprocalRankFusion<T>(
 
   for (let listIdx = 0; listIdx < rankedLists.length; listIdx++) {
     const list = rankedLists[listIdx];
-    const weight = weights[listIdx] || 1;
+    const weight = weights[listIdx] ?? 1;
 
     for (let rank = 0; rank < list.length; rank++) {
       const item = list[rank].item;
       const rrfScore = weight / (k + rank + 1);
-      scoreMap.set(item, (scoreMap.get(item) || 0) + rrfScore);
+      scoreMap.set(item, (scoreMap.get(item) ?? 0) + rrfScore);
     }
   }
 

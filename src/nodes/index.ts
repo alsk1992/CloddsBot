@@ -51,19 +51,17 @@ function createCameraCapture(): CameraCapture {
       try {
         if (os === 'darwin') {
           if (hasImagesnap) {
-            // macOS with imagesnap
-            execSync(`imagesnap -q "${outPath}"`, { timeout: 10000 });
+            execFileSync('imagesnap', ['-q', outPath], { timeout: 10000 });
           } else if (hasFfmpeg) {
-            // Fallback to ffmpeg on macOS
-            execSync(`ffmpeg -f avfoundation -framerate 30 -i "0" -frames:v 1 -y "${outPath}" 2>/dev/null`, { timeout: 10000 });
+            execFileSync('ffmpeg', ['-f', 'avfoundation', '-framerate', '30', '-i', '0', '-frames:v', '1', '-y', outPath], { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] });
           } else {
             throw new Error('No camera tool available. Install imagesnap: brew install imagesnap');
           }
         } else if (os === 'linux') {
           if (hasFswebcam) {
-            execSync(`fswebcam -q --no-banner "${outPath}"`, { timeout: 10000 });
+            execFileSync('fswebcam', ['-q', '--no-banner', outPath], { timeout: 10000 });
           } else if (hasFfmpeg) {
-            execSync(`ffmpeg -f v4l2 -i /dev/video0 -frames:v 1 -y "${outPath}" 2>/dev/null`, { timeout: 10000 });
+            execFileSync('ffmpeg', ['-f', 'v4l2', '-i', '/dev/video0', '-frames:v', '1', '-y', outPath], { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] });
           } else {
             throw new Error('No camera tool available. Install fswebcam: apt install fswebcam');
           }
@@ -87,12 +85,14 @@ function createCameraCapture(): CameraCapture {
 
       try {
         if (os === 'darwin' && hasFfmpeg) {
-          execSync(`ffmpeg -f avfoundation -framerate 30 -i "0" -t ${durationSec} -y "${outPath}" 2>/dev/null`, {
+          execFileSync('ffmpeg', ['-f', 'avfoundation', '-framerate', '30', '-i', '0', '-t', String(durationSec), '-y', outPath], {
             timeout: (durationSec + 5) * 1000,
+            stdio: ['pipe', 'pipe', 'pipe'],
           });
         } else if (os === 'linux' && hasFfmpeg) {
-          execSync(`ffmpeg -f v4l2 -i /dev/video0 -t ${durationSec} -y "${outPath}" 2>/dev/null`, {
+          execFileSync('ffmpeg', ['-f', 'v4l2', '-i', '/dev/video0', '-t', String(durationSec), '-y', outPath], {
             timeout: (durationSec + 5) * 1000,
+            stdio: ['pipe', 'pipe', 'pipe'],
           });
         } else {
           throw new Error('Video recording requires ffmpeg');
@@ -156,18 +156,22 @@ function createScreenCapture(): ScreenCapture {
       try {
         if (os === 'darwin') {
           // macOS screencapture
-          let cmd = 'screencapture -x';
-          if (options.display !== undefined) cmd += ` -D${options.display}`;
-          if (options.window) cmd += ' -w';
-          cmd += ` "${outPath}"`;
-          execSync(cmd, { timeout: 10000 });
+          const args = ['-x'];
+          if (options.display !== undefined) {
+            const d = Number(options.display);
+            if (!Number.isFinite(d)) throw new Error('Invalid display number');
+            args.push(`-D${d}`);
+          }
+          if (options.window) args.push('-w');
+          args.push(outPath);
+          execFileSync('screencapture', args, { timeout: 10000 });
         } else if (os === 'linux') {
           if (hasScrot) {
-            execSync(`scrot "${outPath}"`, { timeout: 10000 });
+            execFileSync('scrot', [outPath], { timeout: 10000 });
           } else if (hasGnomeScreenshot) {
-            execSync(`gnome-screenshot -f "${outPath}"`, { timeout: 10000 });
+            execFileSync('gnome-screenshot', ['-f', outPath], { timeout: 10000 });
           } else if (hasFfmpeg) {
-            execSync(`ffmpeg -f x11grab -framerate 1 -i :0 -frames:v 1 -y "${outPath}" 2>/dev/null`, { timeout: 10000 });
+            execFileSync('ffmpeg', ['-f', 'x11grab', '-framerate', '1', '-i', ':0', '-frames:v', '1', '-y', outPath], { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] });
           } else {
             throw new Error('No screenshot tool. Install scrot: apt install scrot');
           }
@@ -191,14 +195,24 @@ function createScreenCapture(): ScreenCapture {
 
       try {
         if (os === 'darwin') {
-          // macOS screen recording with ffmpeg
-          let display = options.display ?? 1;
-          execSync(`ffmpeg -f avfoundation -framerate 30 -i "${display}:none" -t ${durationSec} -y "${outPath}" 2>/dev/null`, {
+          const display = Number(options.display ?? 1);
+          if (!Number.isFinite(display)) throw new Error('Invalid display number');
+          execFileSync('ffmpeg', [
+            '-f', 'avfoundation', '-framerate', '30',
+            '-i', `${display}:none`, '-t', String(durationSec),
+            '-y', outPath,
+          ], {
             timeout: (durationSec + 10) * 1000,
+            stdio: ['pipe', 'pipe', 'pipe'],
           });
         } else if (os === 'linux' && hasFfmpeg) {
-          execSync(`ffmpeg -f x11grab -framerate 30 -i :0 -t ${durationSec} -y "${outPath}" 2>/dev/null`, {
+          execFileSync('ffmpeg', [
+            '-f', 'x11grab', '-framerate', '30',
+            '-i', ':0', '-t', String(durationSec),
+            '-y', outPath,
+          ], {
             timeout: (durationSec + 10) * 1000,
+            stdio: ['pipe', 'pipe', 'pipe'],
           });
         } else {
           throw new Error('Screen recording requires ffmpeg');
@@ -223,8 +237,8 @@ function createScreenCapture(): ScreenCapture {
           return displays.map((d: { _name: string; _spdisplays_resolution?: string }, i: number) => ({
             id: i + 1,
             name: d._name || `Display ${i + 1}`,
-            width: parseInt(d._spdisplays_resolution?.split(' x ')?.[0] || '0'),
-            height: parseInt(d._spdisplays_resolution?.split(' x ')?.[1] || '0'),
+            width: parseInt(d._spdisplays_resolution?.split(' x ')?.[0] || '0', 10),
+            height: parseInt(d._spdisplays_resolution?.split(' x ')?.[1] || '0', 10),
           }));
         } else if (os === 'linux') {
           const output = execSync('xrandr --query 2>/dev/null', { encoding: 'utf-8' });
@@ -234,8 +248,8 @@ function createScreenCapture(): ScreenCapture {
             return {
               id: i,
               name: parts?.[1] || `Display ${i}`,
-              width: parseInt(parts?.[2] || '0'),
-              height: parseInt(parts?.[3] || '0'),
+              width: parseInt(parts?.[2] || '0', 10),
+              height: parseInt(parts?.[3] || '0', 10),
             };
           });
         }
@@ -304,7 +318,7 @@ if let loc = delegate.location {
           writeFileSync(scriptPath, swiftCode);
 
           try {
-            const output = execSync(`swift "${scriptPath}" 2>/dev/null`, { encoding: 'utf-8', timeout: 10000 });
+            const output = execFileSync('swift', [scriptPath], { encoding: 'utf-8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] });
             unlinkSync(scriptPath);
 
             if (output.trim() === 'ERROR') return null;
@@ -450,9 +464,9 @@ function createSystemService(): SystemService {
 
     async getClipboard() {
       if (os === 'darwin') {
-        return execSync('pbpaste', { encoding: 'utf-8', timeout: 5000 });
+        return execFileSync('pbpaste', [], { encoding: 'utf-8', timeout: 5000 });
       } else if (os === 'linux' && commandExists('xclip')) {
-        return execSync('xclip -selection clipboard -o', { encoding: 'utf-8', timeout: 5000 });
+        return execFileSync('xclip', ['-selection', 'clipboard', '-o'], { encoding: 'utf-8', timeout: 5000 });
       }
       throw new Error('Clipboard not available');
     },

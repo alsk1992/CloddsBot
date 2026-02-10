@@ -342,8 +342,10 @@ async function fetchPolymarketMarkets(
           const tags = (market.tags || event.tags || []).map((t) => t.label);
           if (excludeSports && isSportsMarket(tags)) continue;
 
-      const volume24h = market.volume24hr ? Number.parseFloat(market.volume24hr) : undefined;
-      const liquidity = market.liquidity ? Number.parseFloat(market.liquidity) : undefined;
+      const volume24hRaw = market.volume24hr ? Number.parseFloat(market.volume24hr) : undefined;
+      const volume24h = volume24hRaw !== undefined && !Number.isNaN(volume24hRaw) ? volume24hRaw : undefined;
+      const liquidityRaw = market.liquidity ? Number.parseFloat(market.liquidity) : undefined;
+      const liquidity = liquidityRaw !== undefined && !Number.isNaN(liquidityRaw) ? liquidityRaw : undefined;
           if (!meetsThresholds({ volume24h, liquidity }, options)) continue;
           const resolved = Boolean(market.archived);
           const entry: MarketIndexEntry = {
@@ -510,7 +512,7 @@ async function fetchManifoldMarkets(limit: number, options: MarketIndexSyncOptio
         url: market.url || `https://manifold.markets/${market.slug}`,
         endDate: closeTime,
         resolved,
-        updatedAt: new Date(market.lastUpdatedTime || Date.now()),
+        updatedAt: new Date(market.lastUpdatedTime ?? Date.now()),
         volume24h: volume,
         liquidity,
         rawJson: safeJson(market),
@@ -732,10 +734,10 @@ export function createMarketIndexService(
         total,
         byPlatform,
         lastSyncAt: lastSync.at ?? undefined,
-        lastSyncIndexed: lastSync.indexed || undefined,
+        lastSyncIndexed: lastSync.indexed ?? undefined,
         lastSyncByPlatform: Object.keys(lastSync.byPlatform).length ? lastSync.byPlatform : undefined,
-        lastSyncDurationMs: lastSync.durationMs || undefined,
-        lastPruned: lastSync.pruned || undefined,
+        lastSyncDurationMs: lastSync.durationMs ?? undefined,
+        lastPruned: lastSync.pruned ?? undefined,
       };
     },
   };

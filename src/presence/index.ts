@@ -44,11 +44,9 @@ export function createPresenceService(): PresenceService {
   // Platform-specific typing senders
   const typingSenders = new Map<string, TypingSender>();
 
-  // Typing indicator refresh interval (most platforms need refresh every 5s)
   const TYPING_REFRESH_MS = 4000;
-
-  // Max typing duration (safety timeout)
-  const MAX_TYPING_MS = 120000; // 2 minutes
+  const MAX_TYPING_MS = 120000;
+  const MAX_TYPING_STATES = 500;
 
   function getKey(platform: string, chatId: string): string {
     return `${platform}:${chatId}`;
@@ -72,9 +70,16 @@ export function createPresenceService(): PresenceService {
     startTyping(platform, chatId) {
       const key = getKey(platform, chatId);
 
-      // Already typing?
       if (typingStates.has(key)) {
         return;
+      }
+
+      if (typingStates.size >= MAX_TYPING_STATES) {
+        const oldest = typingStates.keys().next().value;
+        if (oldest !== undefined) {
+          const [p, c] = oldest.split(':');
+          service.stopTyping(p, c);
+        }
       }
 
       // Send initial typing indicator
@@ -133,7 +138,13 @@ export function createPresenceService(): PresenceService {
     },
 
     isTyping(platform, chatId) {
-      return typingStates.has(getKey(platform, chatId));
+      const state = typingStates.get(getKey(platform, chatId));
+      if (!state) return false;
+      if (Date.now() - state.startedAt.getTime() > MAX_TYPING_MS) {
+        service.stopTyping(platform, chatId);
+        return false;
+      }
+      return true;
     },
 
     stopAll() {

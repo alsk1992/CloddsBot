@@ -137,8 +137,8 @@ export async function execute(command: string, options: ProcessOptions = {}): Pr
       }
 
       resolve({
-        exitCode: error ? (error as NodeJS.ErrnoException).code ? null : 1 : 0,
-        signal: error?.signal as NodeJS.Signals || null,
+        exitCode: error ? (error as { code?: number }).code ?? 1 : 0,
+        signal: (error?.signal as NodeJS.Signals) ?? null,
         stdout: stdout.toString(),
         stderr: stderr.toString(),
         duration,
@@ -211,12 +211,14 @@ export function spawnProcess(command: string, args: string[] = [], options: Proc
 
   const child = spawn(command, args, spawnOptions);
 
+  const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
   let stdout = '';
   let stderr = '';
   let killed = false;
   let timedOut = false;
+  let exitResult: { code: number | null; signal: NodeJS.Signals | null } | null = null;
+  let exitError: Error | null = null;
 
-  // Timeout handling
   let timeoutId: NodeJS.Timeout | undefined;
   if (options.timeout) {
     timeoutId = setTimeout(() => {
@@ -225,32 +227,34 @@ export function spawnProcess(command: string, args: string[] = [], options: Proc
     }, options.timeout);
   }
 
-  // Stream stdout
   child.stdout?.on('data', (data: Buffer) => {
     const str = data.toString();
-    stdout += str;
+    if (stdout.length < maxBuffer) {
+      stdout += str.slice(0, maxBuffer - stdout.length);
+    }
     emitter.emit('stdout', str);
   });
 
-  // Stream stderr
   child.stderr?.on('data', (data: Buffer) => {
     const str = data.toString();
-    stderr += str;
+    if (stderr.length < maxBuffer) {
+      stderr += str.slice(0, maxBuffer - stderr.length);
+    }
     emitter.emit('stderr', str);
   });
 
-  // Handle exit
   child.on('exit', (code, signal) => {
     if (timeoutId) clearTimeout(timeoutId);
+    exitResult = { code, signal };
     emitter.emit('exit', code, signal);
   });
 
   child.on('error', (error) => {
     if (timeoutId) clearTimeout(timeoutId);
+    exitError = error;
     emitter.emit('error', error);
   });
 
-  // Expose child process properties
   emitter.pid = child.pid;
   emitter.stdin = child.stdin;
   emitter.stdout = child.stdout;
@@ -262,7 +266,30 @@ export function spawnProcess(command: string, args: string[] = [], options: Proc
   };
 
   emitter.wait = () => new Promise((resolve) => {
-    child.on('exit', (code, signal) => {
+    if (exitResult) {
+      return resolve({
+        exitCode: exitResult.code,
+        signal: exitResult.signal,
+        stdout,
+        stderr,
+        duration: Date.now() - startTime,
+        killed,
+        timedOut,
+      });
+    }
+    if (exitError) {
+      return resolve({
+        exitCode: 1,
+        signal: null,
+        stdout,
+        stderr: stderr + '\n' + exitError.message,
+        duration: Date.now() - startTime,
+        killed,
+        timedOut,
+      });
+    }
+
+    emitter.once('exit', (code: number | null, signal: NodeJS.Signals | null) => {
       resolve({
         exitCode: code,
         signal,
@@ -274,7 +301,7 @@ export function spawnProcess(command: string, args: string[] = [], options: Proc
       });
     });
 
-    child.on('error', (error) => {
+    emitter.once('error', (error: Error) => {
       resolve({
         exitCode: 1,
         signal: null,
@@ -489,15 +516,14 @@ export function getProcessInfo(): { pid: number; ppid: number; uid: number; gid:
 
 /** Kill a process tree */
 export function killTree(pid: number, signal: NodeJS.Signals = 'SIGTERM'): void {
+  if (!Number.isInteger(pid) || pid <= 0) return;
   try {
     if (process.platform === 'win32') {
-      execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
     } else {
-      // Kill process group
       process.kill(-pid, signal);
     }
   } catch {
-    // Process might already be dead
     try {
       process.kill(pid, signal);
     } catch {}

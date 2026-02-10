@@ -10,13 +10,13 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
-import { join, dirname, basename, resolve } from 'path';
+import { join, dirname, basename, resolve, relative } from 'path';
 import { homedir } from 'os';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { logger } from '../utils/logger';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // =============================================================================
 // TYPES
@@ -163,7 +163,6 @@ async function loadWorkspaceFiles(path: string): Promise<WorkspaceFiles> {
   return files;
 }
 
-/** Get git information */
 async function getGitInfo(path: string): Promise<GitInfo> {
   const info: GitInfo = {
     branch: 'unknown',
@@ -171,16 +170,16 @@ async function getGitInfo(path: string): Promise<GitInfo> {
   };
 
   try {
-    const { stdout: branch } = await execAsync('git rev-parse --abbrev-ref HEAD', { cwd: path });
+    const { stdout: branch } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: path });
     info.branch = branch.trim();
 
-    const { stdout: remote } = await execAsync('git remote get-url origin', { cwd: path }).catch(() => ({ stdout: '' }));
+    const { stdout: remote } = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: path }).catch(() => ({ stdout: '', stderr: '' }));
     if (remote.trim()) info.remote = remote.trim();
 
-    const { stdout: status } = await execAsync('git status --porcelain', { cwd: path });
+    const { stdout: status } = await execFileAsync('git', ['status', '--porcelain'], { cwd: path });
     info.isClean = status.trim() === '';
 
-    const { stdout: commit } = await execAsync('git log -1 --pretty=format:%H', { cwd: path }).catch(() => ({ stdout: '' }));
+    const { stdout: commit } = await execFileAsync('git', ['log', '-1', '--pretty=format:%H'], { cwd: path }).catch(() => ({ stdout: '', stderr: '' }));
     if (commit.trim()) info.lastCommit = commit.trim().slice(0, 7);
   } catch {}
 
@@ -203,23 +202,22 @@ function loadProjectConfig(path: string): ProjectConfig | undefined {
 // WORKSPACE CLASS
 // =============================================================================
 
+const MAX_CACHED_WORKSPACES = 20;
+
 export class WorkspaceManager {
   private workspaces: Map<string, Workspace> = new Map();
   private current: Workspace | null = null;
 
-  /** Load a workspace */
   async load(path?: string): Promise<Workspace | null> {
     const workspacePath = path || findWorkspaceRoot();
     if (!workspacePath) return null;
 
-    // Check cache
     const cached = this.workspaces.get(workspacePath);
     if (cached) {
       this.current = cached;
       return cached;
     }
 
-    // Load workspace
     const workspace: Workspace = {
       path: workspacePath,
       name: basename(workspacePath),
@@ -227,6 +225,11 @@ export class WorkspaceManager {
       files: await loadWorkspaceFiles(workspacePath),
       config: loadProjectConfig(workspacePath),
     };
+
+    if (this.workspaces.size >= MAX_CACHED_WORKSPACES) {
+      const oldest = this.workspaces.keys().next().value;
+      if (oldest !== undefined) this.workspaces.delete(oldest);
+    }
 
     this.workspaces.set(workspacePath, workspace);
     this.current = workspace;
@@ -287,10 +290,11 @@ export class WorkspaceManager {
       additionalContext.push(`README Summary:\n${summary}`);
     }
 
-    // Add config context files
     if (this.current.config?.context) {
       for (const file of this.current.config.context) {
-        const filePath = join(this.current.path, file);
+        const filePath = resolve(this.current.path, file);
+        const rel = relative(this.current.path, filePath);
+        if (rel.startsWith('..') || rel.includes('/..')) continue;
         if (existsSync(filePath)) {
           additionalContext.push(`File: ${file}\n${readFileSync(filePath, 'utf-8')}`);
         }
@@ -385,34 +389,52 @@ This file provides instructions for AI assistants working on this project.
     this.load(this.current.path);
   }
 
-  /** List files in workspace */
   listFiles(pattern?: string): string[] {
     if (!this.current) return [];
 
     const files: string[] = [];
+    const MAX_FILES = 10000;
 
-    function walk(dir: string, depth = 0) {
-      if (depth > 3) return; // Limit depth
+    const walk = (dir: string, depth = 0) => {
+      if (depth > 3 || files.length >= MAX_FILES) return;
 
-      const entries = readdirSync(dir);
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return;
+      }
       for (const entry of entries) {
         if (entry.startsWith('.') || entry === 'node_modules') continue;
 
         const fullPath = join(dir, entry);
-        const stat = statSync(fullPath);
+        let stat;
+        try {
+          stat = statSync(fullPath);
+        } catch {
+          continue;
+        }
+
+        if (stat.isSymbolicLink()) continue;
 
         if (stat.isFile()) {
           files.push(fullPath);
+          if (files.length >= MAX_FILES) return;
         } else if (stat.isDirectory()) {
           walk(fullPath, depth + 1);
         }
       }
-    }
+    };
 
     walk(this.current.path);
 
     if (pattern) {
-      const regex = new RegExp(pattern);
+      let regex: RegExp;
+      try {
+        regex = new RegExp(pattern);
+      } catch {
+        return [];
+      }
       return files.filter(f => regex.test(f));
     }
 

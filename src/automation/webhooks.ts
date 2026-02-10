@@ -95,16 +95,29 @@ export function createWebhookManager(): WebhookManager {
   const rateLimits = new Map<string, RateLimitEntry>();
   const requireSignature = process.env.CLODDS_WEBHOOK_REQUIRE_SIGNATURE !== '0';
 
+  function pruneRateLimits(): void {
+    const now = Date.now();
+    const windowMs = 60 * 1000;
+    for (const [key, entry] of rateLimits) {
+      if (now - entry.windowStart > windowMs) {
+        rateLimits.delete(key);
+      }
+    }
+  }
+
   /** Check rate limit */
   function checkRateLimit(webhook: Webhook): boolean {
     if (!webhook.rateLimit) return true;
 
     const now = Date.now();
-    const windowMs = 60 * 1000; // 1 minute window
+    const windowMs = 60 * 1000;
+
+    if (rateLimits.size > 10000) {
+      pruneRateLimits();
+    }
 
     const entry = rateLimits.get(webhook.id);
     if (!entry || now - entry.windowStart > windowMs) {
-      // New window
       rateLimits.set(webhook.id, { count: 1, windowStart: now });
       return true;
     }
