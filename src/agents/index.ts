@@ -17136,15 +17136,18 @@ export async function createAgentManager(
         'claude-3-opus-20240229': 200000,
       };
       const modelContextWindow = MODEL_CONTEXT_WINDOWS[modelId] || 200000;
-      // Estimate fixed overhead: tool definitions + system prompt (these don't change during conversation)
-      const toolsTokenEstimate = estimateTokens(JSON.stringify(tools), modelId);
+
+      // Reserve space for system prompt + response buffer.
+      // Tool tokens are NOT included here because client-side estimation of tool
+      // tokens is wildly inaccurate (JSON.stringify tokenization != API's internal
+      // tool token counting). Instead, we use actual API usage feedback after the
+      // first call to calibrate. The API will reject if truly over limit.
       const systemTokenEstimate = estimateTokens(finalSystemPrompt, modelId);
-      // Reserve enough for tools + system prompt + response buffer
-      const reserveForFixed = toolsTokenEstimate + systemTokenEstimate + 4096;
+      const reserveTokens = systemTokenEstimate + 8192;
 
       const contextConfig: ContextConfig = {
         maxTokens: modelContextWindow,
-        reserveTokens: reserveForFixed,
+        reserveTokens,
         compactThreshold: 0.85,
         minMessagesAfterCompact: 6,
         summarizer,
@@ -17155,17 +17158,10 @@ export async function createAgentManager(
         similarity: memory?.cosineSimilarity,
       };
       const contextManager = createContextManager(contextConfig, memory);
-      const effectiveMaxTokens =
-        (contextConfig.maxTokens ?? 128000) - reserveForFixed;
+      const effectiveMaxTokens = modelContextWindow - reserveTokens;
 
-      const estimateSubmitTokens = (): number => {
-        const system = estimateTokens(finalSystemPrompt, modelId);
-        const msgs = messages.reduce((sum, m) => {
-          const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-          return sum + estimateTokens(content, modelId) + 4;
-        }, 0);
-        return system + msgs + toolsTokenEstimate;
-      };
+      // Track actual API token usage for accurate compaction decisions
+      let lastKnownInputTokens = 0;
 
       // Add all messages to context manager for tracking
       for (const msg of messages) {
@@ -17223,25 +17219,33 @@ export async function createAgentManager(
         }
       }
 
-      const initialEstimate = estimateSubmitTokens();
-      logger.info(
-        { tokens: initialEstimate, max: effectiveMaxTokens },
-        'Token estimate before submit'
-      );
-
-      // Safety: if still over limit after compaction, return a friendly error
-      if (initialEstimate > effectiveMaxTokens * 1.1) {
-        logger.warn({ tokens: initialEstimate, max: effectiveMaxTokens }, 'Context exceeds limit even after compaction');
-        return 'This conversation has gotten too long for me to process. Please start a new conversation and I\'ll be happy to help!';
+      let response: Anthropic.Message;
+      try {
+        response = await createMessage({
+          model: modelId,
+          max_tokens: 1024,
+          system: finalSystemPrompt,
+          tools: tools as Anthropic.Tool[],
+          messages,
+        });
+      } catch (err: unknown) {
+        // Handle prompt-too-long gracefully instead of crashing
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('prompt is too long') || errMsg.includes('too many tokens')) {
+          logger.warn({ error: errMsg }, 'Prompt exceeded context window');
+          return 'This conversation has gotten too long for me to process. Please start a new conversation and I\'ll be happy to help!';
+        }
+        throw err;
       }
 
-      let response = await createMessage({
-        model: modelId,
-        max_tokens: 1024,
-        system: finalSystemPrompt,
-        tools: tools as Anthropic.Tool[],
-        messages,
-      });
+      // Use actual API token count for accurate context tracking
+      if (response.usage) {
+        lastKnownInputTokens = response.usage.input_tokens;
+        logger.info(
+          { inputTokens: lastKnownInputTokens, max: modelContextWindow },
+          'Actual API token usage'
+        );
+      }
 
       // Tool use loop
       while (response.stop_reason === 'tool_use') {
@@ -17379,25 +17383,42 @@ export async function createAgentManager(
           }
         }
 
-        const loopEstimate = estimateSubmitTokens();
-        logger.info(
-          { tokens: loopEstimate, max: effectiveMaxTokens },
-          'Token estimate before submit (tool loop)'
-        );
-
-        // Safety: bail if over limit during tool loop
-        if (loopEstimate > effectiveMaxTokens * 1.1) {
-          logger.warn({ tokens: loopEstimate, max: effectiveMaxTokens }, 'Context exceeds limit during tool loop');
-          break;
+        try {
+          response = await createMessage({
+            model: modelId,
+            max_tokens: 1024,
+            system: finalSystemPrompt,
+            tools: tools as Anthropic.Tool[],
+            messages,
+          });
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (errMsg.includes('prompt is too long') || errMsg.includes('too many tokens')) {
+            logger.warn({ error: errMsg }, 'Prompt exceeded context window during tool loop');
+            break;
+          }
+          throw err;
         }
 
-        response = await createMessage({
-          model: modelId,
-          max_tokens: 1024,
-          system: finalSystemPrompt,
-          tools: tools as Anthropic.Tool[],
-          messages,
-        });
+        // Update actual token usage after each API call
+        if (response.usage) {
+          lastKnownInputTokens = response.usage.input_tokens;
+          // If actual usage is approaching limit, force compaction next iteration
+          if (lastKnownInputTokens > modelContextWindow * 0.85) {
+            logger.info({ inputTokens: lastKnownInputTokens }, 'API reports high token usage, will compact');
+            const urgentCompact = await contextManager.compact();
+            if (urgentCompact.success) {
+              const compactedMessages = contextManager.getMessagesForApi();
+              messages.length = 0;
+              for (const msg of compactedMessages) {
+                messages.push({
+                  role: msg.role === 'system' ? 'user' : msg.role,
+                  content: msg.content,
+                });
+              }
+            }
+          }
+        }
       }
 
       // Extract text response
