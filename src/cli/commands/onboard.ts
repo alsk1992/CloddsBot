@@ -296,8 +296,20 @@ export async function runOnboard(): Promise<void> {
   if (telegramToken) envLines.push(`TELEGRAM_BOT_TOKEN=${telegramToken}`);
   if (discordToken) envLines.push(`DISCORD_BOT_TOKEN=${discordToken}`);
 
+  // Auto-generate credential encryption key
+  const { randomBytes } = await import('crypto');
   const envPath = path.join(configDir, '.env');
-  fs.writeFileSync(envPath, envLines.join('\n') + '\n');
+
+  // Preserve existing CLODDS_CREDENTIAL_KEY if .env already exists (don't invalidate stored creds)
+  let existingCredKey = '';
+  if (fs.existsSync(envPath)) {
+    const existing = fs.readFileSync(envPath, 'utf-8');
+    const match = existing.match(/^CLODDS_CREDENTIAL_KEY=(.+)$/m);
+    if (match) existingCredKey = match[1];
+  }
+  envLines.push(`CLODDS_CREDENTIAL_KEY=${existingCredKey || randomBytes(32).toString('hex')}`);
+
+  fs.writeFileSync(envPath, envLines.join('\n') + '\n', { mode: 0o600 });
 
   spin.stop(true, '');
 
