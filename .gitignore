@@ -78,11 +78,8 @@ CLAWDBOT_ARCHITECTURE.md
 # Deploy to hostkey only via rsync
 # =============================================================================
 
-# Compute API server & gateway
+# Compute API server (standalone monetization layer)
 src/api/
-
-# Gateway HTTP server & all API route handlers
-src/gateway/
 
 # Payment processing (x402, on-chain verification)
 src/payments/
@@ -104,3 +101,4 @@ tests/unit/api/
 tests/integration/market-index-endpoints.test.ts
 tests/integration/webhook-http.test.ts
 tests/http-rate-limit.test.ts
+.vercel
