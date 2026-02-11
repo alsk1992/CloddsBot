@@ -27,6 +27,7 @@ export interface WebChatChannel {
   editMessage?: (msg: OutgoingMessage & { messageId: string }) => Promise<void>;
   deleteMessage?: (msg: OutgoingMessage & { messageId: string }) => Promise<void>;
   getConnectedUsers(): string[];
+  getConnectionHandler(): ((ws: WebSocket, req: import('http').IncomingMessage) => void) | null;
 }
 
 interface ChatSession {
@@ -321,20 +322,14 @@ export function createWebChatChannel(
     start(wss: WebSocketServer): void {
       logger.info('WebChat: Starting channel');
 
-      // Remove any previous listener to prevent double-registration on reload
-      if (wssRef && connectionHandler) {
-        wssRef.off('connection', connectionHandler);
-      }
-
       wssRef = wss;
 
-      // Handle upgrades for /chat path
+      // Create connection handler — dispatched by gateway server, NOT registered on WSS directly.
+      // This prevents listener accumulation across channel rebuilds.
       connectionHandler = (ws, req) => {
-        // Only handle /chat connections
         const url = req.url || '';
         if (!url.startsWith('/chat')) return;
 
-        // Support sessionId from URL query param
         let sessionId: string;
         try {
           const parsed = new URL(url, 'http://localhost');
@@ -344,7 +339,6 @@ export function createWebChatChannel(
         }
         handleConnection(ws, sessionId);
       };
-      wss.on('connection', connectionHandler);
 
       // Heartbeat to clean up dead connections
       heartbeatInterval = setInterval(() => {
@@ -376,12 +370,9 @@ export function createWebChatChannel(
     },
 
     stop(): void {
-      // Remove WSS connection listener to prevent double-registration on reload
-      if (wssRef && connectionHandler) {
-        wssRef.off('connection', connectionHandler);
-        connectionHandler = null;
-        wssRef = null;
-      }
+      // Clear handler reference — gateway server holds the dispatch callback
+      connectionHandler = null;
+      wssRef = null;
 
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
@@ -467,6 +458,10 @@ export function createWebChatChannel(
       }
       const session = sessions.get(message.chatId);
       return Boolean(session && session.ws.readyState === WebSocket.OPEN);
+    },
+
+    getConnectionHandler() {
+      return connectionHandler;
     },
   };
 }

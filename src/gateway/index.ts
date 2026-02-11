@@ -1617,6 +1617,8 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       const wss = httpGateway.getWebSocketServer();
       if (wss) {
         channels.attachWebSocket(wss);
+        // Update chat handler on gateway — single dispatcher, no listener accumulation
+        httpGateway.setChatConnectionHandler(channels.getChatConnectionHandler());
       }
 
       await feeds.start();
@@ -2507,6 +2509,8 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       const wss = httpGateway.getWebSocketServer();
       if (wss) {
         channels!.attachWebSocket(wss);
+        // Set chat handler on gateway — single dispatcher, no listener accumulation
+        httpGateway.setChatConnectionHandler(channels!.getChatConnectionHandler());
       }
 
       await feeds.start();

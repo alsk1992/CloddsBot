@@ -63,6 +63,7 @@ export interface GatewayServer {
   setCommandListHandler(handler: CommandListHandler | null): void;
   setHooksHandler(handler: HooksHandler | null): void;
   setOnSessionDelete(handler: ((key: string) => void) | null): void;
+  setChatConnectionHandler(handler: ((ws: WebSocket, req: IncomingMessage) => void) | null): void;
 }
 
 /** Handler for /hooks/wake and /hooks/agent endpoints */
@@ -229,6 +230,7 @@ export function createServer(
   let commandListHandler: CommandListHandler | null = null;
   let hooksHandler: HooksHandler | null = null;
   let onSessionDelete: ((key: string) => void) | null = null;
+  let chatConnectionHandler: ((ws: WebSocket, req: IncomingMessage) => void) | null = null;
 
   // Auth middleware for sensitive endpoints
   const authToken = process.env.CLODDS_TOKEN;
@@ -2599,12 +2601,13 @@ export function createServer(
           }
         });
 
-        // Default /ws handler (for API/control)
+        // Single connection handler — dispatches /chat via mutable callback
+        // This prevents listener accumulation across channel rebuilds
         wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
-          // /chat connections are handled by WebChat channel via attachWebSocket
           const reqPath = (request.url || '').split('?')[0];
           if (reqPath === '/chat') {
-            return; // Let WebChat handle it
+            if (chatConnectionHandler) chatConnectionHandler(ws, request);
+            return;
           }
 
           logger.info('WebSocket API client connected');
@@ -2817,6 +2820,10 @@ export function createServer(
     },
     setOnSessionDelete(handler: ((key: string) => void) | null): void {
       onSessionDelete = handler;
+    },
+
+    setChatConnectionHandler(handler: ((ws: WebSocket, req: IncomingMessage) => void) | null): void {
+      chatConnectionHandler = handler;
     },
   };
 }

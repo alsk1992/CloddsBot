@@ -70,6 +70,7 @@ export interface ChannelManager {
   react(message: ReactionMessage): Promise<void>;
   sendPoll(message: PollMessage): Promise<string | null>;
   attachWebSocket(wss: WebSocketServer): void;
+  getChatConnectionHandler(): ((ws: import('ws').WebSocket, req: import('http').IncomingMessage) => void) | null;
   getAdapters(): Record<string, ChannelAdapter>;
 }
 
@@ -388,6 +389,10 @@ export async function createChannelManager(
           logger.warn({ error }, 'Failed to flush WebChat queue');
         });
       }
+    },
+
+    getChatConnectionHandler() {
+      return webchat?.getConnectionHandler?.() ?? null;
     },
 
     getAdapters(): Record<string, ChannelAdapter> {
