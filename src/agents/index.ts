@@ -17516,9 +17516,26 @@ export async function createAgentManager(
       const toApiTools = (defs: ToolDefinition[]): Anthropic.Tool[] =>
         defs.map(({ metadata: _, ...rest }) => rest) as Anthropic.Tool[];
 
+      // Smart tool gating: zero-intent messages ("hi", "thanks") don't need 22 tools.
+      // Send only tool_search so Claude can discover tools if the conversation turns trading.
+      // But keep full tools if: any platform/category hint, deep conversation (follow-up),
+      // or tool search is disabled (legacy mode).
+      const isZeroIntent = !hints.hasIntent             // no trading/defi/portfolio keywords
+        && hints.platforms.length === 0                // no platform keywords
+        && !skillContext                               // no skill matches
+        && messages.length <= 1;                       // first message only (no history)
+      const minimalTools = isZeroIntent && TOOL_SEARCH_ENABLED;
+
+      if (minimalTools) {
+        logger.info('Zero-intent message — using minimal tools (tool_search only)');
+      }
+
       let response: Anthropic.Message;
       try {
-        const apiTools = toApiTools(getActiveTools());
+        const fullTools = getActiveTools();
+        const apiTools = toApiTools(
+          minimalTools ? fullTools.filter(t => t.name === 'tool_search') : fullTools
+        );
         // Add cache_control to last tool for tool definition caching
         if (apiTools.length > 0) {
           (apiTools[apiTools.length - 1] as any).cache_control = { type: 'ephemeral' };

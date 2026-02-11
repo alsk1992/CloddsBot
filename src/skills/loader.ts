@@ -825,14 +825,19 @@ export function createSkillManager(workspacePath?: string, config?: SkillManager
         SKILL_GROUPS[group].push(skill.name);
       }
 
-      const parts = ['## Available Skills\n'];
+      const parts: string[] = [];
 
-      // Compact grouped directory
-      for (const [group, names] of Object.entries(SKILL_GROUPS)) {
-        if (names.length === 0) continue;
-        parts.push(`**${group}:** ${names.join(', ')}`);
+      // Only show compact directory if at least one skill matched —
+      // for zero-match messages ("hi") the directory is wasted tokens.
+      if (expanded.size > 0) {
+        parts.push('## Available Skills\n');
+        // Compact grouped directory
+        for (const [group, names] of Object.entries(SKILL_GROUPS)) {
+          if (names.length === 0) continue;
+          parts.push(`**${group}:** ${names.join(', ')}`);
+        }
+        parts.push('');
       }
-      parts.push('');
 
       // Expanded skill details
       if (expanded.size > 0) {
