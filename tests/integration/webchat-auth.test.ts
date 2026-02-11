@@ -69,6 +69,12 @@ test('webchat auth and message flow', async () => {
   );
   channel.start(wss);
 
+  // After the WSS single-dispatcher refactor, start() no longer registers
+  // a listener on wss directly — the gateway server dispatches via a mutable
+  // callback. In tests we wire it up manually.
+  const handler = channel.getConnectionHandler();
+  if (handler) wss.on('connection', handler);
+
   const ws = new WebSocket(`ws://127.0.0.1:${port}/chat`);
   const queue = createMessageQueue(ws);
 
