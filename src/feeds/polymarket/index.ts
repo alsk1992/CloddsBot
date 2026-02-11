@@ -100,11 +100,15 @@ export async function createPolymarketFeed(): Promise<PolymarketFeed> {
     if (ws) return;
 
     logger.info('Connecting to Polymarket WebSocket');
-    ws = new WebSocket(WS_URL);
+    const socket = new WebSocket(WS_URL);
+    ws = socket;
 
-    ws.on('open', () => {
+    socket.on('open', () => {
+      if (ws !== socket) { try { socket.close(); } catch { /* */ } return; }
       logger.info('Polymarket WebSocket connected');
-      reconnectAttempts = 0; // Reset backoff on successful connection
+      reconnectAttempts = 0;
+      // Cancel pending reconnect — we're already connected
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       initialSubscriptionSent = false;
 
       // Resubscribe to all markets
@@ -114,7 +118,7 @@ export async function createPolymarketFeed(): Promise<PolymarketFeed> {
       }
     });
 
-    ws.on('message', (data) => {
+    socket.on('message', (data) => {
       try {
         const message = JSON.parse(data.toString());
         handleMessage(message);
@@ -123,13 +127,14 @@ export async function createPolymarketFeed(): Promise<PolymarketFeed> {
       }
     });
 
-    ws.on('close', () => {
+    socket.on('close', () => {
+      if (ws !== socket) return; // Stale socket, ignore
       logger.warn('Polymarket WebSocket disconnected');
       ws = null;
       scheduleReconnect();
     });
 
-    ws.on('error', (err) => {
+    socket.on('error', (err) => {
       logger.error({ err }, 'Polymarket WebSocket error');
     });
   }

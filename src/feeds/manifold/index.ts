@@ -159,6 +159,8 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
     }
   }
 
+  let reconnectTimer: NodeJS.Timeout | null = null;
+
   function setupWebSocket(): void {
     // Prevent overlapping connections
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
@@ -169,23 +171,27 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
       try { ws.close(); } catch { /* ignore */ }
       ws = null;
     }
-    ws = new WebSocket(WS_URL);
+    const socket = new WebSocket(WS_URL);
+    ws = socket;
 
-    ws.on('open', () => {
+    socket.on('open', () => {
+      if (ws !== socket) { try { socket.close(); } catch { /* */ } return; }
       logger.info('Manifold: WebSocket connected');
       reconnectAttempts = 0;
+      // Cancel pending reconnect — we're already connected
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       emitter.emit('connected');
 
       // Resubscribe to markets
       for (const id of subscribedIds) {
-        ws?.send(JSON.stringify({
+        socket.send(JSON.stringify({
           type: 'subscribe',
           topics: [`market/${id}`],
         }));
       }
     });
 
-    ws.on('message', (data: Buffer) => {
+    socket.on('message', (data: Buffer) => {
       try {
         const message = JSON.parse(data.toString());
 
@@ -254,18 +260,20 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
       }
     });
 
-    ws.on('close', () => {
+    socket.on('close', () => {
+      if (ws !== socket) return; // Stale socket, ignore
       logger.warn('Manifold: WebSocket disconnected');
+      ws = null;
       emitter.emit('disconnected');
 
       if (reconnectAttempts < MAX_RECONNECTS) {
         reconnectAttempts++;
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-        setTimeout(setupWebSocket, delay);
+        reconnectTimer = setTimeout(setupWebSocket, delay);
       }
     });
 
-    ws.on('error', (error) => {
+    socket.on('error', (error) => {
       logger.error('Manifold: WebSocket error', error);
     });
   }
@@ -276,6 +284,7 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
     },
 
     disconnect(): void {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (ws) {
         ws.close();
         ws = null;

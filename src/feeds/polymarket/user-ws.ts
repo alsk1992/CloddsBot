@@ -124,12 +124,18 @@ export function createUserWebSocket(
 
     return new Promise((resolve, reject) => {
       try {
-        ws = new WebSocket(USER_WS_URL);
+        // Close stale socket before creating new one
+        if (ws) { try { ws.close(); } catch { /* */ } ws = null; }
+        const socket = new WebSocket(USER_WS_URL);
+        ws = socket;
 
-        ws.on('open', () => {
+        socket.on('open', () => {
+          if (ws !== socket) { try { socket.close(); } catch { /* */ } return; }
           connected = true;
           subscribed = false;
           logger.info({ userId }, 'User WebSocket connected');
+          // Cancel pending reconnect — we're already connected
+          if (reconnectTimeout) { clearTimeout(reconnectTimeout); reconnectTimeout = null; }
 
           // Send subscription message
           sendSubscription();
@@ -141,7 +147,7 @@ export function createUserWebSocket(
           resolve();
         });
 
-        ws.on('message', (data: Buffer) => {
+        socket.on('message', (data: Buffer) => {
           try {
             const message = JSON.parse(data.toString());
 
@@ -207,7 +213,8 @@ export function createUserWebSocket(
           }
         });
 
-        ws.on('close', (code, reason) => {
+        socket.on('close', (code, reason) => {
+          if (ws !== socket) return; // Stale socket, ignore
           connected = false;
           subscribed = false;
           if (pingInterval) {
@@ -241,7 +248,7 @@ export function createUserWebSocket(
           }
         });
 
-        ws.on('error', (error) => {
+        socket.on('error', (error) => {
           logger.error({ userId, error }, 'User WebSocket error');
           emitter.emit('error', error);
           reject(error);
