@@ -17196,16 +17196,29 @@ export async function createAgentManager(
         return createMessageStreamed(params);
       };
 
+      // Detect tool/skill hints early — reused for skill budget + tool preloading
+      const hints = processedMessage.text ? detectToolHints(processedMessage.text) : { platforms: [], categories: [], hasIntent: false };
+
       // Build final system prompt (Clawdbot-style)
       // Priority: routed agent prompt > default system prompt
-      const skillContext = skills.getSkillContextForMessage(processedMessage.text || '');
-      const baseSystemPrompt = SYSTEM_PROMPT.replace(
-        '{{SKILLS}}',
-        skillContext ? `\n## Skills Reference\n${skillContext}` : ''
+      const skillContext = skills.getSkillContextForMessage(
+        processedMessage.text || '',
+        hints,
+        messages.length,
       );
-      let finalSystemPrompt = session.context.routedAgentPrompt || baseSystemPrompt;
 
-      // Add memory context if available
+      // Split system prompt into cacheable blocks for prompt caching.
+      // Block 1 (cached): Base system prompt without skills — stable across messages.
+      // Block 2 (uncached): Skills + memory — changes per query.
+      const coreSystemPrompt = session.context.routedAgentPrompt
+        || SYSTEM_PROMPT.replace('{{SKILLS}}', '');
+
+      // Build dynamic context (skills + memory) — changes every query, not cached
+      let dynamicContext = '';
+      if (skillContext) {
+        dynamicContext += `\n## Skills Reference\n${skillContext}`;
+      }
+
       if (memory) {
         const memoryAuto = config.memory?.auto || {};
         const channelKey = processedMessage.chatId || processedMessage.platform;
@@ -17213,7 +17226,7 @@ export async function createAgentManager(
         if (memoryAuto.includeMemoryContext !== false) {
           const memoryContext = memory.buildContextString(session.userId, scope);
           if (memoryContext) {
-            finalSystemPrompt += `\n\n## User Memory\n${memoryContext}`;
+            dynamicContext += `\n\n## User Memory\n${memoryContext}`;
           }
         }
 
@@ -17231,13 +17244,16 @@ export async function createAgentManager(
             );
             if (results.length > 0) {
               const lines = results.map((r) => `- ${r.entry.key}: ${r.entry.value} (score ${r.score.toFixed(2)})`);
-              finalSystemPrompt += `\n\n## Relevant Memory (semantic search)\n${lines.join('\n')}`;
+              dynamicContext += `\n\n## Relevant Memory (semantic search)\n${lines.join('\n')}`;
             }
           } catch (error) {
             logger.debug({ error }, 'Memory semantic search failed');
           }
         }
       }
+
+      // Backward-compatible string for hooks
+      let finalSystemPrompt = coreSystemPrompt + dynamicContext;
 
       // =========================================================================
       // HOOKS: agent:before_start - Can modify system prompt
@@ -17261,6 +17277,27 @@ export async function createAgentManager(
       }
       if (agentStartResult?.prependContext) {
         finalSystemPrompt = `${agentStartResult.prependContext}\n\n${finalSystemPrompt}`;
+      }
+
+      // Build system prompt blocks with cache boundaries for prompt caching.
+      // If hooks modified the prompt, fall back to a single uncached block
+      // (we can't reliably split a hook-modified prompt).
+      type SystemBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } };
+      const hookModified = !!(agentStartResult?.systemPrompt || agentStartResult?.prependContext);
+
+      let systemBlocks: SystemBlock[];
+      if (hookModified) {
+        // Hooks changed the prompt — use as single block, still cache it
+        systemBlocks = [{ type: 'text', text: finalSystemPrompt, cache_control: { type: 'ephemeral' } }];
+      } else {
+        systemBlocks = [
+          // Block 1: Core system prompt (stable — cached)
+          { type: 'text', text: coreSystemPrompt, cache_control: { type: 'ephemeral' } },
+        ];
+        // Block 2: Dynamic context (changes per query — not cached)
+        if (dynamicContext) {
+          systemBlocks.push({ type: 'text', text: dynamicContext });
+        }
       }
 
       // =========================================================================
@@ -17307,13 +17344,13 @@ export async function createAgentManager(
 
       // Dynamic tool loading: tools discovered via tool_search during this request
       const discoveredTools: ToolDefinition[] = [];
+      const MAX_DISCOVERED_TOOLS = 50; // Hard cap on all discovered tools (preload + tool_search)
 
       // Preload platform/category tools based on user message keywords.
       // Uses intersection mode when both platform AND intent are detected
       // to avoid loading all tools from multiple platforms (~150+).
       // Also checks conversation context for platform hints in multi-turn chats.
       if (TOOL_SEARCH_ENABLED && processedMessage.text) {
-        const hints = detectToolHints(processedMessage.text);
 
         // CONVERSATION CONTEXT: If no platform in current message, borrow from recent history.
         // "buy YES at 40 cents" after discussing polymarket → still loads polymarket tools.
@@ -17478,10 +17515,14 @@ export async function createAgentManager(
       let response: Anthropic.Message;
       try {
         const activeTools = getActiveTools();
+        // Add cache_control to last tool for tool definition caching
+        if (activeTools.length > 0) {
+          (activeTools[activeTools.length - 1] as any).cache_control = { type: 'ephemeral' };
+        }
         response = await createMessage({
           model: modelId,
           max_tokens: 1024,
-          system: finalSystemPrompt,
+          system: systemBlocks as any,
           tools: activeTools as Anthropic.Tool[],
           messages,
         });
@@ -17498,14 +17539,32 @@ export async function createAgentManager(
       // Use actual API token count for accurate context tracking
       if (response.usage) {
         lastKnownInputTokens = response.usage.input_tokens;
+
+        // Track prompt cache performance
+        const usage = response.usage as any;
+        const cacheCreation = usage.cache_creation_input_tokens ?? 0;
+        const cacheRead = usage.cache_read_input_tokens ?? 0;
+        const cacheHitRate = cacheRead > 0
+          ? (cacheRead / (cacheRead + lastKnownInputTokens)) * 100
+          : 0;
+
         logger.info(
-          { inputTokens: lastKnownInputTokens, max: modelContextWindow },
-          'Actual API token usage'
+          {
+            inputTokens: lastKnownInputTokens,
+            max: modelContextWindow,
+            cacheCreation,
+            cacheRead,
+            cacheHitRate: `${cacheHitRate.toFixed(1)}%`,
+          },
+          'API token usage (with cache stats)'
         );
       }
 
-      // Tool use loop
-      while (response.stop_reason === 'tool_use') {
+      // Tool use loop — capped to prevent runaway token costs
+      const MAX_TOOL_TURNS = 10;
+      let toolTurnCount = 0;
+      while (response.stop_reason === 'tool_use' && toolTurnCount < MAX_TOOL_TURNS) {
+        toolTurnCount++;
         const assistantContent = response.content;
         messages.push({ role: 'assistant', content: assistantContent });
 
@@ -17595,11 +17654,13 @@ export async function createAgentManager(
               // Take top 25 results
               const topResults = searchResults.slice(0, 25);
 
-              // Store discovered tools for next API call (dedupe)
+              // Store discovered tools for next API call (dedupe, respect global cap)
               const alreadyDiscovered = new Set(discoveredTools.map(t => t.name));
               for (const t of topResults) {
+                if (discoveredTools.length >= MAX_DISCOVERED_TOOLS) break;
                 if (!alreadyDiscovered.has(t.name)) {
                   discoveredTools.push(t);
+                  alreadyDiscovered.add(t.name);
                 }
               }
 
@@ -17648,10 +17709,19 @@ export async function createAgentManager(
               },
             } as Partial<ToolHookContext>);
 
+            // Truncate oversized tool results to prevent token bloat
+            // 16K chars ≈ 4K tokens — enough for useful data, prevents runaway costs
+            const MAX_TOOL_RESULT_CHARS = 16384;
+            let truncatedResult = result;
+            if (typeof truncatedResult === 'string' && truncatedResult.length > MAX_TOOL_RESULT_CHARS) {
+              truncatedResult = truncatedResult.slice(0, MAX_TOOL_RESULT_CHARS) + '\n...[truncated, result too large]';
+              logger.info({ tool: block.name, originalLen: result.length, truncatedTo: MAX_TOOL_RESULT_CHARS }, 'Truncated large tool result');
+            }
+
             toolResults.push({
               type: 'tool_result',
               tool_use_id: block.id,
-              content: result,
+              content: truncatedResult,
             });
           }
         }
@@ -17689,10 +17759,14 @@ export async function createAgentManager(
 
         try {
           const activeTools = getActiveTools();
+          // Add cache_control to last tool for tool definition caching
+          if (activeTools.length > 0) {
+            (activeTools[activeTools.length - 1] as any).cache_control = { type: 'ephemeral' };
+          }
           response = await createMessage({
             model: modelId,
             max_tokens: 1024,
-            system: finalSystemPrompt,
+            system: systemBlocks as any,
             tools: activeTools as Anthropic.Tool[],
             messages,
           });
@@ -17708,6 +17782,12 @@ export async function createAgentManager(
         // Update actual token usage after each API call
         if (response.usage) {
           lastKnownInputTokens = response.usage.input_tokens;
+          const loopUsage = response.usage as any;
+          logger.debug({
+            inputTokens: lastKnownInputTokens,
+            cacheRead: loopUsage.cache_read_input_tokens ?? 0,
+            turn: toolTurnCount,
+          }, 'Tool loop token usage');
           // If actual usage is approaching limit, force compaction next iteration
           if (lastKnownInputTokens > modelContextWindow * 0.85) {
             logger.info({ inputTokens: lastKnownInputTokens }, 'API reports high token usage, will compact');
@@ -17724,6 +17804,10 @@ export async function createAgentManager(
             }
           }
         }
+      }
+
+      if (toolTurnCount >= MAX_TOOL_TURNS) {
+        logger.warn({ toolTurnCount }, 'Tool loop hit max turns cap');
       }
 
       // Extract text response

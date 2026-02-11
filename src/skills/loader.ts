@@ -401,7 +401,11 @@ export interface SkillManager {
   getEnabledSkills: () => Skill[];
   getSkillContext: () => string;
   /** Get context with only relevant skills expanded based on user message */
-  getSkillContextForMessage: (message: string) => string;
+  getSkillContextForMessage: (
+    message: string,
+    hints?: { platforms: string[]; categories: string[] },
+    conversationDepth?: number
+  ) => string;
   reload: () => void;
   /** Inject skill env overrides into process.env. Returns a restore function. */
   applyEnvOverrides: () => () => void;
@@ -592,15 +596,17 @@ export function createSkillManager(workspacePath?: string, config?: SkillManager
      *
      * Token savings: "hi" → ~300 tokens (vs 133K). "buy on polymarket" → ~8K (vs 133K).
      */
-    getSkillContextForMessage(message: string) {
+    getSkillContextForMessage(
+      message: string,
+      hints?: { platforms: string[]; categories: string[] },
+      conversationDepth?: number,
+    ) {
       const enabled = this.getEnabledSkills()
         .filter(s => s.modelInvocable !== false);
       if (enabled.length === 0) return '';
 
       const msg = message.toLowerCase();
-      const TOKEN_BUDGET = 25000; // Max ~25K tokens for expanded skill content
       const CHARS_PER_TOKEN = 4; // Conservative estimate
-      const CHAR_BUDGET = TOKEN_BUDGET * CHARS_PER_TOKEN;
 
       // =====================================================================
       // KEYWORD ALIASES — map abbreviations to canonical names used in skills
@@ -737,6 +743,44 @@ export function createSkillManager(workspacePath?: string, config?: SkillManager
 
       // Sort by score descending
       scored.sort((a, b) => b.score - a.score);
+
+      // Calculate dynamic budget based on query complexity
+      const totalScore = scored.reduce((sum, s) => sum + s.score, 0);
+      const platformCount = hints?.platforms.length ?? 0;
+      const categoryCount = hints?.categories.length ?? 0;
+      const depth = conversationDepth ?? 0;
+
+      let TOKEN_BUDGET: number;
+      if (scored.length === 0) {
+        TOKEN_BUDGET = 500;
+      } else if (scored.length <= 2 && totalScore < 10) {
+        TOKEN_BUDGET = 2000;
+      } else if (scored.length <= 4 && totalScore < 20) {
+        TOKEN_BUDGET = 8000;
+      } else if (scored.length <= 6 && platformCount <= 2) {
+        TOKEN_BUDGET = 16000;
+      } else if (platformCount >= 3 || categoryCount >= 3) {
+        TOKEN_BUDGET = 48000;
+      } else {
+        TOKEN_BUDGET = 32000;
+      }
+
+      // Deep conversations need less skill detail (rely on history)
+      if (depth > 10) TOKEN_BUDGET = Math.max(8000, Math.floor(TOKEN_BUDGET * 0.6));
+
+      // Cap at 80K
+      TOKEN_BUDGET = Math.min(80000, TOKEN_BUDGET);
+
+      const CHAR_BUDGET = TOKEN_BUDGET * CHARS_PER_TOKEN;
+
+      logger.info({
+        skillMatches: scored.length,
+        budget: TOKEN_BUDGET,
+        platforms: platformCount,
+        categories: categoryCount,
+        depth,
+        totalScore,
+      }, 'Skill context: Dynamic budget calculated');
 
       // Select within token budget
       const expanded = new Set<string>();
