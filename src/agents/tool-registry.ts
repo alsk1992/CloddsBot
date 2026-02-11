@@ -10,7 +10,10 @@
 
 export interface ToolMetadata {
   platform?: string;
+  /** Primary category (first/best match). Use `categories` for multi-category tools. */
   category?: string;
+  /** All matching categories for this tool (supports intersection queries). */
+  categories?: string[];
   tags?: string[];
   core?: boolean;
 }
@@ -48,11 +51,13 @@ export class ToolRegistry<T extends RegistryTool = RegistryTool> {
       set.add(tool.name);
     }
 
-    if (meta?.category) {
-      let set = this.byCategory.get(meta.category);
+    // Index by ALL categories (multi-category support)
+    const cats = meta?.categories ?? (meta?.category ? [meta.category] : []);
+    for (const cat of cats) {
+      let set = this.byCategory.get(cat);
       if (!set) {
         set = new Set();
-        this.byCategory.set(meta.category, set);
+        this.byCategory.set(cat, set);
       }
       set.add(tool.name);
     }
@@ -98,6 +103,26 @@ export class ToolRegistry<T extends RegistryTool = RegistryTool> {
     return Array.from(names)
       .map(n => this.tools.get(n)!)
       .filter(Boolean);
+  }
+
+  /**
+   * Search tools by platform AND category intersection.
+   * Returns only tools that match BOTH criteria.
+   */
+  searchByPlatformAndCategory(platform: string, category: string): T[] {
+    const platformTools = this.byPlatform.get(platform.toLowerCase());
+    const categoryTools = this.byCategory.get(category.toLowerCase());
+
+    if (!platformTools || !categoryTools) return [];
+
+    const result: T[] = [];
+    for (const name of platformTools) {
+      if (categoryTools.has(name)) {
+        const tool = this.tools.get(name);
+        if (tool) result.push(tool);
+      }
+    }
+    return result;
   }
 
   searchByText(query: string): T[] {
@@ -146,6 +171,8 @@ export class ToolRegistry<T extends RegistryTool = RegistryTool> {
   }
 
   search(q: SearchQuery): T[] {
+    // When both platform and category provided, use intersection
+    if (q.platform && q.category) return this.searchByPlatformAndCategory(q.platform, q.category);
     if (q.platform) return this.searchByPlatform(q.platform);
     if (q.category) return this.searchByCategory(q.category);
     if (q.query) return this.searchByText(q.query);
@@ -168,6 +195,7 @@ export class ToolRegistry<T extends RegistryTool = RegistryTool> {
 /**
  * Infer metadata from tool name using prefix conventions.
  * Falls back to reasonable defaults when metadata isn't explicitly set.
+ * Assigns MULTIPLE categories when a tool matches more than one.
  */
 export function inferToolMetadata(toolName: string, description: string): ToolMetadata {
   const meta: ToolMetadata = {};
@@ -238,28 +266,43 @@ export function inferToolMetadata(toolName: string, description: string): ToolMe
     meta.platform = exactMatches[toolName];
   }
 
-  // Category inference
+  // Multi-category inference: collect ALL matching categories
+  // Order matters for primary category (first match = meta.category)
   const combined = (toolName + ' ' + description).toLowerCase();
+  const categories: string[] = [];
 
-  if (/\b(buy|sell|order|trade|swap|long|short|close|cancel|limit|dca|bridge|bet)\b/.test(combined)) {
-    meta.category = 'trading';
-  } else if (/\b(price|quote|chart|orderbook|ticker|candlestick|volume|spread|midpoint)\b/.test(combined)) {
-    meta.category = 'market_data';
-  } else if (/\b(position|balance|portfolio|pnl|collateral|margin|leverage)\b/.test(combined)) {
-    meta.category = 'portfolio';
-  } else if (/\b(credential|api.key|setup|config)\b/.test(combined)) {
-    meta.category = 'admin';
-  } else if (/\b(file|shell|git|docker|email|sms|sql|webhook|transcrib)\b/.test(combined)) {
-    meta.category = 'infrastructure';
-  } else if (/\b(pool|liquidity|farm|reward|fee|claim|harvest)\b/.test(combined)) {
-    meta.category = 'defi';
-  } else if (/\b(alert|watch|whale|notification|news)\b/.test(combined)) {
-    meta.category = 'alerts';
-  } else if (/\b(search|list|get|info|status|stats)\b/.test(toolName.toLowerCase())) {
-    meta.category = 'discovery';
-  } else {
-    meta.category = 'general';
+  // Trading uses strict action verbs only (no "trade"/"trading"/"order" — too generic in descriptions).
+  // market_data catches data nouns like "orderbook", "trades", "price".
+  // Order: trading first so action tools get trading as primary, but strict enough
+  // that data tools (orderbook, trades) fall through to market_data.
+  const CATEGORY_REGEXES: [RegExp, string][] = [
+    [/\b(buy|sell|swap|long|short|close|cancel|limit|dca|bridge|bet|arb|arbitrage|execute)\b/, 'trading'],
+    [/\b(prices?|quote|chart|orderbook|ticker|candlestick|volume|spread|midpoint|trades)\b/, 'market_data'],
+    [/\b(positions?|balances?|portfolio|pnl|collateral|margin|leverage|profit)\b/, 'portfolio'],
+    [/\b(pool|liquidity|farm|reward|fee|claim|harvest|stake|lp)\b/, 'defi'],
+    [/\b(credentials?|api[\s._-]?key|config(?:ure)?|connect|login)\b/, 'admin'],
+    [/\b(file|shell|git|docker|email|sms|sql|webhook|transcrib|deploy)\b/, 'infrastructure'],
+    [/\b(alert|watch|whale|notification|news|monitor|track)\b/, 'alerts'],
+  ];
+
+  for (const [regex, cat] of CATEGORY_REGEXES) {
+    if (regex.test(combined)) {
+      categories.push(cat);
+    }
   }
+
+  // Discovery: only check tool name (too generic for description matching)
+  if (categories.length === 0 && /\b(search|list|get|info|status|stats)\b/.test(toolName.toLowerCase())) {
+    categories.push('discovery');
+  }
+
+  // Fallback
+  if (categories.length === 0) {
+    categories.push('general');
+  }
+
+  meta.category = categories[0]; // Primary category (backward compat)
+  meta.categories = categories;  // All matching categories
 
   // Tag inference from name parts
   const tags: string[] = [];
@@ -283,8 +326,9 @@ export function inferToolMetadata(toolName: string, description: string): ToolMe
  * Matches common ways users refer to platforms, including typos and abbreviations.
  */
 const PLATFORM_KEYWORDS: [RegExp, string][] = [
-  // Polymarket: polymarkt, polymaket, pollymarket, ploymarket, polimarket, poly, ploy, pm
-  [/\bp(?:o?ly|oli|olly|loy)(?:[\s._-]?ma?r?ke?t?)?\b|\bpm\b/i, 'polymarket'],
+  // Polymarket: polymarkt, polymaket, pollymarket, ploymarket, polimarket
+  // Requires "market" suffix when standalone "poly" to avoid false positives
+  [/\bp(?:o?ly|oli|olly|loy)[\s._-]?ma?r?ke?t?\b|\bpolymarket\b/i, 'polymarket'],
   // Kalshi: kashi, kalhi, klashi
   [/\bk(?:a?lshi|ashi|alhi|lashi)\b/i, 'kalshi'],
   // Manifold: maniflod, manfiold, manifodl
@@ -293,10 +337,10 @@ const PLATFORM_KEYWORDS: [RegExp, string][] = [
   [/\bmetacul[uia]s\b/i, 'metaculus'],
   [/\bpredictit\b/i, 'predictit'],
   [/\bpredict[\s._-]?fun\b/i, 'predictfun'],
-  [/\bdrift\b/i, 'drift'],
-  [/\bopinion\b/i, 'opinion'],
-  // Binance: bianance, binanace, binnance, bnb, perps
-  [/\bb(?:i(?:na?n(?:a?ce|ace)|ana(?:n?ce))|inna?nce)\b|\bbnb\b|\bperps\b|\bfutures\b/i, 'binance'],
+  [/\bdrift(?:\s+protocol|\s+dex)?\b/i, 'drift'],
+  [/\bopinion[\s._-]?(?:market|\.com|\.xyz)\b/i, 'opinion'],
+  // Binance: bianance, binanace, binnance, bnb
+  [/\bb(?:i(?:na?n(?:a?ce|ace)|ana(?:n?ce))|inna?nce)\b|\bbnb\b/i, 'binance'],
   // Bybit: bybi, bibit
   [/\bb(?:y?bit|ibit|ybi)\b/i, 'bybit'],
   [/\bmexc\b/i, 'mexc'],
@@ -334,6 +378,12 @@ const PLATFORM_KEYWORDS: [RegExp, string][] = [
   [/\bsms\b|\btext\s+message\b/i, 'sms'],
   [/\bsql\b|\bquery\s+db\b|\bdatabase\b/i, 'sql'],
   [/\bsubagent\b|\bagent\s+task\b/i, 'subagent'],
+  // perps/futures are generic — load the most common perps platforms
+  [/\bperps\b/i, 'binance'],
+  [/\bperps\b/i, 'hyperliquid'],
+  [/\bperps\b/i, 'drift'],
+  [/\bfutures\b/i, 'binance'],
+  [/\bfutures\b/i, 'bybit'],
   // Generic CEX/DEX keywords → preload binance (most common) + solana (most common DEX)
   [/\bcex\b/i, 'binance'],
   [/\bdex\b/i, 'solana'],
@@ -341,22 +391,23 @@ const PLATFORM_KEYWORDS: [RegExp, string][] = [
 
 /**
  * Category keywords for preloading tools from user messages.
+ * Synced with CATEGORY_REGEXES in inferToolMetadata — keep in sync!
  */
 const CATEGORY_KEYWORDS: [RegExp, string][] = [
-  [/\b(?:buy|sell|orders?|swap|long|short|execute|cancel|bridge|bet|dca|limit)\b/i, 'trading'],
-  [/\b(?:pool|liquidity|farm|lp|harvest|stake)\b/i, 'defi'],
-  [/\b(?:positions?|balances?|portfolio|pnl|margin|leverage)\b/i, 'portfolio'],
-  [/\b(?:prices?|quote|chart|orderbook|ticker|volume|spread)\b/i, 'market_data'],
-  [/\b(?:credential|api.key|setup|login|connect)\b/i, 'admin'],
+  [/\b(?:buy|sell|orders?|trades?|trading|swap|long|short|close|execute|cancel|bridge|bet|dca|limit|arb|arbitrage)\b/i, 'trading'],
+  [/\b(?:pool|liquidity|farm|lp|harvest|stake|reward|fee|claim)\b/i, 'defi'],
+  [/\b(?:positions?|balances?|portfolio|pnl|profit|margin|leverage|collateral)\b|how much (?:do i|did i|am i|have)\b/i, 'portfolio'],
+  [/\b(?:prices?|quote|chart|orderbook|ticker|volume|spread|candlestick|midpoint|worth)\b/i, 'market_data'],
+  [/\b(?:credentials?|api[\s._-]?key|setup|login|connect|config(?:ure)?)\b/i, 'admin'],
   [/\b(?:file|shell|docker|email|sms|sql|webhook|deploy)\b/i, 'infrastructure'],
-  [/\b(?:alert|watch|whale|notification|news)\b/i, 'alerts'],
+  [/\b(?:alerts?|watch|whale|notifications?|news|monitor(?:ing)?|track(?:ing)?)\b/i, 'alerts'],
 ];
 
 /**
  * Analyze a user message and return platform/category hints for tool preloading.
  * Returns the detected platforms and categories to preload tools for.
  */
-export function detectToolHints(message: string): { platforms: string[]; categories: string[] } {
+export function detectToolHints(message: string): { platforms: string[]; categories: string[]; hasIntent: boolean } {
   const platforms = new Set<string>();
   const categories = new Set<string>();
 
@@ -375,6 +426,7 @@ export function detectToolHints(message: string): { platforms: string[]; categor
   return {
     platforms: Array.from(platforms),
     categories: Array.from(categories),
+    hasIntent: categories.size > 0,
   };
 }
 

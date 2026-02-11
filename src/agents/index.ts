@@ -27,7 +27,7 @@ import {
   ExecutionServiceRef,
 } from '../types';
 import { logger } from '../utils/logger';
-import { ToolRegistry, inferToolMetadata, CORE_TOOL_NAMES, detectToolHints } from './tool-registry.js';
+import { ToolRegistry, inferToolMetadata, CORE_TOOL_NAMES, detectToolHints, type ToolMetadata } from './tool-registry.js';
 import { createSkillManager, SkillManager } from '../skills/loader';
 import { FeedManager } from '../feeds';
 import { Database } from '../db';
@@ -261,6 +261,7 @@ interface ToolDefinition {
   metadata?: {
     platform?: string;
     category?: string;
+    categories?: string[];
     tags?: string[];
     core?: boolean;
   };
@@ -16769,14 +16770,16 @@ export async function createAgentManager(
   for (const tool of allToolDefs) {
     const inferred = inferToolMetadata(tool.name, tool.description);
     const isCore = CORE_TOOL_NAMES.has(tool.name);
-    toolRegistry.register({
-      ...tool,
-      metadata: {
-        ...inferred,
-        ...tool.metadata, // explicit metadata overrides inferred
-        core: tool.metadata?.core ?? isCore,
-      },
-    });
+    const merged: ToolMetadata = {
+      ...inferred,
+      ...tool.metadata, // explicit metadata overrides inferred
+      core: tool.metadata?.core ?? isCore,
+    };
+    // Sync categories with explicit category override to prevent divergence
+    if (tool.metadata?.category && !tool.metadata?.categories) {
+      merged.categories = [tool.metadata.category, ...(inferred.categories ?? []).filter(c => c !== tool.metadata!.category)];
+    }
+    toolRegistry.register({ ...tool, metadata: merged });
   }
 
   // Dynamic tool loading enabled by default. Set TOOL_SEARCH_ENABLED=false to disable.
@@ -17240,28 +17243,101 @@ export async function createAgentManager(
       // Dynamic tool loading: tools discovered via tool_search during this request
       const discoveredTools: ToolDefinition[] = [];
 
-      // Preload platform/category tools based on user message keywords
+      // Preload platform/category tools based on user message keywords.
+      // Uses intersection mode when both platform AND intent are detected
+      // to avoid loading all tools from multiple platforms (~150+).
+      // Also checks conversation context for platform hints in multi-turn chats.
       if (TOOL_SEARCH_ENABLED && processedMessage.text) {
         const hints = detectToolHints(processedMessage.text);
+
+        // CONVERSATION CONTEXT: If no platform in current message, borrow from recent history.
+        // "buy YES at 40 cents" after discussing polymarket → still loads polymarket tools.
+        if (hints.platforms.length === 0 && messages.length > 1) {
+          const userMsgs = messages.filter(m => m.role === 'user');
+          // Exclude current message (last one) — we already parsed it above
+          const recentUserMsgs = userMsgs.slice(0, -1).slice(-4)
+            .map(m => typeof m.content === 'string' ? m.content : '')
+            .join(' ');
+          if (recentUserMsgs) {
+            const contextHints = detectToolHints(recentUserMsgs);
+            // Only borrow platforms from context, not categories (current intent is authoritative)
+            for (const p of contextHints.platforms) hints.platforms.push(p);
+          }
+        }
+
         const preloaded = new Set<string>();
-        for (const platform of hints.platforms) {
-          for (const t of toolRegistry.searchByPlatform(platform)) {
-            if (!preloaded.has(t.name)) {
-              discoveredTools.push(t);
-              preloaded.add(t.name);
+        const GLOBAL_PRELOAD_CAP = 35;
+        const MAX_TOOLS_PER_PLATFORM = 10;
+        let preloadMode = 'none';
+
+        // Helper: add a tool if not already preloaded and under global cap
+        const addTool = (t: ToolDefinition): boolean => {
+          if (preloaded.size >= GLOBAL_PRELOAD_CAP) return false;
+          if (preloaded.has(t.name)) return false;
+          discoveredTools.push(t);
+          preloaded.add(t.name);
+          return true;
+        };
+
+        // Helper: load top tools per platform, sorted by category priority
+        const loadPlatformFallback = () => {
+          const priorityRank: Record<string, number> = {
+            trading: 4, market_data: 3, portfolio: 2, defi: 1,
+          };
+          for (const platform of hints.platforms) {
+            const sorted = [...toolRegistry.searchByPlatform(platform)].sort((a, b) => {
+              const aRank = priorityRank[a.metadata?.category ?? ''] ?? 0;
+              const bRank = priorityRank[b.metadata?.category ?? ''] ?? 0;
+              return bRank - aRank;
+            });
+            for (const t of sorted.slice(0, MAX_TOOLS_PER_PLATFORM)) {
+              addTool(t);
+            }
+          }
+        };
+
+        if (hints.hasIntent && hints.platforms.length > 0) {
+          // INTERSECTION MODE: Both platform AND intent detected
+          // Only load tools matching BOTH criteria (e.g. polymarket + trading)
+          preloadMode = 'intersection';
+          for (const platform of hints.platforms) {
+            for (const category of hints.categories) {
+              for (const t of toolRegistry.searchByPlatformAndCategory(platform, category)) {
+                if (!addTool(t)) break; // hit global cap
+              }
+            }
+          }
+          // If intersection found nothing, supplement with platform fallback.
+          // With multi-category assignment this should be rare.
+          if (preloaded.size === 0) {
+            preloadMode = 'intersection+platform_fallback';
+            loadPlatformFallback();
+          }
+        } else if (hints.platforms.length > 0) {
+          // FALLBACK 1: Platform only, no clear intent
+          // Load top tools per platform, prioritize trading/market_data/portfolio
+          preloadMode = 'platform_fallback';
+          loadPlatformFallback();
+        } else if (hints.categories.length > 0) {
+          // FALLBACK 2: Intent only, no platform
+          // Distribute tools across platforms to avoid single-platform bias
+          preloadMode = 'intent_fallback';
+          const MAX_PER_PLATFORM_INTENT = 3;
+          for (const category of hints.categories) {
+            const perPlatformCount = new Map<string, number>();
+            for (const t of toolRegistry.searchByCategory(category)) {
+              const plat = t.metadata?.platform ?? 'unknown';
+              const count = perPlatformCount.get(plat) ?? 0;
+              if (count >= MAX_PER_PLATFORM_INTENT) continue;
+              if (!addTool(t)) break; // hit global cap
+              perPlatformCount.set(plat, count + 1);
             }
           }
         }
-        for (const category of hints.categories) {
-          for (const t of toolRegistry.searchByCategory(category)) {
-            if (!preloaded.has(t.name)) {
-              discoveredTools.push(t);
-              preloaded.add(t.name);
-            }
-          }
-        }
+
         if (discoveredTools.length > 0) {
           logger.info({
+            mode: preloadMode,
             platforms: hints.platforms,
             categories: hints.categories,
             preloaded: discoveredTools.length,
@@ -17436,10 +17512,15 @@ export async function createAgentManager(
               const { platform, category, query } = finalParams as { platform?: string; category?: string; query?: string };
               let searchResults: ToolDefinition[];
 
-              if (platform) {
-                searchResults = toolRegistry.searchByPlatform(platform);
-              } else if (category) {
-                searchResults = toolRegistry.searchByCategory(category);
+              // Uses intersection when both platform and category provided.
+              // When platform/category AND query are both given, use structured search
+              // (query is just a hint the LLM adds — platform/category are authoritative).
+              if (platform || category) {
+                searchResults = toolRegistry.search({ platform, category });
+                // If structured search found nothing and a text query was also given, try text search
+                if (searchResults.length === 0 && query) {
+                  searchResults = toolRegistry.searchByText(query);
+                }
               } else if (query) {
                 searchResults = toolRegistry.searchByText(query);
               } else {
