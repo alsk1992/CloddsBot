@@ -17512,18 +17512,22 @@ export async function createAgentManager(
         return [...tools, ...extra];
       };
 
+      // Strip internal metadata before sending to API — Anthropic rejects extra fields
+      const toApiTools = (defs: ToolDefinition[]): Anthropic.Tool[] =>
+        defs.map(({ metadata: _, ...rest }) => rest) as Anthropic.Tool[];
+
       let response: Anthropic.Message;
       try {
-        const activeTools = getActiveTools();
+        const apiTools = toApiTools(getActiveTools());
         // Add cache_control to last tool for tool definition caching
-        if (activeTools.length > 0) {
-          (activeTools[activeTools.length - 1] as any).cache_control = { type: 'ephemeral' };
+        if (apiTools.length > 0) {
+          (apiTools[apiTools.length - 1] as any).cache_control = { type: 'ephemeral' };
         }
         response = await createMessage({
           model: modelId,
           max_tokens: 1024,
           system: systemBlocks as any,
-          tools: activeTools as Anthropic.Tool[],
+          tools: apiTools,
           messages,
         });
       } catch (err: unknown) {
@@ -17758,16 +17762,16 @@ export async function createAgentManager(
         }
 
         try {
-          const activeTools = getActiveTools();
+          const apiTools = toApiTools(getActiveTools());
           // Add cache_control to last tool for tool definition caching
-          if (activeTools.length > 0) {
-            (activeTools[activeTools.length - 1] as any).cache_control = { type: 'ephemeral' };
+          if (apiTools.length > 0) {
+            (apiTools[apiTools.length - 1] as any).cache_control = { type: 'ephemeral' };
           }
           response = await createMessage({
             model: modelId,
             max_tokens: 1024,
             system: systemBlocks as any,
-            tools: activeTools as Anthropic.Tool[],
+            tools: apiTools,
             messages,
           });
         } catch (err: unknown) {
