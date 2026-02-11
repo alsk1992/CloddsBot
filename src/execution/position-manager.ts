@@ -195,7 +195,7 @@ export function createPositionManager(
     const priceDiff = position.currentPrice - position.entryPrice;
     const direction = position.side === 'long' ? 1 : -1;
     const pnl = priceDiff * position.size * direction;
-    const pnlPct = ((position.currentPrice - position.entryPrice) / position.entryPrice) * 100 * direction;
+    const pnlPct = position.entryPrice > 0 ? ((position.currentPrice - position.entryPrice) / position.entryPrice) * 100 * direction : 0;
 
     return { pnl, pnlPct };
   }

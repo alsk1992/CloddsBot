@@ -291,6 +291,7 @@ export function createUserWebSocketManager(): UserWebSocketManager {
       let conn = connections.get(userId);
 
       if (!conn || !conn.isConnected()) {
+        conn?.disconnect();
         conn = createUserWebSocket(userId, credentials);
         connections.set(userId, conn);
         await conn.connect();

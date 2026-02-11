@@ -239,6 +239,14 @@ export class TaskQueue extends EventEmitter {
     this.maxRetries = config.maxRetries || 3;
   }
 
+  /** Schedule cleanup of a terminal task after 5 minutes */
+  private scheduleCleanup(taskId: string): void {
+    setTimeout(() => {
+      this.tasks.delete(taskId);
+      this.retryCount.delete(taskId);
+    }, 5 * 60 * 1000).unref();
+  }
+
   /** Submit a new task */
   submit(config: {
     type: string;
@@ -316,6 +324,7 @@ export class TaskQueue extends EventEmitter {
       task.completedAt = new Date();
       this.emit('task:complete', task);
       logger.debug({ taskId, duration: task.completedAt.getTime() - (task.startedAt?.getTime() || 0) }, 'Task completed');
+      this.scheduleCleanup(taskId);
       return task;
     }
     return undefined;
@@ -342,6 +351,7 @@ export class TaskQueue extends EventEmitter {
         task.completedAt = new Date();
         this.emit('task:fail', task);
         logger.warn({ taskId, error }, 'Task failed');
+        this.scheduleCleanup(taskId);
       }
 
       return task;
@@ -363,6 +373,7 @@ export class TaskQueue extends EventEmitter {
       }
 
       this.emit('task:cancel', task);
+      this.scheduleCleanup(taskId);
       return task;
     }
     return undefined;

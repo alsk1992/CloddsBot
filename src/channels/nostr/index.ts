@@ -257,7 +257,7 @@ export async function createNostrChannel(
     ws.on('message', async (data: WebSocket.Data) => {
       try {
         const msg = JSON.parse(data.toString());
-        if (msg[0] === 'EVENT' && msg[2]) {
+        if (Array.isArray(msg) && msg[0] === 'EVENT' && msg[2]) {
           await handleEvent(msg[2] as NostrEvent);
         }
       } catch (error) {

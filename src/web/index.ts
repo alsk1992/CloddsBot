@@ -439,11 +439,12 @@ export class WebServer extends EventEmitter {
     ws.on('message', (data) => {
       try {
         // Security: Limit message size to prevent DoS
-        const dataStr = data.toString();
-        if (dataStr.length > 1024 * 1024) { // 1MB limit
-          logger.warn({ clientId, size: dataStr.length }, 'WebSocket message too large');
+        const rawData = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+        if (rawData.length > 1024 * 1024) { // 1MB limit
+          logger.warn({ clientId, size: rawData.length }, 'WebSocket message too large');
           return;
         }
+        const dataStr = rawData.toString();
 
         const parsed = JSON.parse(dataStr);
 

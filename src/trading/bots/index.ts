@@ -427,12 +427,12 @@ export function createBotManager(db: Database, config: BotManagerConfig = {}): B
       // Start evaluation loop
       const intervalMs = strategy.config.intervalMs || defaultIntervalMs;
       const interval = setInterval(() => {
-        runEvaluation(strategy).catch(() => {});
+        runEvaluation(strategy).catch((err) => { logger.error({ strategyId: strategy.config.id, error: err }, 'Strategy evaluation failed'); });
       }, intervalMs);
       botIntervals.set(strategyId, interval);
 
       // Run initial evaluation
-      runEvaluation(strategy).catch(() => {});
+      runEvaluation(strategy).catch((err) => { logger.error({ strategyId: strategy.config.id, error: err }, 'Strategy evaluation failed'); });
 
       logger.info({ strategyId, intervalMs }, 'Bot started');
       emitter.emit('botStarted', strategyId);
@@ -459,6 +459,13 @@ export function createBotManager(db: Database, config: BotManagerConfig = {}): B
     },
 
     pauseBot(strategyId) {
+      // Clear the evaluation interval so the bot stops trading while paused
+      const interval = botIntervals.get(strategyId);
+      if (interval) {
+        clearInterval(interval);
+        botIntervals.delete(strategyId);
+      }
+
       updateBotStatus(strategyId, { status: 'paused' });
       logger.info({ strategyId }, 'Bot paused');
     },
@@ -467,6 +474,20 @@ export function createBotManager(db: Database, config: BotManagerConfig = {}): B
       const status = botStatuses.get(strategyId);
       if (status?.status === 'paused') {
         updateBotStatus(strategyId, { status: 'running' });
+
+        // Recreate the evaluation interval
+        const strategy = strategies.get(strategyId);
+        if (strategy && !botIntervals.has(strategyId)) {
+          const intervalMs = strategy.config.intervalMs || defaultIntervalMs;
+          const interval = setInterval(() => {
+            runEvaluation(strategy).catch((err) => { logger.error({ strategyId: strategy.config.id, error: err }, 'Strategy evaluation failed'); });
+          }, intervalMs);
+          botIntervals.set(strategyId, interval);
+
+          // Run an immediate evaluation on resume
+          runEvaluation(strategy).catch((err) => { logger.error({ strategyId: strategy.config.id, error: err }, 'Strategy evaluation failed'); });
+        }
+
         logger.info({ strategyId }, 'Bot resumed');
       }
     },

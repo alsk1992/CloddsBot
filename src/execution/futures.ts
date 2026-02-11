@@ -627,7 +627,7 @@ async function getBybitFuturesPositions(
         leverage: p.leverage,
         marginType: 'isolated' as const, // Bybit unified account
         unrealizedPnl: p.unrealisedPnl,
-        margin: p.positionValue / p.leverage,
+        margin: p.leverage > 0 ? p.positionValue / p.leverage : p.positionValue,
         notional: p.positionValue,
       }));
   } catch (error) {
@@ -851,7 +851,7 @@ async function getMexcFuturesPositions(
         leverage: p.leverage,
         marginType: 'isolated' as const,
         unrealizedPnl: p.unrealisedPnl,
-        margin: p.positionValue / p.leverage,
+        margin: p.leverage > 0 ? p.positionValue / p.leverage : p.positionValue,
         notional: p.positionValue,
       }));
   } catch (error) {
@@ -1361,11 +1361,15 @@ export function createFuturesExecutionService(config: FuturesConfig): FuturesExe
 
   async function executeOrder(request: FuturesOrderRequest): Promise<FuturesOrderResult> {
     // Validate position size
-    if (request.size * (request.price || 1) > maxPositionSize) {
+    const checkPrice = request.price || 0;
+    if (checkPrice > 0 && request.size * checkPrice > maxPositionSize) {
       return {
         success: false,
         error: `Position size exceeds max $${maxPositionSize}`,
       };
+    }
+    if (checkPrice === 0) {
+      logger.warn({ size: request.size, symbol: request.symbol }, 'No price available for notional size check (market order) — skipping guard');
     }
 
     // Dry run
@@ -1739,13 +1743,14 @@ export function createFuturesExecutionService(config: FuturesConfig): FuturesExe
 
       // Maintenance margin rate (simplified - typically 0.4% for BTC on Binance)
       const mmr = 0.004;
+      const safeLeverage = leverage > 0 ? leverage : 1;
 
       if (side === 'long') {
         // Liq price for long = Entry * (1 - 1/leverage + mmr)
-        return entryPrice * (1 - 1 / leverage + mmr);
+        return entryPrice * (1 - 1 / safeLeverage + mmr);
       } else {
         // Liq price for short = Entry * (1 + 1/leverage - mmr)
-        return entryPrice * (1 + 1 / leverage - mmr);
+        return entryPrice * (1 + 1 / safeLeverage - mmr);
       }
     },
   };

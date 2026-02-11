@@ -221,22 +221,28 @@ export function createTwapOrder(
       }
 
       if (result.success) {
-        const sliceFilled = result.filledSize ?? sliceSize;
-        const slicePrice = result.avgFillPrice ?? orderRequest.price;
+        // NaN guard: Number(undefined) => NaN, || 0 catches NaN and 0
+        const sliceFilled = Number(result.filledSize) || 0;
+        const slicePrice = Number(result.avgFillPrice) || 0;
 
-        filledSize += sliceFilled;
-        totalCost += sliceFilled * slicePrice;
+        // Only accumulate if we got valid fill data; fall back to request values
+        // if the exchange returned garbage but reported success
+        const safeFilled = sliceFilled > 0 ? sliceFilled : sliceSize;
+        const safePrice = slicePrice > 0 ? slicePrice : orderRequest.price;
+
+        filledSize += safeFilled;
+        totalCost += safeFilled * safePrice;
         slicesCompleted++;
         currentSliceOrderId = result.orderId;
 
-        // Check price limit
+        // Check price limit (use safePrice which is guaranteed non-NaN)
         if (twapConfig.priceLimit !== undefined) {
           if (
-            (orderRequest.side === 'buy' && slicePrice > twapConfig.priceLimit) ||
-            (orderRequest.side === 'sell' && slicePrice < twapConfig.priceLimit)
+            (orderRequest.side === 'buy' && safePrice > twapConfig.priceLimit) ||
+            (orderRequest.side === 'sell' && safePrice < twapConfig.priceLimit)
           ) {
             logger.warn(
-              { slicePrice, priceLimit: twapConfig.priceLimit },
+              { slicePrice: safePrice, priceLimit: twapConfig.priceLimit },
               'TWAP price limit exceeded, cancelling remaining slices'
             );
             await cancelInternal('Price limit exceeded');
@@ -258,8 +264,8 @@ export function createTwapOrder(
 
         emitter.emit('slice_filled', {
           sliceNumber: slicesCompleted,
-          sliceFilled,
-          slicePrice,
+          sliceFilled: safeFilled,
+          slicePrice: safePrice,
           progress: buildProgress(),
         });
 
@@ -418,7 +424,9 @@ export function createTwapOrder(
     if (twapConfig.maxDurationMs) {
       maxDurationTimer = setTimeout(() => {
         if (status === 'executing') {
-          cancelInternal('Max duration exceeded').catch(() => {});
+          cancelInternal('Max duration exceeded').catch((err) => {
+            logger.error({ error: String(err) }, 'TWAP max-duration cancel failed');
+          });
         }
       }, twapConfig.maxDurationMs);
     }

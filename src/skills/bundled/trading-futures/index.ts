@@ -480,7 +480,7 @@ Order ID: ${order.id}`;
           return `No open position for ${sym} on ${exchange}. Specify --size and --side to place stop without position.`;
         }
 
-        const stopSize = sizeStr ? parseFloat(sizeStr) : position!.size;
+        const stopSize = sizeStr ? parseFloat(sizeStr) : (position?.size ?? 0);
         let stopSide: Side;
         if (sideOverride === 'BUY' || sideOverride === 'SELL') {
           stopSide = sideOverride;

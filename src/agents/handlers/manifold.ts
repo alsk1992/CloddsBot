@@ -283,6 +283,7 @@ async function marketHandler(
     let response = await fetch(`${MANIFOLD_API}/v0/market/${idOrSlug}`);
     if (!response.ok) {
       response = await fetch(`${MANIFOLD_API}/v0/slug/${idOrSlug}`);
+      if (!response.ok) throw new Error('Market not found');
     }
     const market = await response.json();
     return JSON.stringify(market);

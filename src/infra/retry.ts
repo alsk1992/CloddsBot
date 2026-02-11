@@ -112,6 +112,17 @@ export function isRetryableError(error: Error): boolean {
     return true;
   }
 
+  // Check HTTP status code directly if available on the error object
+  const statusCode =
+    (error as any).status ??
+    (error as any).statusCode ??
+    (error as any).response?.status;
+  if (typeof statusCode === 'number') {
+    if (statusCode === 429 || (statusCode >= 500 && statusCode <= 504)) {
+      return true;
+    }
+  }
+
   // Check error message for common transient patterns
   const message = error.message.toLowerCase();
   const transientPatterns = [
@@ -125,14 +136,26 @@ export function isRetryableError(error: Error): boolean {
     'service unavailable',
     'bad gateway',
     'gateway timeout',
-    '429',
-    '500',
-    '502',
-    '503',
-    '504',
   ];
 
-  return transientPatterns.some(pattern => message.includes(pattern));
+  if (transientPatterns.some(pattern => message.includes(pattern))) {
+    return true;
+  }
+
+  // Fall back to status code patterns in message text (use word boundaries
+  // or contextual patterns to avoid false positives on arbitrary digit runs)
+  const statusPatterns = /\b(status\s*[:=]?\s*|http\s+)(429|50[0-4])\b/i;
+  if (statusPatterns.test(error.message)) {
+    return true;
+  }
+
+  // Also match standalone "429" or "5xx" when preceded by colon/space (common error formats)
+  const looseStatusPattern = /[:]\s*(429|50[0-4])\b/;
+  if (looseStatusPattern.test(error.message)) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

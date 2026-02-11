@@ -410,7 +410,8 @@ export async function loadConfig(customPath?: string): Promise<Config> {
   if (process.env.MARKET_MAKING_SPREAD_BPS) {
     if (!config.trading) config.trading = { enabled: false, dryRun: true, maxOrderSize: 100, maxDailyLoss: 200 };
     if (!config.trading.marketMaking) config.trading.marketMaking = { enabled: false };
-    (config.trading.marketMaking as any).spreadBps = parseInt(process.env.MARKET_MAKING_SPREAD_BPS, 10) || 50;
+    const spreadBpsParsed = parseInt(process.env.MARKET_MAKING_SPREAD_BPS, 10);
+    (config.trading.marketMaking as any).spreadBps = Number.isNaN(spreadBpsParsed) ? 50 : spreadBpsParsed;
   }
   if (process.env.CRYPTO_HFT_ENABLED) {
     if (!config.trading) config.trading = { enabled: false, dryRun: true, maxOrderSize: 100, maxDailyLoss: 200 };

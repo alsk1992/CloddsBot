@@ -291,7 +291,7 @@ export function createCronService(deps: CronServiceDeps): CronService {
 
   function normalizeThresholdPct(value: number): number {
     if (!Number.isFinite(value)) return alertDefaults.priceChangeThresholdPct;
-    return value <= 1 ? value * 100 : value;
+    return value < 1 ? value * 100 : value;
   }
 
 function resolveAlertRecipient(userId: string): { platform: string; chatId: string } | null {
@@ -499,9 +499,14 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
     avgPrice: number;
     currentPrice: number;
   }): Position {
-    const value = params.shares * params.currentPrice;
-    const pnl = params.shares * (params.currentPrice - params.avgPrice);
-    const pnlPct = params.avgPrice > 0 ? ((params.currentPrice - params.avgPrice) / params.avgPrice) * 100 : 0;
+    // Guard against NaN propagation: if any numeric input is not finite, treat as 0
+    const shares = Number.isFinite(params.shares) ? params.shares : 0;
+    const avgPrice = Number.isFinite(params.avgPrice) ? params.avgPrice : 0;
+    const currentPrice = Number.isFinite(params.currentPrice) ? params.currentPrice : 0;
+
+    const value = shares * currentPrice;
+    const pnl = shares * (currentPrice - avgPrice);
+    const pnlPct = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
     return {
       id: randomUUID(),
       platform: params.platform,
@@ -510,9 +515,9 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
       outcome: params.outcome,
       outcomeId: params.outcomeId,
       side: (params.side === 'YES' || params.side === 'NO' ? params.side : params.side.toUpperCase() === 'LONG' ? 'YES' : 'NO') as 'YES' | 'NO',
-      shares: params.shares,
-      avgPrice: params.avgPrice,
-      currentPrice: params.currentPrice,
+      shares,
+      avgPrice,
+      currentPrice,
       pnl,
       pnlPct,
       value,
@@ -546,8 +551,12 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
 
     // Prune stale digest-sent entries from previous days
     const today = now.toISOString().slice(0, 10);
+    const toDelete: string[] = [];
     for (const [userId, sentDate] of digestSentOn) {
-      if (sentDate !== today) digestSentOn.delete(userId);
+      if (sentDate !== today) toDelete.push(userId);
+    }
+    for (const userId of toDelete) {
+      digestSentOn.delete(userId);
     }
 
     for (const user of users) {
@@ -816,8 +825,12 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
       const question = (market?.question as string) || entry.question || marketId;
       const prob = toNumber(market?.probability) ?? 0.5;
 
+      // Skip positions with invalid probability (would produce NaN downstream)
+      if (!Number.isFinite(prob)) continue;
+
       if (entry.yesShares > 0) {
-        const avg = entry.yesShares > 0 ? entry.yesInvested / entry.yesShares : prob;
+        const rawAvg = entry.yesShares > 0 ? entry.yesInvested / entry.yesShares : prob;
+        const avg = Number.isFinite(rawAvg) ? rawAvg : prob;
         positions.push(
           buildPosition({
             platform: 'manifold',
@@ -835,7 +848,8 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
 
       if (entry.noShares > 0) {
         const noPrice = Math.max(0, 1 - prob);
-        const avg = entry.noShares > 0 ? entry.noInvested / entry.noShares : noPrice;
+        const rawAvg = entry.noShares > 0 ? entry.noInvested / entry.noShares : noPrice;
+        const avg = Number.isFinite(rawAvg) ? rawAvg : noPrice;
         positions.push(
           buildPosition({
             platform: 'manifold',
@@ -1012,13 +1026,17 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
       try {
         const allPositions = deps.db.getPositions(userId);
         if (allPositions.length > 0) {
-          const totalValue = allPositions.reduce((sum, p) => sum + p.value, 0);
-          const totalCostBasis = allPositions.reduce((sum, p) => sum + (p.shares * p.avgPrice), 0);
+          // Guard: skip positions with NaN values to prevent poisoning totals
+          const validPositions = allPositions.filter(p =>
+            Number.isFinite(p.value) && Number.isFinite(p.shares) && Number.isFinite(p.avgPrice)
+          );
+          const totalValue = validPositions.reduce((sum, p) => sum + p.value, 0);
+          const totalCostBasis = validPositions.reduce((sum, p) => sum + (p.shares * p.avgPrice), 0);
           const totalPnl = totalValue - totalCostBasis;
           const totalPnlPct = totalCostBasis > 0 ? (totalPnl / totalCostBasis) * 100 : 0;
 
           const byPlatform: Record<string, { value: number; pnl: number }> = {};
-          for (const p of allPositions) {
+          for (const p of validPositions) {
             const entry = byPlatform[p.platform] || { value: 0, pnl: 0 };
             entry.value += p.value;
             entry.pnl += p.value - (p.shares * p.avgPrice);
@@ -1054,7 +1072,7 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
     if (value === undefined || value === null) return null;
     if (!Number.isFinite(value)) return null;
     if (value <= 0) return null;
-    return value > 1 ? value / 100 : value;
+    return value >= 1 ? value / 100 : value;
   }
 
   async function executeStopLoss(
@@ -1251,9 +1269,11 @@ function resolveAlertRecipient(userId: string): { platform: string; chatId: stri
     job.state.nextRunAtMs = nextRun;
 
     const delay = Math.max(0, nextRun - Date.now());
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
       timers.delete(job.id);
-      await executeJobInternal(job);
+      executeJobInternal(job).catch(error => {
+        logger.error({ error, jobId: job.id, name: job.name }, 'Cron job execution failed');
+      });
     }, delay);
 
     timers.set(job.id, timer);
@@ -1550,7 +1570,9 @@ export function createCronManager(
 
   return {
     start() {
-      service.start();
+      service.start().catch(error => {
+        logger.error({ error }, 'Cron service start failed');
+      });
     },
     stop() {
       service.stop();

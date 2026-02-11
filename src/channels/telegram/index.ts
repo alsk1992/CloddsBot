@@ -42,13 +42,15 @@ export async function createTelegramChannel(
 
   async function enforceRateLimit(chatId: number | undefined, reason: string): Promise<void> {
     if (!rateLimiter) return;
-    while (true) {
+    const MAX_RATE_LIMIT_WAITS = 20;
+    for (let attempt = 0; attempt < MAX_RATE_LIMIT_WAITS; attempt++) {
       const result = rateLimiter.check(getRateLimitKey(chatId));
       if (result.allowed) return;
       const waitMs = Math.max(250, result.resetIn);
-      logger.warn({ reason, waitMs }, 'Telegram rate limit hit; waiting');
+      logger.warn({ reason, waitMs, attempt: attempt + 1, maxAttempts: MAX_RATE_LIMIT_WAITS }, 'Telegram rate limit hit; waiting');
       await sleep(waitMs);
     }
+    throw new Error(`Telegram rate limit exceeded after ${MAX_RATE_LIMIT_WAITS} attempts for ${reason}`);
   }
 
   function getRetryAfterSeconds(error: unknown): number | null {
@@ -813,8 +815,10 @@ export async function createTelegramChannel(
           } else {
             // Schedule update
             if (updateTimeout) clearTimeout(updateTimeout);
-            updateTimeout = setTimeout(async () => {
-              await flushPendingUpdate();
+            updateTimeout = setTimeout(() => {
+              flushPendingUpdate().catch(error => {
+                logger.error({ error }, 'Telegram: Failed to flush pending update');
+              });
             }, MIN_UPDATE_INTERVAL - timeSinceLastUpdate);
           }
         },

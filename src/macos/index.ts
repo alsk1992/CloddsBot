@@ -95,7 +95,7 @@ export async function runAppleScript(script: string): Promise<string> {
     const { stdout } = await execFileAsync('osascript', [tempFile]);
     return stdout.trim();
   } finally {
-    try { unlinkSync(tempFile); } catch {}
+    try { unlinkSync(tempFile); } catch { /* temp file cleanup */ }
   }
 }
 
@@ -110,7 +110,7 @@ export function runAppleScriptSync(script: string): string {
     // Use execFileSync to prevent command injection
     return execFileSync('osascript', [tempFile], { encoding: 'utf-8' }).trim();
   } finally {
-    try { unlinkSync(tempFile); } catch {}
+    try { unlinkSync(tempFile); } catch { /* temp file cleanup */ }
   }
 }
 
@@ -564,7 +564,7 @@ export function stopSpeaking(): void {
   if (!isMacOS()) return;
   try {
     execFileSync('killall', ['say'], { stdio: 'ignore' });
-  } catch {}
+  } catch { /* say process may not be running */ }
 }
 
 // =============================================================================
@@ -613,7 +613,7 @@ export async function setKeychainPassword(service: string, account: string, pass
 
   try {
     await execFileAsync('security', ['delete-generic-password', '-s', service, '-a', account]);
-  } catch {}
+  } catch { /* keychain entry may not exist yet */ }
 
   await execFileAsync(
     'security', ['add-generic-password', '-s', service, '-a', account, '-w', password]

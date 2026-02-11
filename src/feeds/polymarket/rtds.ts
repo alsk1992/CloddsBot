@@ -74,6 +74,7 @@ export function createPolymarketRtds(config: RtdsConfig = {}): PolymarketRtds {
   let ws: WebSocket | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let pingTimer: NodeJS.Timeout | null = null;
+  let stopping = false;
   let subscriptions = normalizeSubscriptions(config.subscriptions);
 
   function sendSubscriptions(action: 'subscribe' | 'unsubscribe', subs: RtdsSubscription[]) {
@@ -126,6 +127,7 @@ export function createPolymarketRtds(config: RtdsConfig = {}): PolymarketRtds {
 
   function connect(): void {
     if (ws) return;
+    stopping = false;
     logger.info({ url }, 'Connecting to Polymarket RTDS');
     ws = new WebSocket(url);
 
@@ -160,7 +162,9 @@ export function createPolymarketRtds(config: RtdsConfig = {}): PolymarketRtds {
       logger.warn('Polymarket RTDS disconnected');
       ws = null;
       stopPing();
-      scheduleReconnect();
+      if (!stopping) {
+        scheduleReconnect();
+      }
     });
   }
 
@@ -170,6 +174,7 @@ export function createPolymarketRtds(config: RtdsConfig = {}): PolymarketRtds {
   };
 
   emitter.stop = async () => {
+    stopping = true;
     stopPing();
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);

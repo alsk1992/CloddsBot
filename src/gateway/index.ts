@@ -694,7 +694,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       const queueRedisPort = config.queue?.redis?.port
         ?? parseInt(process.env.REDIS_PORT || '6379', 10);
       const queueRedisPassword = config.queue?.redis?.password
-        || process.env.REDIS_PASSWORD || undefined;
+        ?? process.env.REDIS_PASSWORD ?? undefined;
       const queueTimeoutMs = config.queue?.timeoutMs
         ?? parseInt(process.env.EXECUTION_QUEUE_TIMEOUT_MS || '30000', 10);
 
@@ -1352,6 +1352,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       marketCacheCleanupInterval = setInterval(() => {
         runCleanup();
       }, intervalMs);
+      if (marketCacheCleanupInterval.unref) marketCacheCleanupInterval.unref();
       logger.info({ ttlMs, intervalMs }, 'Market cache cleanup started');
     }
   }
@@ -1397,6 +1398,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       marketIndexSyncInterval = setInterval(() => {
         void runSync();
       }, intervalMs);
+      if (marketIndexSyncInterval.unref) marketIndexSyncInterval.unref();
       logger.info(
         {
           intervalMs,
@@ -1992,19 +1994,21 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       ? closedTrades.reduce((sum, t) => sum + (t.pnlPct ?? 0), 0) / closedTrades.length
       : 0;
 
-    // Calculate Sharpe ratio (simplified - daily returns)
+    // Calculate Sharpe ratio (simplified - daily returns as percentages)
+    const dailyPnlPct: Record<string, number> = {};
     const dailyPnl: Record<string, number> = {};
     for (const t of closedTrades) {
       const date = t.timestamp.split('T')[0];
+      dailyPnlPct[date] = (dailyPnlPct[date] ?? 0) + (t.pnlPct ?? 0);
       dailyPnl[date] = (dailyPnl[date] ?? 0) + (t.pnl ?? 0);
     }
-    const dailyReturns = Object.values(dailyPnl);
+    const dailyReturns = Object.values(dailyPnlPct);
     const avgReturn = dailyReturns.length > 0
       ? dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length
       : 0;
     const stdDev = dailyReturns.length > 1
       ? Math.sqrt(dailyReturns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (dailyReturns.length - 1))
-      : 1;
+      : 0;
     const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
 
     // Calculate max drawdown
@@ -2017,7 +2021,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     for (const date of sortedDates) {
       cumulative += dailyPnl[date];
       peak = Math.max(peak, cumulative);
-      const drawdown = peak > 0 ? (peak - cumulative) / peak : 0;
+      const drawdown = peak !== 0 ? (peak - cumulative) / Math.abs(peak) : 0;
       maxDrawdown = Math.max(maxDrawdown, drawdown);
       dailyData.push({ date, pnl: dailyPnl[date], cumulative });
     }
@@ -2140,11 +2144,11 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     // Sharpe & Sortino
     const dailyReturns = Object.values(dailyPnl).map(pnl => pnl / initialCapital);
     const avgReturn = dailyReturns.length > 0 ? dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length : 0;
-    const stdDev = dailyReturns.length > 1 ? Math.sqrt(dailyReturns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (dailyReturns.length - 1)) : 1;
+    const stdDev = dailyReturns.length > 1 ? Math.sqrt(dailyReturns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (dailyReturns.length - 1)) : 0;
     const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
 
     const negReturns = dailyReturns.filter(r => r < 0);
-    const downsideDev = negReturns.length > 0 ? Math.sqrt(negReturns.reduce((sum, r) => sum + r * r, 0) / negReturns.length) : 1;
+    const downsideDev = negReturns.length > 0 ? Math.sqrt(negReturns.reduce((sum, r) => sum + r * r, 0) / negReturns.length) : 0;
     const sortinoRatio = downsideDev > 0 ? (avgReturn / downsideDev) * Math.sqrt(252) : 0;
 
     // Max drawdown
@@ -2762,6 +2766,12 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       if (whaleTracker) {
         whaleTracker.stop();
         whaleTracker = null;
+      }
+
+      // Stop execution service (WebSocket, heartbeat, cleanup timers)
+      if (executionService) {
+        executionService.stop();
+        executionService = null;
       }
 
       // Close execution queue producer

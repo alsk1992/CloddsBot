@@ -440,7 +440,10 @@ async function checkOracleCondition(
         const hi = data.readBigInt64LE(SB_RESULT_OFFSET + 8);
         const mantissa = (hi << 64n) | lo;
         const scale = data.readUInt32LE(SB_RESULT_OFFSET + 16);
-        actualValue = Number(mantissa) / Math.pow(10, scale);
+        const divisor = 10n ** BigInt(scale);
+        const wholePart = mantissa / divisor;
+        const remainder = mantissa % divisor;
+        actualValue = Number(wholePart) + Number(remainder) / Number(divisor);
         logger.debug({ feedId: config.feedId, value: actualValue, scale }, 'Fetched Switchboard price');
       } catch (error) {
         logger.error({ feedId: config.feedId, error }, 'Failed to fetch Switchboard price');

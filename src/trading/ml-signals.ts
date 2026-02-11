@@ -466,7 +466,10 @@ export function createMLSignalModel(config: ModelConfig): MLSignalModel {
     const state = {
       config,
       weights: Object.fromEntries(weights),
-      metrics,
+      metrics: {
+        ...metrics,
+        featureImportance: Object.fromEntries(metrics.featureImportance),
+      },
       trainingDataSize: trainingData.length,
       savedAt: new Date().toISOString(),
     };

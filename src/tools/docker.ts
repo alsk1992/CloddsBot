@@ -93,7 +93,11 @@ function parseJsonLines<T>(text: string): T[] {
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as T);
+    .map((line) => {
+      try { return JSON.parse(line) as T; }
+      catch { return null; }
+    })
+    .filter((item): item is T => item !== null);
 }
 
 function ensureVolumePath(workspaceRoot: string, hostPath: string): string {

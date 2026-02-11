@@ -106,6 +106,10 @@ export function createBracketOrder(
   let fillPrice: number | undefined;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Track consecutive polls where both orders are missing (likely market resolved)
+  let consecutiveBothMissing = 0;
+  const MARKET_RESOLVED_THRESHOLD = 3;
+
   // Save to database on creation (unless resuming)
   if (!options?.orderId) {
     try {
@@ -172,17 +176,18 @@ export function createBracketOrder(
 
   /**
    * Check if an order has filled
+   * Returns { filled, price, missing } where missing=true means the order no longer exists on the exchange
    */
-  async function checkOrderFilled(orderId: string): Promise<{ filled: boolean; price?: number }> {
+  async function checkOrderFilled(oid: string): Promise<{ filled: boolean; price?: number; missing?: boolean }> {
     try {
-      const order = await executionService.getOrder(config.platform, orderId);
-      if (!order) return { filled: false };
+      const order = await executionService.getOrder(config.platform, oid);
+      if (!order) return { filled: false, missing: true };
 
       if (order.status === 'filled') {
         return { filled: true, price: order.price };
       }
 
-      return { filled: false };
+      return { filled: false, missing: false };
     } catch {
       return { filled: false };
     }
@@ -214,6 +219,10 @@ export function createBracketOrder(
    */
   async function pollForFills(): Promise<void> {
     if (status !== 'active') return;
+
+    // Track whether each order is missing from the exchange for resolution detection
+    let tpMissing = !takeProfitOrderId; // If no TP order ID, treat as missing
+    let slMissing = !stopLossOrderId;   // If no SL order ID, treat as missing
 
     // Check take-profit
     if (takeProfitOrderId) {
@@ -249,6 +258,7 @@ export function createBracketOrder(
         });
         return;
       }
+      tpMissing = tp.missing === true;
     }
 
     // Check stop-loss
@@ -285,6 +295,37 @@ export function createBracketOrder(
         });
         return;
       }
+      slMissing = sl.missing === true;
+    }
+
+    // Market resolution detection: if both orders are missing from the exchange
+    // (getOrder returns null), the market has likely resolved and the exchange
+    // cancelled all open orders. After MARKET_RESOLVED_THRESHOLD consecutive
+    // checks confirming both are missing, cancel the bracket to stop infinite polling.
+    if (tpMissing && slMissing) {
+      consecutiveBothMissing++;
+      if (consecutiveBothMissing >= MARKET_RESOLVED_THRESHOLD) {
+        status = 'cancelled';
+        cleanup();
+
+        // Persist cancelled status
+        try {
+          updateBracketStatus(orderId, { status: 'cancelled' });
+        } catch (err) {
+          logger.warn({ error: String(err) }, 'Failed to persist bracket resolution cancellation');
+        }
+
+        logger.warn(
+          { orderId, marketId: config.marketId, consecutiveChecks: consecutiveBothMissing },
+          'Bracket order cancelled: both orders missing from exchange (market likely resolved)'
+        );
+
+        emitter.emit('cancelled', getStatusSnapshot());
+        return;
+      }
+    } else {
+      // Reset counter if at least one order is still visible
+      consecutiveBothMissing = 0;
     }
   }
 

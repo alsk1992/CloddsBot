@@ -32,8 +32,8 @@ export interface ProviderHealthConfig {
 }
 
 const DEFAULT_CONFIG: Required<ProviderHealthConfig> = {
-  intervalMs: Number(process.env.CLODDS_PROVIDER_HEALTH_INTERVAL_MS) || 30_000,
-  failureWarnThreshold: Number(process.env.CLODDS_PROVIDER_HEALTH_WARN_AFTER) || 3,
+  intervalMs: (() => { const v = Number(process.env.CLODDS_PROVIDER_HEALTH_INTERVAL_MS); return Number.isNaN(v) ? 30_000 : v; })(),
+  failureWarnThreshold: (() => { const v = Number(process.env.CLODDS_PROVIDER_HEALTH_WARN_AFTER); return Number.isNaN(v) ? 3 : v; })(),
 };
 
 function now(): number {

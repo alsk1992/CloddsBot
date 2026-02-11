@@ -232,12 +232,15 @@ export function createResilientExecutor(defaultConfig?: Partial<RetryConfig>): R
     },
 
     async withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
-      return Promise.race([
-        fn(),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs);
-        }),
-      ]);
+      let timer: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs);
+      });
+      try {
+        return await Promise.race([fn(), timeoutPromise]);
+      } finally {
+        clearTimeout(timer!);
+      }
     },
 
     checkRateLimit(key: string) {

@@ -373,8 +373,16 @@ export function createExecTool(workspaceDir: string, defaultAgentId: string = 'd
           { command, agentId, senderId: options.senderId },
           'Elevated execution approved'
         );
-        // Use non-interactive sudo to avoid hanging on password prompts.
-        finalCommand = `sudo -n -- ${command}`;
+        // Security: We intentionally do NOT interpolate `command` into a sudo
+        // string (e.g. `sudo -n -- ${command}`) because that would be passed to
+        // `sh -c` below, allowing shell metacharacters in `command` to escape
+        // the sudo context.  Instead we spawn sudo directly with the command
+        // passed to a nested `sh -c` as a single argument, which avoids double
+        // shell interpretation.
+        //
+        // Note: the approval gating above is the primary security boundary;
+        // unapproved commands never reach this point.
+        finalCommand = command;  // will be handled by the sudoElevated path below
       }
 
       // Enforce docker sandboxing when configured.
@@ -385,7 +393,15 @@ export function createExecTool(workspaceDir: string, defaultAgentId: string = 'd
       }
 
       return new Promise((resolve) => {
-        const child = spawn('sh', ['-c', finalCommand], {
+        // Security: When elevated, spawn sudo directly so that `command` is
+        // passed as a single string argument to `sh -c` under sudo, avoiding
+        // double shell interpretation that would occur with string interpolation
+        // like `sudo -n -- ${command}` passed to sh -c.
+        const spawnCmd = options.elevated ? 'sudo' : 'sh';
+        const spawnArgs = options.elevated
+          ? ['-n', '--', 'sh', '-c', finalCommand]
+          : ['-c', finalCommand];
+        const child = spawn(spawnCmd, spawnArgs, {
           cwd,
           env,
           stdio: ['pipe', 'pipe', 'pipe'],

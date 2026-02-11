@@ -195,27 +195,31 @@ export class GeminiProvider implements Provider {
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
+      try {
+        buffer += decoder.decode(value, { stream: true });
 
-      // Gemini streaming responses are JSON lines.
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+        // Gemini streaming responses are JSON lines.
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
 
-        try {
-          const event = JSON.parse(trimmed) as {
-            candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-          };
-          const content = event.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('') ?? '';
-          if (content) {
-            yield { content, done: false };
+          try {
+            const event = JSON.parse(trimmed) as {
+              candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+            };
+            const content = event.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('') ?? '';
+            if (content) {
+              yield { content, done: false };
+            }
+          } catch (err) {
+            logger.debug({ error: err }, 'Failed to parse Gemini stream chunk');
           }
-        } catch (err) {
-          logger.debug({ error: err }, 'Failed to parse Gemini stream chunk');
         }
+      } catch (err) {
+        logger.error({ error: err }, 'Gemini SSE handle error');
       }
     }
 
@@ -223,13 +227,19 @@ export class GeminiProvider implements Provider {
   }
 
   async listModels(): Promise<string[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(`${this.baseUrl}/models?key=${this.apiKey}`);
+      const response = await fetch(`${this.baseUrl}/models?key=${this.apiKey}`, {
+        signal: controller.signal,
+      });
       if (!response.ok) return [];
       const data = await response.json() as { models?: Array<{ name: string }> };
       return data.models?.map(m => m.name.replace(/^models\//, '')) || [];
     } catch {
       return [];
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -356,31 +366,35 @@ export class AnthropicProvider implements Provider {
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+      try {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            yield { content: '', done: true };
-            return;
-          }
-
-          try {
-            const event = JSON.parse(data);
-            if (event.type === 'content_block_delta' && event.delta?.text) {
-              yield { content: event.delta.text, done: false };
-            }
-            if (event.type === 'message_stop') {
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
               yield { content: '', done: true };
               return;
             }
-          } catch (e) {
-            logger.debug({ err: e, line }, 'Failed to parse SSE event');
+
+            try {
+              const event = JSON.parse(data);
+              if (event.type === 'content_block_delta' && event.delta?.text) {
+                yield { content: event.delta.text, done: false };
+              }
+              if (event.type === 'message_stop') {
+                yield { content: '', done: true };
+                return;
+              }
+            } catch (e) {
+              logger.debug({ err: e, line }, 'Failed to parse SSE event');
+            }
           }
         }
+      } catch (err) {
+        logger.error({ error: err }, 'Anthropic SSE handle error');
       }
     }
 
@@ -562,32 +576,36 @@ export class OpenAIProvider implements Provider {
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+      try {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            yield { content: '', done: true };
-            return;
-          }
-
-          try {
-            const event = JSON.parse(data);
-            const content = event.choices?.[0]?.delta?.content;
-            if (content) {
-              yield { content, done: false };
-            }
-            if (event.choices?.[0]?.finish_reason) {
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
               yield { content: '', done: true };
               return;
             }
-          } catch (e) {
-            logger.debug({ err: e, line }, 'Failed to parse OpenAI SSE event');
+
+            try {
+              const event = JSON.parse(data);
+              const content = event.choices?.[0]?.delta?.content;
+              if (content) {
+                yield { content, done: false };
+              }
+              if (event.choices?.[0]?.finish_reason) {
+                yield { content: '', done: true };
+                return;
+              }
+            } catch (e) {
+              logger.debug({ err: e, line }, 'Failed to parse OpenAI SSE event');
+            }
           }
         }
+      } catch (err) {
+        logger.error({ error: err }, 'OpenAI SSE handle error');
       }
     }
 
@@ -769,25 +787,29 @@ export class OllamaProvider implements Provider {
       const { done, value } = await reader.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+      try {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
+        for (const line of lines) {
+          if (!line.trim()) continue;
 
-        try {
-          const data = JSON.parse(line);
-          if (data.message?.content) {
-            yield { content: data.message.content, done: false };
+          try {
+            const data = JSON.parse(line);
+            if (data.message?.content) {
+              yield { content: data.message.content, done: false };
+            }
+            if (data.done) {
+              yield { content: '', done: true };
+              return;
+            }
+          } catch (e) {
+            logger.debug({ err: e, line }, 'Failed to parse Ollama stream event');
           }
-          if (data.done) {
-            yield { content: '', done: true };
-            return;
-          }
-        } catch (e) {
-          logger.debug({ err: e, line }, 'Failed to parse Ollama stream event');
         }
+      } catch (err) {
+        logger.error({ error: err }, 'Ollama SSE handle error');
       }
     }
 
@@ -830,9 +852,9 @@ export class ProviderManager extends EventEmitter {
   }> = new Map();
 
   private readonly circuitConfig = {
-    failureThreshold: Number(process.env.CLODDS_PROVIDER_CB_FAILURE_THRESHOLD) || 3,
-    cooldownMs: Number(process.env.CLODDS_PROVIDER_CB_COOLDOWN_MS) || 60_000,
-    successResetThreshold: Number(process.env.CLODDS_PROVIDER_CB_SUCCESS_RESET) || 2,
+    failureThreshold: (() => { const v = Number(process.env.CLODDS_PROVIDER_CB_FAILURE_THRESHOLD); return Number.isNaN(v) ? 3 : v; })(),
+    cooldownMs: (() => { const v = Number(process.env.CLODDS_PROVIDER_CB_COOLDOWN_MS); return Number.isNaN(v) ? 60_000 : v; })(),
+    successResetThreshold: (() => { const v = Number(process.env.CLODDS_PROVIDER_CB_SUCCESS_RESET); return Number.isNaN(v) ? 2 : v; })(),
   };
 
   private getCircuit(provider: string) {

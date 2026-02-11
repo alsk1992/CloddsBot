@@ -83,8 +83,11 @@ export function createTradingApiRouter(deps: TradingApiDeps): Router {
       let unrealizedPnL = 0;
 
       const positionSummaries = positions.map((p: any) => {
-        const value = p.shares * (p.currentPrice || p.avgPrice);
-        const cost = p.shares * p.avgPrice;
+        const shares = Number(p.shares) || 0;
+        const avgPrice = Number(p.avgPrice) || 0;
+        const currentPrice = Number(p.currentPrice) || avgPrice;
+        const value = shares * currentPrice;
+        const cost = shares * avgPrice;
         const pnl = value - cost;
         const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
 
@@ -95,8 +98,8 @@ export function createTradingApiRouter(deps: TradingApiDeps): Router {
         return {
           id: p.id, platform: p.platform, marketId: p.marketId,
           marketQuestion: p.marketQuestion, outcome: p.outcome,
-          shares: p.shares, avgPrice: p.avgPrice,
-          currentPrice: p.currentPrice || p.avgPrice,
+          shares, avgPrice,
+          currentPrice,
           value: Math.round(value * 100) / 100,
           pnl: Math.round(pnl * 100) / 100,
           pnlPct: Math.round(pnlPct * 10) / 10,

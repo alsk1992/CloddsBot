@@ -200,7 +200,7 @@ function loadAllSettings(): Record<string, Record<string, unknown>> {
     if (existsSync(PLUGIN_SETTINGS_FILE)) {
       return JSON.parse(readFileSync(PLUGIN_SETTINGS_FILE, 'utf-8'));
     }
-  } catch {}
+  } catch (err) { logger.warn({ error: err, path: PLUGIN_SETTINGS_FILE }, 'Failed to load plugin settings'); }
   return {};
 }
 
@@ -307,7 +307,7 @@ export function createPluginService(): PluginService {
       if (existsSync(storageFile)) {
         return JSON.parse(readFileSync(storageFile, 'utf-8'));
       }
-    } catch {}
+    } catch (err) { logger.warn({ error: err, pluginId, storageFile }, 'Failed to load plugin storage'); }
     return {};
   }
 
@@ -509,7 +509,7 @@ export function createPluginService(): PluginService {
             logger.error({ file, error: e }, 'Failed to load plugin');
           }
         }
-      } catch {}
+      } catch (err) { logger.warn({ error: err, dir }, 'Failed to read plugins directory'); }
 
       if (count > 0) {
         logger.info({ count, dir }, 'Loaded plugins from directory');

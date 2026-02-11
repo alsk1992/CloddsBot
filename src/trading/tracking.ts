@@ -605,6 +605,10 @@ export function createTrackingManager(db: Database): TrackingManager {
         last: 'value_number', // Will use subquery
       }[aggregation || 'last'];
 
+      if (!aggFunc) {
+        throw new Error(`Invalid aggregation type: ${aggregation}`);
+      }
+
       let sql: string;
       if (aggregation === 'last') {
         sql = `SELECT entity_type, entity_id, value_number as value, value_text, value_json

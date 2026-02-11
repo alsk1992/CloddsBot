@@ -320,7 +320,7 @@ export function createCredentialsManager(db: Database): CredentialsManager {
         sessionKey,
         credentials,
         maxOrderSize,
-        dryRun: process.env.DRY_RUN !== 'false',
+        dryRun: process.env.DRY_RUN === 'true',
       };
     },
 

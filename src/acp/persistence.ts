@@ -15,6 +15,17 @@ import type { AgentProfile, ServiceListing, ServiceRating, ServiceCategory } fro
 import type { Agreement, AgreementStatus, AgreementParty, AgreementTerm } from './agreement';
 import type { Escrow, EscrowStatus, EscrowCondition } from './escrow';
 
+/** Safely parse JSON with a fallback value on failure */
+function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
+  if (raw == null) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    logger.warn({ raw: raw.slice(0, 200) }, 'Failed to parse JSON in ACP persistence');
+    return fallback;
+  }
+}
+
 // Database instance - must be set before use
 let db: Database | null = null;
 
@@ -331,8 +342,16 @@ export function createAgentPersistence(): AgentPersistence {
 
     async delete(id: string): Promise<void> {
       const database = getDb();
-      database.run('DELETE FROM acp_services WHERE agent_id = ?', [id]);
-      database.run('DELETE FROM acp_agents WHERE id = ?', [id]);
+      try {
+        database.run('BEGIN TRANSACTION');
+        database.run('DELETE FROM acp_services WHERE agent_id = ?', [id]);
+        database.run('DELETE FROM acp_agents WHERE id = ?', [id]);
+        database.run('COMMIT');
+      } catch (err) {
+        try { database.run('ROLLBACK'); } catch { /* rollback best-effort */ }
+        logger.error({ agentId: id, err }, 'Failed to delete agent');
+        throw err;
+      }
     },
   };
 }
@@ -708,7 +727,7 @@ function rowToAgent(row: AgentRow): AgentProfile {
     description: row.description || undefined,
     avatar: row.avatar || undefined,
     website: row.website || undefined,
-    capabilities: JSON.parse(row.capabilities),
+    capabilities: safeJsonParse(row.capabilities, []),
     services: [], // Loaded separately
     status: row.status as 'active' | 'inactive' | 'suspended',
     reputation: {
@@ -719,7 +738,7 @@ function rowToAgent(row: AgentRow): AgentProfile {
       responseTimeAvgMs: 0, // Not stored yet
       disputeRate: row.dispute_rate,
     },
-    metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+    metadata: row.metadata ? safeJsonParse(row.metadata, undefined) : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -761,8 +780,8 @@ function rowToAgreement(row: AgreementRow): Agreement {
     hash: row.hash,
     title: row.title,
     description: row.description,
-    parties: JSON.parse(row.parties) as AgreementParty[],
-    terms: JSON.parse(row.terms) as AgreementTerm[],
+    parties: safeJsonParse<AgreementParty[]>(row.parties, []),
+    terms: safeJsonParse<AgreementTerm[]>(row.terms, []),
     totalValue: row.total_value || undefined,
     currency: row.currency || undefined,
     startDate: row.start_date ?? undefined,
@@ -771,7 +790,7 @@ function rowToAgreement(row: AgreementRow): Agreement {
     status: row.status as AgreementStatus,
     version: row.version,
     previousVersionHash: row.previous_version_hash || undefined,
-    metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+    metadata: row.metadata ? safeJsonParse(row.metadata, undefined) : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -786,14 +805,14 @@ function rowToEscrow(row: EscrowRow): Escrow {
     arbiter: row.arbiter || undefined,
     amount: row.amount,
     tokenMint: row.token_mint || undefined,
-    releaseConditions: JSON.parse(row.release_conditions) as EscrowCondition[],
-    refundConditions: JSON.parse(row.refund_conditions) as EscrowCondition[],
+    releaseConditions: safeJsonParse<EscrowCondition[]>(row.release_conditions, []),
+    refundConditions: safeJsonParse<EscrowCondition[]>(row.refund_conditions, []),
     expiresAt: row.expires_at,
     description: row.description || undefined,
     agreementHash: row.agreement_hash || undefined,
     status: row.status as EscrowStatus,
     escrowAddress: row.escrow_address || '',
-    txSignatures: JSON.parse(row.tx_signatures) as string[],
+    txSignatures: safeJsonParse<string[]>(row.tx_signatures, []),
     fundedAt: row.funded_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
     createdAt: row.created_at,

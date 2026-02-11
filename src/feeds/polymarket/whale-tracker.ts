@@ -327,6 +327,7 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
 
         const trades = data
           .filter((t: any) => {
+            if (!t.price || !t.size) return false;
             const usdValue = parseFloat(t.price) * parseFloat(t.size);
             return usdValue >= cfg.minTradeSize;
           })
@@ -594,7 +595,8 @@ export function createWhaleTracker(config: WhaleConfig = {}): WhaleTracker {
       if (totalTrades < 5) continue; // Need at least 5 trades for reliability
 
       const winRate = stats ? stats.wins / totalTrades : 0;
-      const minWinRate = parseFloat(process.env.WHALE_MIN_WIN_RATE || '0.55');
+      const parsedWinRate = parseFloat(process.env.WHALE_MIN_WIN_RATE || '0.55');
+      const minWinRate = Number.isNaN(parsedWinRate) ? 0.55 : parsedWinRate;
       if (winRate < minWinRate) continue;
 
       // Determine if this is a buy or sell for copy trading

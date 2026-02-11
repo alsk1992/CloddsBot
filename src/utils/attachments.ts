@@ -37,6 +37,35 @@ function isRemoteUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
+/**
+ * Security: Detect private/internal URLs to prevent SSRF.
+ * Returns true if the URL points to a private, loopback, or link-local address.
+ */
+function isPrivateUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host === '0.0.0.0' ||
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      host.startsWith('169.254.') ||
+      host.startsWith('fd') ||
+      host.startsWith('fe80') ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host.endsWith('.localhost')
+    );
+  } catch {
+    // If URL parsing fails, treat as private (deny by default)
+    return true;
+  }
+}
+
 function stripFileScheme(value: string): string {
   return value.replace(/^file:\/\//i, '');
 }
@@ -56,6 +85,10 @@ async function resolveAttachmentInternal(
 
   if (attachment.url) {
     if (isRemoteUrl(attachment.url)) {
+      // Security: Reject fetches to private/internal IPs to prevent SSRF
+      if (isPrivateUrl(attachment.url)) {
+        throw new Error('Fetching private/internal URLs is not allowed');
+      }
       const autoHeaders: Record<string, string> = {};
       if (!headers && /slack\.com/i.test(attachment.url) && process.env.SLACK_BOT_TOKEN) {
         autoHeaders.Authorization = `Bearer ${process.env.SLACK_BOT_TOKEN}`;

@@ -9,7 +9,7 @@
  * Requires: macOS with Messages.app signed in
  */
 
-import { exec, spawn, ChildProcess } from 'child_process';
+import { exec, execFile, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import { promises as fsPromises } from 'fs';
@@ -22,6 +22,12 @@ import type { PairingService } from '../../pairing/index';
 import { resolveAttachment, guessAttachmentType } from '../../utils/attachments';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/** Escape a string for safe interpolation inside AppleScript double-quoted strings. */
+function escapeAppleScript(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
 
 export interface iMessageConfig {
   enabled: boolean;
@@ -127,8 +133,8 @@ export async function createiMessageChannel(
         LIMIT 100
       `;
 
-      const { stdout } = await execAsync(
-        `sqlite3 -json "${dbPath}" "${query.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
+      const { stdout } = await execFileAsync(
+        'sqlite3', ['-json', dbPath, query.replace(/\n/g, ' ')],
         { maxBuffer: 10 * 1024 * 1024 }
       );
 
@@ -207,8 +213,8 @@ export async function createiMessageChannel(
   /** Get initial last message ID */
   async function getLastMessageId(): Promise<number> {
     try {
-      const { stdout } = await execAsync(
-        `sqlite3 "${dbPath}" "SELECT MAX(ROWID) FROM message"`
+      const { stdout } = await execFileAsync(
+        'sqlite3', [dbPath, 'SELECT MAX(ROWID) FROM message']
       );
       return parseInt(stdout.trim(), 10) || 0;
     } catch {
@@ -233,31 +239,33 @@ export async function createiMessageChannel(
 
     const sendText = async (): Promise<void> => {
       if (!message.text) return;
-      const escapedText = message.text
-        .replace(/\\/g, '\\\\')
-        .replace(/"/g, '\\"');
+      const escapedText = escapeAppleScript(message.text);
+      const escapedChatId = escapeAppleScript(chatId);
 
       const script = `
         tell application "Messages"
           set targetService to 1st account whose service type = ${service}
-          set targetBuddy to participant "${chatId}" of targetService
+          set targetBuddy to participant "${escapedChatId}" of targetService
           send "${escapedText}" to targetBuddy
         end tell
       `;
 
-      await execAsync(`osascript -e '${script.replace(/'/g, "'\"'\"'")}'`);
+      await execFileAsync('osascript', ['-e', script]);
       logger.debug({ chatId }, 'iMessage text sent');
     };
 
     const sendFile = async (filePath: string): Promise<void> => {
+      const escapedChatId = escapeAppleScript(chatId);
+      const escapedFilePath = escapeAppleScript(filePath);
+
       const script = `
         tell application "Messages"
           set targetService to 1st account whose service type = ${service}
-          set targetBuddy to participant "${chatId}" of targetService
-          send (POSIX file "${filePath}") to targetBuddy
+          set targetBuddy to participant "${escapedChatId}" of targetService
+          send (POSIX file "${escapedFilePath}") to targetBuddy
         end tell
       `;
-      await execAsync(`osascript -e '${script.replace(/'/g, "'\"'\"'")}'`);
+      await execFileAsync('osascript', ['-e', script]);
     };
 
     try {
@@ -290,16 +298,15 @@ export async function createiMessageChannel(
       if (chatId.includes('chat')) {
         const attachments = message.attachments || [];
         if (message.text) {
-          const escapedText = message.text
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"');
+          const escapedText = escapeAppleScript(message.text);
+          const escapedChatId = escapeAppleScript(chatId);
           const groupScript = `
             tell application "Messages"
-              set targetChat to chat id "${chatId}"
+              set targetChat to chat id "${escapedChatId}"
               send "${escapedText}" to targetChat
             end tell
           `;
-          await execAsync(`osascript -e '${groupScript.replace(/'/g, "'\"'\"'")}'`);
+          await execFileAsync('osascript', ['-e', groupScript]);
         }
 
         for (const attachment of attachments) {
@@ -310,13 +317,15 @@ export async function createiMessageChannel(
             `clodds-imessage-${Date.now()}-${resolved.filename}`
           );
           await fsPromises.writeFile(tempPath, resolved.buffer);
+          const escapedGroupChatId = escapeAppleScript(chatId);
+          const escapedTempPath = escapeAppleScript(tempPath);
           const groupFileScript = `
             tell application "Messages"
-              set targetChat to chat id "${chatId}"
-              send (POSIX file "${tempPath}") to targetChat
+              set targetChat to chat id "${escapedGroupChatId}"
+              send (POSIX file "${escapedTempPath}") to targetChat
             end tell
           `;
-          await execAsync(`osascript -e '${groupFileScript.replace(/'/g, "'\"'\"'")}'`);
+          await execFileAsync('osascript', ['-e', groupFileScript]);
           await fsPromises.unlink(tempPath).catch((err) => {
           logger.debug({ err, tempPath }, 'Failed to cleanup temp iMessage file');
         });
@@ -341,8 +350,8 @@ export async function createiMessageChannel(
         JOIN attachment a ON a.ROWID = maj.attachment_id
         WHERE maj.message_id = ${safeMessageId}
       `;
-      const { stdout } = await execAsync(
-        `sqlite3 -json "${dbPath}" "${query.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
+      const { stdout } = await execFileAsync(
+        'sqlite3', ['-json', dbPath, query.replace(/\n/g, ' ')],
         { maxBuffer: 10 * 1024 * 1024 }
       );
       if (!stdout.trim()) return [];

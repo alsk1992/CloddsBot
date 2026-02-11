@@ -590,7 +590,7 @@ export class Sandbox {
         timeoutId = setTimeout(async () => {
           try {
             await this.docker.kill(containerId);
-          } catch {}
+          } catch (err) { logger.warn({ error: err, containerId }, 'Failed to kill timed-out container'); }
           resolve({
             exitCode: 124,
             stdout: '',

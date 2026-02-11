@@ -90,7 +90,7 @@ export async function createManifoldFeed(): Promise<ManifoldFeed> {
         id: a.id,
         name: a.text,
         price: a.probability,
-        volume24h: m.volume24Hours / m.answers!.length,
+        volume24h: m.answers && m.answers.length > 0 ? m.volume24Hours / m.answers.length : 0,
       }));
     }
 

@@ -137,8 +137,8 @@ export function createBittensorService(
 
       // Wallet + price refresh every 30 minutes
       walletRefreshInterval = setInterval(() => {
-        refreshWallet().catch(() => {});
-        refreshTaoPrice().catch(() => {});
+        refreshWallet().catch((err) => { logger.error({ error: err }, '[bittensor] Wallet refresh failed'); });
+        refreshTaoPrice().catch((err) => { logger.error({ error: err }, '[bittensor] TAO price refresh failed'); });
       }, 30 * 60_000);
 
     } catch (err) {

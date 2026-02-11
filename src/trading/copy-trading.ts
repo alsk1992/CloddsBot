@@ -646,13 +646,16 @@ export function createCopyTradingService(
       const closeSide = position.side === 'BUY' ? 'sell' : 'buy';
 
       if (!cfg.dryRun && execution) {
-        const result = await execution.protectedSell({
-          platform: 'polymarket',
+        const closeOrder = {
+          platform: 'polymarket' as const,
           marketId: position.originalTrade.marketId,
           tokenId: position.originalTrade.tokenId,
           price: exitPrice,
           size: position.size,
-        }, cfg.maxSlippage / 100);
+        };
+        const result = closeSide === 'buy'
+          ? await execution.protectedBuy(closeOrder, cfg.maxSlippage / 100)
+          : await execution.protectedSell(closeOrder, cfg.maxSlippage / 100);
 
         if (!result.success) {
           logger.error({ tradeId, error: result.error }, 'Failed to close position');

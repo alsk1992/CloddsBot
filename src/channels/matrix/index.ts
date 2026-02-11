@@ -204,7 +204,7 @@ export async function createMatrixChannel(
         const code = await pairing.createPairingRequest(
           'matrix',
           event.sender,
-          event.sender.split(':')[0].slice(1) // Extract localpart
+          event.sender?.split(':')[0]?.slice(1) ?? 'unknown' // Extract localpart
         );
         if (code) {
           await sendMessage({

@@ -275,6 +275,21 @@ export function createRiskModeler(): RiskModeler {
   function modelRisk(input: RiskModelInput): RiskModelOutput {
     const { legs, positionSize, expectedEdge, timeHorizonMs = 86400000, sameEvent } = input;
 
+    if (legs.length === 0) {
+      return {
+        riskScore: 0, riskLevel: 'low', fullExecutionProb: 0, expectedPnL: 0,
+        worstCasePnL: 0, var95: 0, maxDrawdown: 0, riskAdjustedReturn: 0,
+        riskBreakdown: {
+          executionRisk: { score: 0, legFillProbs: [], partialFillRisk: 0 },
+          timingRisk: { score: 0, expectedSlippage: 0, maxSlippage: 0, priceVolatility: 0 },
+          platformRisk: { score: 0, withdrawalRisk: 0, counterpartyRisk: 0, platformScores: {} as Record<Platform, number> },
+          liquidityRisk: { score: 0, liquidityDepth: 0, impactCost: 0, fillProbability: 0 },
+          correlationRisk: { score: 0, correlation: 0, diversificationBenefit: 0 },
+        },
+        recommendations: ['No legs provided'], adjustedPositionSize: 0, executionSequence: [],
+      };
+    }
+
     // ==========================================================================
     // EXECUTION RISK
     // ==========================================================================

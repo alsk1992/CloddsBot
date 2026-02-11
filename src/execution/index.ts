@@ -271,6 +271,9 @@ export interface ExecutionService {
   setCircuitBreaker(breaker: import('./circuit-breaker').CircuitBreaker | null): void;
   /** Get current circuit breaker state (null if not set) */
   getCircuitBreakerState(): import('./circuit-breaker').CircuitBreakerState | null;
+
+  /** Stop the execution service: disconnect WebSocket, stop heartbeat, clear timers */
+  stop(): void;
 }
 
 // =============================================================================
@@ -367,6 +370,7 @@ export function getPolymarketExchange(negRisk: boolean): string {
 
 // Cache for tick sizes, neg risk status, fee rates, and orderbooks
 const tickSizeCache = new Map<string, { tickSize: string; cachedAt: number }>();
+const tickSizeInflight = new Map<string, Promise<string>>();
 const negRiskCache = new Map<string, { negRisk: boolean; cachedAt: number }>();
 const feeRateCache = new Map<string, { feeRateBps: number; cachedAt: number }>();
 const orderbookCache = new Map<string, { data: OrderbookData; cachedAt: number }>();
@@ -396,18 +400,31 @@ export async function getPolymarketTickSize(tokenId: string): Promise<string> {
     return cached.tickSize;
   }
 
-  try {
-    const response = await fetch(`${POLY_CLOB_URL}/book?token_id=${tokenId}`);
-    if (!response.ok) {
-      return '0.01'; // Default tick size
-    }
-    const data = await response.json() as { tick_size?: string };
-    const tickSize = data.tick_size || '0.01';
-    tickSizeCache.set(tokenId, { tickSize, cachedAt: Date.now() });
-    return tickSize;
-  } catch {
-    return '0.01';
+  // Deduplicate concurrent requests for the same token
+  const inflight = tickSizeInflight.get(tokenId);
+  if (inflight) {
+    return inflight;
   }
+
+  const promise = (async () => {
+    try {
+      const response = await fetch(`${POLY_CLOB_URL}/book?token_id=${tokenId}`);
+      if (!response.ok) {
+        return '0.01'; // Default tick size
+      }
+      const data = await response.json() as { tick_size?: string };
+      const tickSize = data.tick_size || '0.01';
+      tickSizeCache.set(tokenId, { tickSize, cachedAt: Date.now() });
+      return tickSize;
+    } catch {
+      return '0.01';
+    } finally {
+      tickSizeInflight.delete(tokenId);
+    }
+  })();
+
+  tickSizeInflight.set(tokenId, promise);
+  return promise;
 }
 
 /**
@@ -2632,7 +2649,7 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
       const timeout = setTimeout(() => {
         const waiters = fillWaiters.get(orderId);
         if (waiters) {
-          const idx = waiters.indexOf(resolve);
+          const idx = waiters.indexOf(resolveWrapper);
           if (idx !== -1) waiters.splice(idx, 1);
           if (waiters.length === 0) fillWaiters.delete(orderId);
         }
@@ -3496,7 +3513,26 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
     getCircuitBreakerState() {
       return circuitBreaker?.getState() ?? null;
     },
+
+    stop() {
+      disconnectFillsWebSocket();
+      stopHeartbeat();
+      if (fillCleanupInterval) {
+        clearInterval(fillCleanupInterval);
+        fillCleanupInterval = null;
+      }
+    },
   };
+
+  // Periodic cleanup of old tracked fills/orders (every 10 minutes)
+  const fillCleanupTimer = setInterval(() => {
+    const cleared = service.clearOldFills();
+    if (cleared > 0) {
+      logger.info({ cleared }, 'Cleared old tracked fills/orders');
+    }
+  }, 10 * 60 * 1000);
+  fillCleanupTimer.unref();
+  let fillCleanupInterval: ReturnType<typeof setInterval> | null = fillCleanupTimer;
 
   return service;
 }

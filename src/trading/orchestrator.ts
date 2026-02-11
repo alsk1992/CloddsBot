@@ -237,6 +237,7 @@ export function createTradingOrchestrator(deps: OrchestratorDeps): TradingOrches
     getOrderbooksBatch: execution.getOrderbooksBatch.bind(execution),
     setCircuitBreaker: execution.setCircuitBreaker.bind(execution),
     getCircuitBreakerState: execution.getCircuitBreakerState.bind(execution),
+    stop: execution.stop?.bind(execution) ?? (() => {}),
   };
 
   // ── Public API ──────────────────────────────────────────────────────────

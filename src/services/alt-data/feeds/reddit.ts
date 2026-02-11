@@ -140,8 +140,8 @@ export function createRedditFeed(
 
   function start(): void {
     if (timer) return;
-    poll().catch(() => {});
-    timer = setInterval(() => { poll().catch(() => {}); }, intervalMs);
+    poll().catch((err) => { logger.error({ error: err }, '[reddit] Feed poll failed'); });
+    timer = setInterval(() => { poll().catch((err) => { logger.error({ error: err }, '[reddit] Feed poll failed'); }); }, intervalMs);
     logger.info({ intervalMs, subreddits }, '[reddit] Feed started');
   }
 

@@ -414,6 +414,7 @@ function wrapExecutionWithLogging(
     // Circuit breaker integration
     setCircuitBreaker: execution.setCircuitBreaker.bind(execution),
     getCircuitBreakerState: execution.getCircuitBreakerState.bind(execution),
+    stop: execution.stop?.bind(execution) ?? (() => {}),
   };
 }
 

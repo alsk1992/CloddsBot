@@ -151,6 +151,7 @@ export function createCircuitBreaker(
   let checkInterval: ReturnType<typeof setInterval> | null = null;
   let dailyResetTimeout: ReturnType<typeof setTimeout> | null = null;
   let dailyResetInterval: ReturnType<typeof setInterval> | null = null;
+  let autoResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Trip the circuit breaker
@@ -175,8 +176,12 @@ export function createCircuitBreaker(
 
     emitter.emit('tripped', { reason, state: getState() });
 
-    // Schedule auto-reset
-    setTimeout(() => {
+    // Schedule auto-reset (clear any previous auto-reset timer first)
+    if (autoResetTimer) {
+      clearTimeout(autoResetTimer);
+    }
+    autoResetTimer = setTimeout(() => {
+      autoResetTimer = null;
       if (isTripped && tripReason === reason) {
         reset();
       }
@@ -281,7 +286,7 @@ export function createCircuitBreaker(
     }
 
     // Check max loss percentage
-    const lossPct = (sessionPnL / initialBalance) * -100;
+    const lossPct = initialBalance > 0 ? (sessionPnL / initialBalance) * -100 : 0;
     if (lossPct >= cfg.maxLossPct) {
       trip('max_loss_pct');
       return;
@@ -378,6 +383,11 @@ export function createCircuitBreaker(
     if (dailyResetInterval) {
       clearInterval(dailyResetInterval);
       dailyResetInterval = null;
+    }
+
+    if (autoResetTimer) {
+      clearTimeout(autoResetTimer);
+      autoResetTimer = null;
     }
 
     logger.info('Circuit breaker stopped');

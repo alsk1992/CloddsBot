@@ -56,7 +56,13 @@ class CDPConnection extends EventEmitter {
       });
 
       this.ws.on('message', (data: Buffer) => {
-        const msg: CDPMessage = JSON.parse(data.toString());
+        let msg: CDPMessage;
+        try {
+          msg = JSON.parse(data.toString());
+        } catch (err) {
+          logger.warn({ error: err }, 'Failed to parse CDP message');
+          return;
+        }
 
         if (msg.id !== undefined) {
           const pending = this.pending.get(msg.id);
@@ -371,7 +377,7 @@ function findChrome(): string | null {
 /** Get list of targets from CDP */
 async function getTargets(port: number): Promise<CDPTarget[]> {
   return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json/list`, (res) => {
+    const req = http.get(`http://127.0.0.1:${port}/json/list`, { timeout: 5000 }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
@@ -381,14 +387,16 @@ async function getTargets(port: number): Promise<CDPTarget[]> {
           reject(e);
         }
       });
-    }).on('error', reject);
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('CDP list request timed out')); });
+    req.on('error', reject);
   });
 }
 
 /** Create new target */
 async function createTarget(port: number, url = 'about:blank'): Promise<CDPTarget> {
   return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json/new?${url}`, (res) => {
+    const req = http.get(`http://127.0.0.1:${port}/json/new?${url}`, { timeout: 5000 }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
@@ -398,7 +406,9 @@ async function createTarget(port: number, url = 'about:blank'): Promise<CDPTarge
           reject(e);
         }
       });
-    }).on('error', reject);
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('CDP create target request timed out')); });
+    req.on('error', reject);
   });
 }
 

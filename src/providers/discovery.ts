@@ -902,6 +902,12 @@ export function createResponseCache(maxSize = 1000, ttlMs = 3600000): ResponseCa
     get(key) {
       const entry = cache.get(key);
       if (entry) {
+        // Check if entry has expired before returning it
+        if (Date.now() - entry.timestamp.getTime() > ttlMs) {
+          cache.delete(key);
+          misses++;
+          return undefined;
+        }
         entry.hits++;
         hits++;
         savedTokens += entry.result.usage.totalTokens;

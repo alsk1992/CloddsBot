@@ -11,6 +11,9 @@ import type { ToolInput, HandlerResult, HandlersMap, HandlerContext } from './ty
 import { safeHandler, errorResult, successResult } from './types';
 import type { PolymarketCredentials } from '../../types';
 import { buildPolymarketHeadersForUrl, PolymarketApiKeyAuth } from '../../utils/polymarket-auth';
+import { createLogger } from '../../utils/logger';
+
+const logger = createLogger('handlers:polymarket');
 
 // =============================================================================
 // HELPERS
@@ -486,7 +489,12 @@ async function balancesHandler(
     // Fetch USDC balance
     const balanceUrl = `https://clob.polymarket.com/balance?address=${address}`;
     const balanceResponse = await fetchClob(context, balanceUrl);
-    const balanceData = balanceResponse.ok ? await balanceResponse.json() as { balance?: string; allowance?: string } : {};
+    let balanceData: { balance?: string; allowance?: string } = {};
+    if (balanceResponse.ok) {
+      balanceData = await balanceResponse.json() as { balance?: string; allowance?: string };
+    } else {
+      logger.warn(`Failed to fetch Polymarket balance for ${address}: HTTP ${balanceResponse.status} ${balanceResponse.statusText}`);
+    }
 
     // Fetch positions
     const positionsUrl = `https://clob.polymarket.com/positions?address=${address}`;

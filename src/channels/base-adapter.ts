@@ -87,6 +87,7 @@ export abstract class BaseAdapter extends EventEmitter implements ChannelAdapter
   private tokenBucket: TokenBucket;
   private circuitBreaker: CircuitBreaker;
   private healthCheckTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts: number = 0;
   private metrics: AdapterMetrics;
 
@@ -194,6 +195,12 @@ export abstract class BaseAdapter extends EventEmitter implements ChannelAdapter
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
       this.healthCheckTimer = null;
+    }
+
+    // Clear reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
 
     try {
@@ -453,7 +460,8 @@ export abstract class BaseAdapter extends EventEmitter implements ChannelAdapter
       delay,
     }, 'Scheduling reconnection');
 
-    setTimeout(async () => {
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
       if (this._stopping) return;
 
       try {

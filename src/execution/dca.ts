@@ -188,12 +188,18 @@ export function createDCAOrder(
     // Calculate this cycle's size in shares (amount / price)
     const remainingBudget = totalAmount - investedAmount;
     const cycleBudget = Math.min(dcaConfig.amountPerCycle, remainingBudget);
-    const cycleShares = Math.floor(cycleBudget / orderRequest.price);
+    const price = Number(orderRequest.price) || 0;
+    const cycleShares = price > 0 ? Math.floor(cycleBudget / price) : 0;
 
+    // If remaining budget is too small for even 1 share (dust), mark complete
     if (cycleShares <= 0) {
       status = 'completed';
       persist();
       activeOrders.delete(orderId);
+      logger.info(
+        { orderId, remainingBudget, price },
+        'DCA completed: remaining budget below minimum order size'
+      );
       emitter.emit('complete', getProgress());
       return;
     }
@@ -204,14 +210,30 @@ export function createDCAOrder(
         : await executionService.buyLimit({ ...orderRequest, size: cycleShares, orderType: 'GTC' });
 
       if (result.success) {
-        const fillPrice = result.avgFillPrice ?? orderRequest.price;
-        const cost = cycleShares * fillPrice;
-        investedAmount += cost;
-        totalShares += cycleShares;
-        totalCost += cost;
-        cyclesCompleted++;
+        // NaN guard: Number(undefined) => NaN, || 0 catches NaN and 0
+        const rawFillPrice = Number(result.avgFillPrice) || 0;
+        const rawFilledSize = Number(result.filledSize) || 0;
 
-        emitter.emit('cycle', { cycle: cyclesCompleted, shares: cycleShares, price: fillPrice, progress: getProgress() });
+        // Use actual fill data when valid, fall back to request values
+        const fillPrice = rawFillPrice > 0 ? rawFillPrice : price;
+        const filledShares = rawFilledSize > 0 ? rawFilledSize : cycleShares;
+
+        if (fillPrice > 0 && filledShares > 0) {
+          const cost = filledShares * fillPrice;
+          investedAmount += cost;
+          totalShares += filledShares;
+          totalCost += cost;
+          cyclesCompleted++;
+        } else {
+          // Both fill price and size are 0/NaN — skip accumulation but count the cycle
+          cyclesCompleted++;
+          logger.warn(
+            { orderId, rawFillPrice, rawFilledSize },
+            'DCA cycle returned invalid fill data, skipping accumulation'
+          );
+        }
+
+        emitter.emit('cycle', { cycle: cyclesCompleted, shares: filledShares, price: fillPrice, progress: getProgress() });
       } else {
         emitter.emit('cycle_failed', { cycle: cyclesCompleted + 1, error: result.error });
       }

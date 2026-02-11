@@ -291,7 +291,7 @@ export function createMediaService(): MediaService {
         // Clean up temp file
         try {
           unlinkSync(tempPath);
-        } catch {}
+        } catch (err) { logger.warn({ error: err, path: tempPath }, 'Temp file cleanup failed'); }
         throw error;
       }
     },
@@ -330,7 +330,7 @@ export function createMediaService(): MediaService {
 
       try {
         unlinkSync(file.path);
-      } catch {}
+      } catch (err) { logger.warn({ error: err, id, path: file.path }, 'Media file cleanup failed'); }
 
       files.delete(id);
       logger.debug({ id }, 'Media deleted');
@@ -348,7 +348,7 @@ export function createMediaService(): MediaService {
         if (expired || age > DEFAULT_TTL_MS) {
           try {
             unlinkSync(file.path);
-          } catch {}
+          } catch (err) { logger.warn({ error: err, id, path: file.path }, 'Expired media file cleanup failed'); }
           files.delete(id);
           deleted++;
         }

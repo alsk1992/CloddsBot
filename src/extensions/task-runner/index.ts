@@ -280,7 +280,8 @@ builtInExecutors.set('transform', {
 
     switch (transform) {
       case 'json.parse':
-        return JSON.parse(inputData as string);
+        try { return JSON.parse(inputData as string); }
+        catch { return inputData; }
 
       case 'json.stringify':
         return JSON.stringify(inputData, null, 2);
@@ -356,10 +357,14 @@ builtInExecutors.set('transform', {
               (acc, item) => [...(acc as unknown[]), safeGetProperty(item, reduceField)],
               initial ?? []
             );
-          case 'min':
-            return Math.min(...(inputData as unknown[]).map(item => safeGetProperty(item, reduceField) as number));
-          case 'max':
-            return Math.max(...(inputData as unknown[]).map(item => safeGetProperty(item, reduceField) as number));
+          case 'min': {
+            const values = (inputData as unknown[]).map(item => safeGetProperty(item, reduceField) as number).filter(Number.isFinite);
+            return values.length > 0 ? Math.min(...values) : 0;
+          }
+          case 'max': {
+            const values = (inputData as unknown[]).map(item => safeGetProperty(item, reduceField) as number).filter(Number.isFinite);
+            return values.length > 0 ? Math.max(...values) : 0;
+          }
           default:
             throw new Error(`reduce requires operation: sum, count, concat, min, or max`);
         }
@@ -453,7 +458,12 @@ Rules:
       throw new Error('Failed to parse task plan from LLM response');
     }
 
-    const tasks = JSON.parse(jsonMatch[0]) as TaskDefinition[];
+    let tasks: TaskDefinition[];
+    try {
+      tasks = JSON.parse(jsonMatch[0]) as TaskDefinition[];
+    } catch {
+      throw new Error('Failed to parse task plan JSON from LLM response');
+    }
     logger.info({ taskCount: tasks.length }, 'Generated task plan');
 
     return tasks;

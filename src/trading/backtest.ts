@@ -347,7 +347,7 @@ export function createBacktestEngine(db: Database): BacktestEngine {
     for (let i = 1; i < equityCurve.length; i++) {
       const prev = equityCurve[i - 1].equity;
       const curr = equityCurve[i].equity;
-      dailyReturns.push((curr - prev) / prev);
+      dailyReturns.push(prev !== 0 ? (curr - prev) / prev : 0);
     }
 
     // Sharpe ratio
@@ -635,7 +635,7 @@ export function createBacktestEngine(db: Database): BacktestEngine {
 
       outcomes.sort((a, b) => a - b);
 
-      const percentile = (p: number) => outcomes[Math.floor(outcomes.length * p)];
+      const percentile = (p: number) => outcomes[Math.min(Math.floor(outcomes.length * p), outcomes.length - 1)];
 
       return {
         simulations,

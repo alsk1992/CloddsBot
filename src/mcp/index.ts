@@ -662,7 +662,11 @@ class SseMcpClient implements McpClient {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      this.handleData(decoder.decode(value, { stream: true }));
+      try {
+        this.handleData(decoder.decode(value, { stream: true }));
+      } catch (err) {
+        logger.error({ error: err }, 'MCP SSE handle error');
+      }
     }
   }
 

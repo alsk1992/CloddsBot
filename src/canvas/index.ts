@@ -107,7 +107,13 @@ function generateHtml(state: CanvasState): string {
       const msg = JSON.parse(e.data);
       if (msg.type === 'update') {
         if (msg.html) {
-          // Security: Use textContent for text-only updates, innerHTML only for trusted HTML
+          // Security: innerHTML is used intentionally here. The trust model is:
+          // 1. The WebSocket connects only to the same origin (ws:// + location.host)
+          // 2. The HTTP/WS server binds to localhost only (not externally reachable)
+          // 3. All HTML is generated server-side by the bot itself via push()/pushComponent()
+          // 4. Component renderers (renderComponent) escape user-supplied text with escapeHtml()
+          // 5. Only the 'custom' component type allows raw HTML, with an explicit trust warning
+          // Therefore msg.html is always bot-generated trusted content.
           const container = document.querySelector('.container');
           if (msg.textOnly) {
             container.textContent = msg.html;

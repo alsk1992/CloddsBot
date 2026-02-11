@@ -389,15 +389,20 @@ export function createWebChatChannel(
       const messageId = (msg as { messageId?: string }).messageId ?? randomUUID();
 
       if (session?.ws.readyState === WebSocket.OPEN) {
-        session.ws.send(JSON.stringify({
-          type: 'message',
-          messageId,
-          text: msg.text,
-          parseMode: msg.parseMode,
-          buttons: msg.buttons,
-          attachments: msg.attachments || [],
-          timestamp: new Date().toISOString(),
-        }));
+        try {
+          session.ws.send(JSON.stringify({
+            type: 'message',
+            messageId,
+            text: msg.text,
+            parseMode: msg.parseMode,
+            buttons: msg.buttons,
+            attachments: msg.attachments || [],
+            timestamp: new Date().toISOString(),
+          }));
+        } catch (err) {
+          logger.warn({ chatId: msg.chatId, err }, 'WebChat: Send failed (connection closed mid-send)');
+          throw new Error('WebChat session not connected');
+        }
         return messageId;
       } else {
         logger.warn({ chatId: msg.chatId }, 'WebChat: Session not found or closed');
@@ -408,22 +413,30 @@ export function createWebChatChannel(
     async editMessage(msg: OutgoingMessage & { messageId: string }): Promise<void> {
       const session = sessions.get(msg.chatId);
       if (session?.ws.readyState === WebSocket.OPEN) {
-        session.ws.send(JSON.stringify({
-          type: 'edit',
-          messageId: msg.messageId,
-          text: msg.text,
-          parseMode: msg.parseMode,
-        }));
+        try {
+          session.ws.send(JSON.stringify({
+            type: 'edit',
+            messageId: msg.messageId,
+            text: msg.text,
+            parseMode: msg.parseMode,
+          }));
+        } catch {
+          // Connection closed between readyState check and send — ignore
+        }
       }
     },
 
     async deleteMessage(msg: OutgoingMessage & { messageId: string }): Promise<void> {
       const session = sessions.get(msg.chatId);
       if (session?.ws.readyState === WebSocket.OPEN) {
-        session.ws.send(JSON.stringify({
-          type: 'delete',
-          messageId: msg.messageId,
-        }));
+        try {
+          session.ws.send(JSON.stringify({
+            type: 'delete',
+            messageId: msg.messageId,
+          }));
+        } catch {
+          // Connection closed between readyState check and send — ignore
+        }
       }
     },
 

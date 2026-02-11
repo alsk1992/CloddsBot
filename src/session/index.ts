@@ -332,10 +332,14 @@ export class SessionManager extends EventEmitter {
 
     if (this.invites.size >= MAX_INVITES) {
       const now = new Date();
+      const toDelete: string[] = [];
       for (const [id, inv] of this.invites) {
         if (inv.accepted || now > inv.expiresAt) {
-          this.invites.delete(id);
+          toDelete.push(id);
         }
+      }
+      for (const id of toDelete) {
+        this.invites.delete(id);
       }
     }
 
@@ -424,6 +428,7 @@ export class SessionManager extends EventEmitter {
     if (session) {
       session.state = 'closed';
       session.updatedAt = new Date();
+      this.messages.delete(sessionId);
       this.saveSessions();
       this.emit('session:close', session);
       logger.info({ sessionId }, 'Session closed');

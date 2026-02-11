@@ -275,12 +275,19 @@ async function main() {
     console.log('\n  Press Ctrl+C to stop\n');
 
     let shuttingDown = false;
+    const SHUTDOWN_TIMEOUT_MS = 15000;
     const shutdown = async () => {
       if (shuttingDown) return;
       shuttingDown = true;
       console.log('\n\x1b[33mShutting down...\x1b[0m');
       try {
-        await gateway.stop();
+        await Promise.race([
+          gateway.stop(),
+          new Promise<void>((resolve) => setTimeout(() => {
+            logger.warn('Shutdown timed out after 15s, forcing exit');
+            resolve();
+          }, SHUTDOWN_TIMEOUT_MS)),
+        ]);
       } catch (e) {
         logger.error({ err: e }, 'Error during shutdown');
       }
@@ -307,12 +314,19 @@ async function main() {
     logger.info('Clodds is running!');
 
     let shuttingDown = false;
+    const SHUTDOWN_TIMEOUT_MS = 15000;
     const shutdown = async () => {
       if (shuttingDown) return;
       shuttingDown = true;
       logger.info('Shutting down...');
       try {
-        await gateway.stop();
+        await Promise.race([
+          gateway.stop(),
+          new Promise<void>((resolve) => setTimeout(() => {
+            logger.warn('Shutdown timed out after 15s, forcing exit');
+            resolve();
+          }, SHUTDOWN_TIMEOUT_MS)),
+        ]);
       } catch (e) {
         logger.error({ err: e }, 'Error during shutdown');
       }

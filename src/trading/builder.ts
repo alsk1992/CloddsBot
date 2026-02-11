@@ -548,11 +548,18 @@ export function createStrategyBuilder(db: Database): StrategyBuilder {
         [userId]
       );
 
-      return rows.map((row) => ({
-        id: row.id,
-        definition: JSON.parse(row.definition_json) as StrategyDefinition,
-        createdAt: new Date(row.created_at),
-      }));
+      return rows.map((row) => {
+        try {
+          return {
+            id: row.id,
+            definition: JSON.parse(row.definition_json) as StrategyDefinition,
+            createdAt: new Date(row.created_at),
+          };
+        } catch {
+          logger.warn({ id: row.id }, 'Skipping strategy with corrupt definition_json');
+          return null;
+        }
+      }).filter((item): item is NonNullable<typeof item> => item !== null);
     },
 
     deleteDefinition(userId, definitionId) {

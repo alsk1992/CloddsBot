@@ -80,8 +80,8 @@ export function createFearGreedFeed(
   function start(): void {
     if (timer) return;
     // Initial poll
-    poll().catch(() => {});
-    timer = setInterval(() => { poll().catch(() => {}); }, intervalMs);
+    poll().catch((err) => { logger.error({ error: err }, '[fear-greed] Feed poll failed'); });
+    timer = setInterval(() => { poll().catch((err) => { logger.error({ error: err }, '[fear-greed] Feed poll failed'); }); }, intervalMs);
     logger.info({ intervalMs }, '[fear-greed] Feed started');
   }
 

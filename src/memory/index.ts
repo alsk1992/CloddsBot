@@ -426,7 +426,7 @@ export function createMemoryService(
         date: row.date,
         summary: row.summary,
         messageCount: row.messageCount,
-        topics: JSON.parse(row.topics) as string[],
+        topics: (() => { try { return JSON.parse(row.topics) as string[]; } catch { return []; } })(),
         createdAt: new Date(row.createdAt),
       };
     },
@@ -444,7 +444,7 @@ export function createMemoryService(
         date: row.date,
         summary: row.summary,
         messageCount: row.messageCount,
-        topics: JSON.parse(row.topics) as string[],
+        topics: (() => { try { return JSON.parse(row.topics) as string[]; } catch { return []; } })(),
         createdAt: new Date(row.createdAt),
       }));
     },

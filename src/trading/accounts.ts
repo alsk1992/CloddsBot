@@ -228,18 +228,22 @@ export function createAccountManager(db: Database): AccountManager {
   try {
     const rows = db.query<any>(`SELECT * FROM trading_accounts`);
     for (const row of rows) {
-      accounts.set(row.id, {
-        id: row.id,
-        name: row.name,
-        platform: row.platform as Platform,
-        type: row.type,
-        credentials: row.credentials_json ? JSON.parse(row.credentials_json) : {},
-        risk: row.risk_json ? JSON.parse(row.risk_json) : { maxOrderSize: 100, maxExposure: 1000 },
-        enabled: row.enabled === 1,
-        tags: row.tags_json ? JSON.parse(row.tags_json) : undefined,
-        notes: row.notes,
-        createdAt: new Date(row.created_at),
-      });
+      try {
+        accounts.set(row.id, {
+          id: row.id,
+          name: row.name,
+          platform: row.platform as Platform,
+          type: row.type,
+          credentials: row.credentials_json ? JSON.parse(row.credentials_json) : {},
+          risk: row.risk_json ? JSON.parse(row.risk_json) : { maxOrderSize: 100, maxExposure: 1000 },
+          enabled: row.enabled === 1,
+          tags: row.tags_json ? JSON.parse(row.tags_json) : undefined,
+          notes: row.notes,
+          createdAt: new Date(row.created_at),
+        });
+      } catch (e) {
+        logger.warn({ accountId: row.id, error: e }, 'Skipping account with corrupt JSON');
+      }
     }
     logger.info({ count: accounts.size }, 'Loaded trading accounts');
   } catch {

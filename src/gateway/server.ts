@@ -655,9 +655,9 @@ export function createServer(
         const val = String(value || '');
         const lineIdx = lines.findIndex(l => l.startsWith(key + '='));
         if (lineIdx >= 0) {
-          lines[lineIdx] = `${key}=${val}`;
+          lines[lineIdx] = `${key}="${val}"`;
         } else {
-          lines.push(`${key}=${val}`);
+          lines.push(`${key}="${val}"`);
         }
         process.env[key] = val;
         updatedKeys.push(key);

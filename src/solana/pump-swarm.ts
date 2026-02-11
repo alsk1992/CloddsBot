@@ -657,7 +657,7 @@ export class PumpFunSwarm extends EventEmitter {
     this.confirmAllAsync(walletResults.filter(r => r.success && r.signature).map(r => r.signature!));
 
     // Schedule position refresh
-    setTimeout(() => { this.refreshTokenPositions(params.mint).catch(() => {}); }, 5000);
+    setTimeout(() => { this.refreshTokenPositions(params.mint).catch((err) => { logger.error({ mint: params.mint, error: err }, 'Failed to refresh token positions'); }); }, 5000);
 
     return this.buildResult(params, walletResults, startTime, errors, 'parallel');
   }
@@ -694,7 +694,7 @@ export class PumpFunSwarm extends EventEmitter {
       for (const result of walletResults) {
         if (!result.error) result.success = true;
       }
-      setTimeout(() => { this.refreshTokenPositions(params.mint).catch(() => {}); }, 5000);
+      setTimeout(() => { this.refreshTokenPositions(params.mint).catch((err) => { logger.error({ mint: params.mint, error: err }, 'Failed to refresh token positions'); }); }, 5000);
       return this.buildResult(params, walletResults, startTime, errors, 'bundle', [bundleId]);
     } catch (e) {
       errors.push(`Bundle failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -759,7 +759,7 @@ export class PumpFunSwarm extends EventEmitter {
       errors.push(...result.errors);
     }
 
-    setTimeout(() => { this.refreshTokenPositions(params.mint).catch(() => {}); }, 5000);
+    setTimeout(() => { this.refreshTokenPositions(params.mint).catch((err) => { logger.error({ mint: params.mint, error: err }, 'Failed to refresh token positions'); }); }, 5000);
     return this.buildResult(params, allWalletResults, startTime, errors, 'multi-bundle', bundleIds);
   }
 
@@ -854,7 +854,7 @@ export class PumpFunSwarm extends EventEmitter {
       }
     }
 
-    setTimeout(() => { this.refreshTokenPositions(params.mint).catch(() => {}); }, 5000);
+    setTimeout(() => { this.refreshTokenPositions(params.mint).catch((err) => { logger.error({ mint: params.mint, error: err }, 'Failed to refresh token positions'); }); }, 5000);
     return this.buildResult(params, walletResults, startTime, errors, 'sequential');
   }
 
@@ -1417,7 +1417,7 @@ export class PumpFunSwarm extends EventEmitter {
       }
     }
 
-    setTimeout(() => { this.refreshTokenPositions(mint).catch(() => {}); }, 5000);
+    setTimeout(() => { this.refreshTokenPositions(mint).catch((err) => { logger.error({ mint, error: err }, 'Failed to refresh token positions'); }); }, 5000);
 
     return {
       success: consolidations.some(c => c.signature),
@@ -2119,7 +2119,7 @@ export class PumpFunSwarm extends EventEmitter {
       await sleep(500);
     }
 
-    setTimeout(() => { this.refreshTokenPositions(mint).catch(() => {}); }, 5000);
+    setTimeout(() => { this.refreshTokenPositions(mint).catch((err) => { logger.error({ mint, error: err }, 'Failed to refresh token positions'); }); }, 5000);
 
     return {
       success: transfers.some(t => t.signature),

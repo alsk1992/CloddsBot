@@ -82,12 +82,15 @@ async function findArbitrageHandler(
 
     // Cross-platform price discrepancies
     if (mode === 'both' || mode === 'cross') {
-      const searchResults = await Promise.all(
+      const results = await Promise.allSettled(
         platforms.map(async (platform) => ({
           platform,
           markets: await context.feeds!.searchMarkets(query, platform),
         }))
       );
+      const searchResults = results
+        .filter((r): r is PromiseFulfilledResult<{ platform: string; markets: Market[] }> => r.status === 'fulfilled')
+        .map(r => r.value);
 
       const grouped = new Map<string, Array<{ platform: string; market: Market; yesPrice: number }>>();
       for (const { platform, markets } of searchResults) {

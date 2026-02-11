@@ -13,6 +13,7 @@ import type { ExecutionService } from '../../execution/index';
 import type { FeedManager } from '../../feeds/index';
 import type { MMConfig, MMState, Quote } from './types';
 import { generateQuotes, shouldRequote, computeFairValue, updateEmaFairValue } from './engine';
+import { logger } from '../../utils/logger';
 
 export interface MMStrategyDeps {
   execution: ExecutionService;
@@ -68,10 +69,10 @@ export function createMMStrategy(
       await deps.execution.cancelOrdersBatch(
         mmConfig.platform as 'polymarket',
         allIds,
-      ).catch(() => {});
+      ).catch((err) => { logger.error({ platform: mmConfig.platform, orderIds: allIds, error: err }, 'Failed to cancel MM orders batch'); });
     } else {
       await Promise.all(
-        allIds.map((id) => deps.execution.cancelOrder(mmConfig.platform, id).catch(() => false)),
+        allIds.map((id) => deps.execution.cancelOrder(mmConfig.platform, id).catch((err) => { logger.error({ platform: mmConfig.platform, orderId: id, error: err }, 'Failed to cancel MM order'); return false; })),
       );
     }
     state.activeBids = [];

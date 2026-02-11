@@ -49,7 +49,7 @@ export function enforceExposureLimits(
 
   if (!maxPositionValue && !maxTotalExposure && !stopLossPct) return null;
 
-  if (stopLossPct && stopLossPct > 1) {
+  if (stopLossPct && stopLossPct >= 1) {
     stopLossPct = stopLossPct / 100;
   }
 

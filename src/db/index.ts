@@ -2743,7 +2743,13 @@ export async function initDatabase(): Promise<Database> {
         run('DELETE FROM markets WHERE platform = ? AND market_id = ?', [platform, marketId]);
         return undefined;
       }
-      return JSON.parse(row.data);
+      try {
+        return JSON.parse(row.data) as Market;
+      } catch {
+        logger.warn({ platform, marketId }, 'Corrupted market cache entry, deleting');
+        run('DELETE FROM markets WHERE platform = ? AND market_id = ?', [platform, marketId]);
+        return undefined;
+      }
     },
 
     pruneMarketCache(cutoffMs: number): number {

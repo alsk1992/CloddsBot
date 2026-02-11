@@ -211,11 +211,18 @@ export function createSmartRouter(
       if (remainingSize <= 0) break;
     }
 
-    const fillPrice = filledSize > 0 ? totalCost / filledSize : levels[0][0];
-    const bestBid = orderbook.bids[0]?.[0] || 0;
-    const bestAsk = orderbook.asks[0]?.[0] || 1;
-    const midPrice = (bestBid + bestAsk) / 2 || fillPrice;
-    const slippage = Math.abs(fillPrice - midPrice) / midPrice * 100;
+    // If nothing was filled (e.g. all levels filtered by limit price), return zero
+    // to signal no liquidity rather than fabricating a price
+    if (filledSize === 0) {
+      return { fillPrice: 0, slippage: 0, availableSize: 0 };
+    }
+
+    const fillPrice = totalCost / filledSize;
+    const bestBid = orderbook.bids[0]?.[0];
+    const bestAsk = orderbook.asks[0]?.[0];
+    // Only compute slippage when both sides of the book exist
+    const midPrice = bestBid != null && bestAsk != null ? (bestBid + bestAsk) / 2 : fillPrice;
+    const slippage = midPrice > 0 ? Math.abs(fillPrice - midPrice) / midPrice * 100 : 0;
 
     return { fillPrice, slippage, availableSize: filledSize };
   }

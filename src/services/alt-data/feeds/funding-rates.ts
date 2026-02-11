@@ -98,8 +98,8 @@ export function createFundingRatesFeed(
 
   function start(): void {
     if (timer) return;
-    poll().catch(() => {});
-    timer = setInterval(() => { poll().catch(() => {}); }, intervalMs);
+    poll().catch((err) => { logger.error({ error: err }, '[funding-rates] Feed poll failed'); });
+    timer = setInterval(() => { poll().catch((err) => { logger.error({ error: err }, '[funding-rates] Feed poll failed'); }); }, intervalMs);
     logger.info({ intervalMs, symbols }, '[funding-rates] Feed started');
   }
 

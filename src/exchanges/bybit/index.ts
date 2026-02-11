@@ -88,6 +88,7 @@ function getClient(config: BybitConfig): RestClientV5 {
 export async function getPrice(config: BybitConfig, symbol: string): Promise<number> {
   const c = getClient(config);
   const result = await c.getTickers({ category: 'linear', symbol });
+  if (!result.result?.list?.length) throw new Error('No ticker data');
   const ticker = result.result.list[0];
   return parseFloat(ticker.markPrice);
 }
@@ -95,6 +96,7 @@ export async function getPrice(config: BybitConfig, symbol: string): Promise<num
 export async function getFundingRate(config: BybitConfig, symbol: string): Promise<FundingRate> {
   const c = getClient(config);
   const result = await c.getTickers({ category: 'linear', symbol });
+  if (!result.result?.list?.length) throw new Error('No ticker data');
   const ticker = result.result.list[0];
   return {
     symbol,

@@ -10691,7 +10691,8 @@ async function executeTool(
       case 'polymarket_neg_risk': {
         const tokenId = toolInput.token_id as string;
         try {
-          const response = await fetchPolymarketClob(context, `https://clob.polymarket.com/neg-risk?token_id=${tokenId}`);
+          const negRiskParams = new URLSearchParams({ token_id: tokenId });
+          const response = await fetchPolymarketClob(context, `https://clob.polymarket.com/neg-risk?${negRiskParams}`);
           const data = await response.json() as ApiResponse;
           return JSON.stringify({ token_id: tokenId, neg_risk: data.neg_risk });
         } catch (err: unknown) {
@@ -10704,7 +10705,8 @@ async function executeTool(
         const tokenIds = toolInput.token_ids as string[];
         try {
           const results = await Promise.all(tokenIds.map(async (id) => {
-            const r = await fetch(`https://clob.polymarket.com/midpoint?token_id=${id}`);
+            const params = new URLSearchParams({ token_id: id });
+            const r = await fetch(`https://clob.polymarket.com/midpoint?${params}`);
             const d = await r.json() as { mid?: string };
             return { token_id: id, mid: d.mid };
           }));
@@ -10718,7 +10720,8 @@ async function executeTool(
         const requests = toolInput.requests as Array<{ token_id: string; side: string }>;
         try {
           const results = await Promise.all(requests.map(async (req) => {
-            const r = await fetch(`https://clob.polymarket.com/price?token_id=${req.token_id}&side=${req.side}`);
+            const params = new URLSearchParams({ token_id: req.token_id, side: req.side });
+            const r = await fetch(`https://clob.polymarket.com/price?${params}`);
             const d = await r.json() as { price?: string };
             return { token_id: req.token_id, side: req.side, price: d.price };
           }));
@@ -10732,7 +10735,8 @@ async function executeTool(
         const tokenIds = toolInput.token_ids as string[];
         try {
           const results = await Promise.all(tokenIds.map(async (id) => {
-            const r = await fetch(`https://clob.polymarket.com/spread?token_id=${id}`);
+            const params = new URLSearchParams({ token_id: id });
+            const r = await fetch(`https://clob.polymarket.com/spread?${params}`);
             const d = await r.json() as { spread?: string };
             return { token_id: id, spread: d.spread };
           }));
@@ -10746,7 +10750,8 @@ async function executeTool(
         const tokenIds = toolInput.token_ids as string[];
         try {
           const results = await Promise.all(tokenIds.map(async (id) => {
-            const r = await fetch(`https://clob.polymarket.com/book?token_id=${id}`);
+            const params = new URLSearchParams({ token_id: id });
+            const r = await fetch(`https://clob.polymarket.com/book?${params}`);
             const d = await r.json() as { bids?: Array<{ price: string; size: string }>; asks?: Array<{ price: string; size: string }> };
             return { token_id: id, bids: (d.bids || []).slice(0, 5), asks: (d.asks || []).slice(0, 5) };
           }));
@@ -10760,7 +10765,8 @@ async function executeTool(
         const tokenIds = toolInput.token_ids as string[];
         try {
           const results = await Promise.all(tokenIds.map(async (id) => {
-            const r = await fetch(`https://clob.polymarket.com/last-trade-price?token_id=${id}`);
+            const params = new URLSearchParams({ token_id: id });
+            const r = await fetch(`https://clob.polymarket.com/last-trade-price?${params}`);
             const d = await r.json() as { price?: string };
             return { token_id: id, price: d.price };
           }));
@@ -15832,6 +15838,7 @@ async function executeTool(
 
         proc.on('exit', (code) => {
           logs.push(`[EXIT] Process exited with code ${code}`);
+          backgroundProcesses.delete(botId);
         });
 
         backgroundProcesses.set(botId, {
@@ -15865,10 +15872,9 @@ async function executeTool(
 
         try {
           bot.process.kill('SIGTERM');
+          const processRef = bot.process;
           setTimeout(() => {
-            if (!bot.process.killed) {
-              bot.process.kill('SIGKILL');
-            }
+            try { if (!processRef.killed) processRef.kill('SIGKILL'); } catch {}
           }, 5000);
           backgroundProcesses.delete(botId);
           return JSON.stringify({ result: 'Bot stopped', botId });

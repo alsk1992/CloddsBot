@@ -936,7 +936,10 @@ const ENV_MAPPINGS: Record<string, (cfg: CloddsConfig) => void> = {
     if (!cfg.channels) cfg.channels = {};
     if (!cfg.channels.imessage) cfg.channels.imessage = {};
     const value = process.env.IMESSAGE_POLL_INTERVAL;
-    if (value) cfg.channels.imessage.pollInterval = Number.parseInt(value, 10);
+    if (value) {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isNaN(parsed)) cfg.channels.imessage.pollInterval = parsed;
+    }
   },
   LINE_CHANNEL_ACCESS_TOKEN: (cfg) => {
     if (!cfg.channels) cfg.channels = {};
@@ -952,7 +955,10 @@ const ENV_MAPPINGS: Record<string, (cfg: CloddsConfig) => void> = {
     if (!cfg.channels) cfg.channels = {};
     if (!cfg.channels.line) cfg.channels.line = {};
     const value = process.env.LINE_WEBHOOK_PORT;
-    if (value) cfg.channels.line.webhookPort = Number.parseInt(value, 10);
+    if (value) {
+      const parsed = Number.parseInt(value, 10);
+      if (!Number.isNaN(parsed)) cfg.channels.line.webhookPort = parsed;
+    }
   },
   LINE_WEBHOOK_PATH: (cfg) => {
     if (!cfg.channels) cfg.channels = {};
@@ -1332,19 +1338,19 @@ function rotateBackups(configPath: string): void {
   // Delete oldest
   try {
     unlinkSync(`${backupBase}.${CONFIG_BACKUP_COUNT - 1}`);
-  } catch {}
+  } catch (err) { logger.debug({ error: err }, 'Config backup rotation: oldest delete failed'); }
 
   // Shift backups
   for (let i = CONFIG_BACKUP_COUNT - 2; i >= 1; i--) {
     try {
       renameSync(`${backupBase}.${i}`, `${backupBase}.${i + 1}`);
-    } catch {}
+    } catch (err) { logger.debug({ error: err, index: i }, 'Config backup rotation: shift failed'); }
   }
 
   // Move current backup
   try {
     renameSync(backupBase, `${backupBase}.1`);
-  } catch {}
+  } catch (err) { logger.debug({ error: err }, 'Config backup rotation: move current failed'); }
 }
 
 /** Save config to file */
@@ -1704,10 +1710,12 @@ export function createConfigService(configPath = CONFIG_PATH): ConfigService {
     },
 
     getValue<T>(path: string): T | undefined {
+      const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
       const parts = path.split('.');
       let current: unknown = config;
 
       for (const part of parts) {
+        if (DANGEROUS_KEYS.has(part)) return undefined;
         if (current && typeof current === 'object') {
           current = (current as Record<string, unknown>)[part];
         } else {
@@ -1719,11 +1727,13 @@ export function createConfigService(configPath = CONFIG_PATH): ConfigService {
     },
 
     setValue(path: string, value: unknown) {
+      const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
       const parts = path.split('.');
       let current: unknown = config;
 
       for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i];
+        if (DANGEROUS_KEYS.has(part)) return;
         const obj = current as Record<string, unknown>;
         if (!obj[part] || typeof obj[part] !== 'object') {
           obj[part] = {};
@@ -1731,7 +1741,9 @@ export function createConfigService(configPath = CONFIG_PATH): ConfigService {
         current = obj[part];
       }
 
-      (current as Record<string, unknown>)[parts[parts.length - 1]] = value;
+      const finalKey = parts[parts.length - 1];
+      if (DANGEROUS_KEYS.has(finalKey)) return;
+      (current as Record<string, unknown>)[finalKey] = value;
     },
 
     reload() {

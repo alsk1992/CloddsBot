@@ -239,7 +239,12 @@ async function connectCDP(port: number, onDisconnect?: (reason: string) => void)
     });
 
     ws.on('message', (data: Buffer) => {
-      const msg = JSON.parse(data.toString());
+      let msg: any;
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        return; // skip malformed CDP messages
+      }
       if (msg.id && pending.has(msg.id)) {
         const { resolve, reject } = pending.get(msg.id)!;
         pending.delete(msg.id);

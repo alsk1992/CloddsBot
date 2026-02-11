@@ -74,7 +74,7 @@ function createCameraCapture(): CameraCapture {
         logger.debug('Camera snap captured');
         return buffer;
       } catch (error) {
-        try { unlinkSync(outPath); } catch {}
+        try { unlinkSync(outPath); } catch { /* cleanup failure, ignore */ }
         throw error;
       }
     },
@@ -103,7 +103,7 @@ function createCameraCapture(): CameraCapture {
         logger.debug({ durationSec }, 'Camera clip recorded');
         return buffer;
       } catch (error) {
-        try { unlinkSync(outPath); } catch {}
+        try { unlinkSync(outPath); } catch { /* cleanup failure, ignore */ }
         throw error;
       }
     },
@@ -118,7 +118,7 @@ function createCameraCapture(): CameraCapture {
           const output = execSync('v4l2-ctl --list-devices 2>/dev/null || ls /dev/video* 2>/dev/null', { encoding: 'utf-8' });
           return output.trim().split('\n').filter(Boolean);
         }
-      } catch {}
+      } catch (err) { logger.debug({ error: err }, 'Failed to list camera devices'); }
       return [];
     },
 
@@ -184,7 +184,7 @@ function createScreenCapture(): ScreenCapture {
         logger.debug('Screenshot captured');
         return buffer;
       } catch (error) {
-        try { unlinkSync(outPath); } catch {}
+        try { unlinkSync(outPath); } catch { /* cleanup failure, ignore */ }
         throw error;
       }
     },
@@ -223,7 +223,7 @@ function createScreenCapture(): ScreenCapture {
         logger.debug({ durationSec }, 'Screen recording captured');
         return buffer;
       } catch (error) {
-        try { unlinkSync(outPath); } catch {}
+        try { unlinkSync(outPath); } catch { /* cleanup failure, ignore */ }
         throw error;
       }
     },
@@ -253,7 +253,7 @@ function createScreenCapture(): ScreenCapture {
             };
           });
         }
-      } catch {}
+      } catch (err) { logger.debug({ error: err }, 'Failed to list displays'); }
       return [];
     },
 
@@ -327,7 +327,7 @@ if let loc = delegate.location {
             logger.debug({ lat, lon, accuracy }, 'Location retrieved');
             return { lat, lon, accuracy };
           } catch {
-            try { unlinkSync(scriptPath); } catch {}
+            try { unlinkSync(scriptPath); } catch { /* cleanup failure, ignore */ }
             return null;
           }
         } else if (os === 'linux') {
@@ -340,7 +340,7 @@ if let loc = delegate.location {
             return null;
           }
         }
-      } catch {}
+      } catch (err) { logger.debug({ error: err }, 'Failed to get location'); }
       return null;
     },
 

@@ -59,13 +59,15 @@ export async function createDiscordChannel(
 
   async function enforceRateLimit(key: string, reason: string): Promise<void> {
     if (!rateLimiter) return;
-    while (true) {
+    const MAX_RATE_LIMIT_WAITS = 20;
+    for (let attempt = 0; attempt < MAX_RATE_LIMIT_WAITS; attempt++) {
       const result = rateLimiter.check(key);
       if (result.allowed) return;
       const waitMs = Math.max(250, result.resetIn);
-      logger.warn({ reason, waitMs }, 'Discord rate limit hit; waiting');
+      logger.warn({ reason, waitMs, attempt: attempt + 1, maxAttempts: MAX_RATE_LIMIT_WAITS }, 'Discord rate limit hit; waiting');
       await sleep(waitMs);
     }
+    throw new Error(`Discord rate limit exceeded after ${MAX_RATE_LIMIT_WAITS} attempts for ${reason}`);
   }
 
   async function callDiscordApi<T>(key: string, reason: string, fn: () => Promise<T>): Promise<T> {

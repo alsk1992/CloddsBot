@@ -211,14 +211,14 @@ export function createBotStateManager(db: Database): BotStateManager {
         positions: row.positions_json ? JSON.parse(row.positions_json) : [],
         params: row.params_json ? JSON.parse(row.params_json) : {},
         paramsVersion: row.params_version || 1,
-        lastEvaluatedAt: new Date(row.last_evaluated_at),
+        lastEvaluatedAt: row.last_evaluated_at ? new Date(row.last_evaluated_at) : new Date(),
         evaluationCount: row.evaluation_count || 0,
         totalPnL: row.total_pnl || 0,
         unrealizedPnL: row.unrealized_pnl || 0,
         winRate: row.win_rate || 0,
         tradesCount: row.trades_count || 0,
         pendingSignals: row.pending_signals_json ? JSON.parse(row.pending_signals_json) : [],
-        createdAt: new Date(row.created_at),
+        createdAt: row.created_at ? new Date(row.created_at) : new Date(),
       };
     },
 
@@ -234,14 +234,14 @@ export function createBotStateManager(db: Database): BotStateManager {
         positions: row.positions_json ? JSON.parse(row.positions_json) : [],
         params: row.params_json ? JSON.parse(row.params_json) : {},
         paramsVersion: row.params_version || 1,
-        lastEvaluatedAt: new Date(row.last_evaluated_at),
+        lastEvaluatedAt: row.last_evaluated_at ? new Date(row.last_evaluated_at) : new Date(),
         evaluationCount: row.evaluation_count || 0,
         totalPnL: row.total_pnl || 0,
         unrealizedPnL: row.unrealized_pnl || 0,
         winRate: row.win_rate || 0,
         tradesCount: row.trades_count || 0,
         pendingSignals: row.pending_signals_json ? JSON.parse(row.pending_signals_json) : [],
-        createdAt: new Date(row.created_at),
+        createdAt: row.created_at ? new Date(row.created_at) : new Date(),
       }));
     },
 
@@ -298,6 +298,19 @@ export function createBotStateManager(db: Database): BotStateManager {
     },
 
     savePosition(strategyId, position) {
+      // Guard: if shares <= 0, delete the position instead of saving invalid state
+      if (position.shares <= 0) {
+        logger.warn(
+          { strategyId, marketId: position.marketId, outcome: position.outcome, shares: position.shares },
+          'Attempted to save position with non-positive shares, deleting instead'
+        );
+        db.run(
+          `DELETE FROM bot_positions WHERE strategy_id = ? AND market_id = ? AND outcome = ?`,
+          [strategyId, position.marketId, position.outcome]
+        );
+        return;
+      }
+
       db.run(
         `INSERT OR REPLACE INTO bot_positions
          (strategy_id, platform, market_id, outcome, token_id, shares, avg_price,
@@ -361,9 +374,17 @@ export function createBotStateManager(db: Database): BotStateManager {
     },
 
     deleteState(strategyId) {
-      db.run(`DELETE FROM bot_checkpoints WHERE strategy_id = ?`, [strategyId]);
-      db.run(`DELETE FROM bot_positions WHERE strategy_id = ?`, [strategyId]);
-      db.run(`DELETE FROM strategy_versions WHERE strategy_id = ?`, [strategyId]);
+      try {
+        db.run('BEGIN TRANSACTION');
+        db.run(`DELETE FROM bot_checkpoints WHERE strategy_id = ?`, [strategyId]);
+        db.run(`DELETE FROM bot_positions WHERE strategy_id = ?`, [strategyId]);
+        db.run(`DELETE FROM strategy_versions WHERE strategy_id = ?`, [strategyId]);
+        db.run('COMMIT');
+      } catch (err) {
+        try { db.run('ROLLBACK'); } catch { /* rollback best-effort */ }
+        logger.error({ strategyId, err }, 'Failed to delete bot state');
+        throw err;
+      }
 
       logger.info({ strategyId }, 'Bot state deleted');
     },

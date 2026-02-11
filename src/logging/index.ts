@@ -105,7 +105,7 @@ function rotateLogFile(filePath: string, maxFiles: number): void {
   // Delete oldest
   const oldest = `${filePath}.${maxFiles}`;
   if (existsSync(oldest)) {
-    try { unlinkSync(oldest); } catch {}
+    try { unlinkSync(oldest); } catch { /* log rotation: ignore cleanup error for oldest file */ }
   }
 
   // Rotate existing: .4 -> .5, .3 -> .4, .2 -> .3, .1 -> .2
@@ -113,13 +113,13 @@ function rotateLogFile(filePath: string, maxFiles: number): void {
     const src = `${filePath}.${i}`;
     const dst = `${filePath}.${i + 1}`;
     if (existsSync(src)) {
-      try { renameSync(src, dst); } catch {}
+      try { renameSync(src, dst); } catch { /* log rotation: ignore rename error */ }
     }
   }
 
   // Current file becomes .1
   if (existsSync(filePath)) {
-    try { renameSync(filePath, `${filePath}.1`); } catch {}
+    try { renameSync(filePath, `${filePath}.1`); } catch { /* log rotation: ignore rename error */ }
   }
 }
 
@@ -200,7 +200,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
           rotateLogFile(filePath, maxFiles);
         }
         appendFileSync(filePath, formatJson(entry) + '\n');
-      } catch {}
+      } catch { /* log file write failure: avoid recursive logging */ }
     }
   }
 
@@ -317,7 +317,7 @@ export function readLogs(filePath: string, query: LogQuery = {}): LogEntry[] {
     try {
       const entry = JSON.parse(line) as LogEntry;
       entries.push(entry);
-    } catch {}
+    } catch { /* skip malformed log line */ }
   }
 
   // Apply filters
@@ -355,8 +355,11 @@ export function readLogs(filePath: string, query: LogQuery = {}): LogEntry[] {
 // DEFAULT LOGGER
 // =============================================================================
 
+const _validLogLevels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+const _envLogLevel = process.env.LOG_LEVEL;
+
 export const defaultLogger = createLogger({
-  level: (process.env.LOG_LEVEL as LogLevel) || 'info',
+  level: (_envLogLevel && _validLogLevels.includes(_envLogLevel as LogLevel)) ? (_envLogLevel as LogLevel) : 'info',
   file: process.env.LOG_FILE !== 'false',
   pretty: process.env.LOG_JSON !== 'true',
 });

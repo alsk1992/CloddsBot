@@ -77,7 +77,7 @@ function getExecution(): ExecutionService | null {
           apiPassphrase: passphrase,
           privateKey: process.env.POLY_PRIVATE_KEY,
           funderAddress,
-          signatureType: process.env.POLY_SIGNATURE_TYPE ? Number(process.env.POLY_SIGNATURE_TYPE) : undefined,
+          signatureType: (() => { const n = process.env.POLY_SIGNATURE_TYPE ? Number(process.env.POLY_SIGNATURE_TYPE) : undefined; return n !== undefined && Number.isNaN(n) ? undefined : n; })(),
         },
         dryRun: process.env.DRY_RUN === 'true',
       });
