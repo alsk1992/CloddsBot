@@ -248,6 +248,9 @@ async function main() {
     } catch (e) {
       updateStep(idxDatabase, 'failed');
       stopSpinner();
+      if (gateway) {
+        try { await gateway.stop(); } catch { /* ignore cleanup errors */ }
+      }
       throw e;
     }
 
@@ -257,6 +260,9 @@ async function main() {
     } catch (e) {
       updateStep(idxGateway, 'failed');
       stopSpinner();
+      if (gateway) {
+        try { await gateway.stop(); } catch { /* ignore cleanup errors */ }
+      }
       throw e;
     }
 
@@ -279,6 +285,7 @@ async function main() {
     const shutdown = async () => {
       if (shuttingDown) return;
       shuttingDown = true;
+      stopSpinner(); // Clear spinner if still running
       console.log('\n\x1b[33mShutting down...\x1b[0m');
       try {
         await Promise.race([
@@ -318,6 +325,7 @@ async function main() {
     const shutdown = async () => {
       if (shuttingDown) return;
       shuttingDown = true;
+      stopSpinner(); // Clear spinner if still running
       logger.info('Shutting down...');
       try {
         await Promise.race([

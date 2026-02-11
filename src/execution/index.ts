@@ -3495,17 +3495,26 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
     clearOldFills(maxAgeMs = 3600000) { // Default 1 hour
       const now = Date.now();
       let cleared = 0;
+      // Collect keys to delete first to avoid mutation during iteration
+      const toDelete: string[] = [];
       for (const [orderId, fill] of trackedFills) {
         if (now - fill.receivedAt > maxAgeMs) {
-          trackedFills.delete(orderId);
-          cleared++;
+          toDelete.push(orderId);
         }
       }
+      for (const orderId of toDelete) {
+        trackedFills.delete(orderId);
+        cleared++;
+      }
       // Also clear old orders
+      const ordersToDelete: string[] = [];
       for (const [orderId, order] of trackedOrders) {
         if (now - order.receivedAt > maxAgeMs) {
-          trackedOrders.delete(orderId);
+          ordersToDelete.push(orderId);
         }
+      }
+      for (const orderId of ordersToDelete) {
+        trackedOrders.delete(orderId);
       }
       return cleared;
     },

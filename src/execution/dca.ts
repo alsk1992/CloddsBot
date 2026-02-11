@@ -222,6 +222,12 @@ export function createDCAOrder(
         ? await executionService.sellLimit({ ...orderRequest, size: cycleShares, orderType: 'GTC' })
         : await executionService.buyLimit({ ...orderRequest, size: cycleShares, orderType: 'GTC' });
 
+      // Re-check status after await — could have been paused/cancelled during execution
+      if (status !== 'active') {
+        logger.info({ orderId }, '[dca] Status changed during cycle execution, stopping');
+        return;
+      }
+
       if (result.success) {
         consecutiveFailures = 0;
 

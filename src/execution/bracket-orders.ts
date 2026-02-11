@@ -105,6 +105,7 @@ export function createBracketOrder(
   let filledSide: BracketStatus['filledSide'];
   let fillPrice: number | undefined;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let isPolling = false; // Guard flag to prevent overlapping polls
 
   // Track consecutive polls where both orders are missing (likely market resolved)
   let consecutiveBothMissing = 0;
@@ -365,8 +366,12 @@ export function createBracketOrder(
       );
 
       pollTimer = setInterval(() => {
+        if (isPolling) return;
+        isPolling = true;
         pollForFills().catch((err) => {
           logger.error({ error: String(err) }, 'Bracket poll error');
+        }).finally(() => {
+          isPolling = false;
         });
       }, pollIntervalMs);
 
@@ -477,8 +482,12 @@ export function createBracketOrder(
 
     // Start polling
     pollTimer = setInterval(() => {
+      if (isPolling) return;
+      isPolling = true;
       pollForFills().catch((err) => {
         logger.error({ error: String(err) }, 'Bracket poll error');
+      }).finally(() => {
+        isPolling = false;
       });
     }, pollIntervalMs);
 
