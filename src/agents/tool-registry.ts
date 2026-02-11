@@ -394,10 +394,10 @@ const PLATFORM_KEYWORDS: [RegExp, string][] = [
  * Synced with CATEGORY_REGEXES in inferToolMetadata — keep in sync!
  */
 const CATEGORY_KEYWORDS: [RegExp, string][] = [
-  [/\b(?:buy|sell|orders?|trades?|trading|swap|long|short|close|execute|cancel|bridge|bet|dca|limit|arb|arbitrage)\b/i, 'trading'],
+  [/\b(?:buy|sell|orders?|trades?|trading|swap|long|short|close|execute|cancel|bridge|bet|dca|limit|arb|arbitrage|invest)\b/i, 'trading'],
   [/\b(?:pool|liquidity|farm|lp|harvest|stake|reward|fee|claim)\b/i, 'defi'],
   [/\b(?:positions?|balances?|portfolio|pnl|profit|margin|leverage|collateral)\b|how much (?:do i|did i|am i|have)\b/i, 'portfolio'],
-  [/\b(?:prices?|quote|chart|orderbook|ticker|volume|spread|candlestick|midpoint|worth|markets?|fetch)\b/i, 'market_data'],
+  [/\b(?:prices?|quote|chart|orderbook|ticker|volume|spread|candlestick|midpoint|worth|btc|eth|sol|xrp|bitcoin|ethereum|solana|markets?|odds|trending|crypto)\b/i, 'market_data'],
   [/\b(?:credentials?|api[\s._-]?key|setup|login|connect|config(?:ure)?)\b/i, 'admin'],
   [/\b(?:file|shell|docker|email|sms|sql|webhook|deploy)\b/i, 'infrastructure'],
   [/\b(?:alerts?|watch|whale|notifications?|news|monitor(?:ing)?|track(?:ing)?)\b/i, 'alerts'],
