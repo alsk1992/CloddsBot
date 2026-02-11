@@ -44,6 +44,8 @@ export function createWebChatChannel(
   const sessions = new Map<string, ChatSession>();
   const userSockets = new Map<string, Set<string>>(); // userId -> sessionIds
   let heartbeatInterval: NodeJS.Timeout | null = null;
+  let wssRef: WebSocketServer | null = null;
+  let connectionHandler: ((ws: WebSocket, req: import('http').IncomingMessage) => void) | null = null;
 
   function broadcastToUser(userId: string, message: object): void {
     const sessionIds = userSockets.get(userId);
@@ -319,8 +321,15 @@ export function createWebChatChannel(
     start(wss: WebSocketServer): void {
       logger.info('WebChat: Starting channel');
 
+      // Remove any previous listener to prevent double-registration on reload
+      if (wssRef && connectionHandler) {
+        wssRef.off('connection', connectionHandler);
+      }
+
+      wssRef = wss;
+
       // Handle upgrades for /chat path
-      wss.on('connection', (ws, req) => {
+      connectionHandler = (ws, req) => {
         // Only handle /chat connections
         const url = req.url || '';
         if (!url.startsWith('/chat')) return;
@@ -334,7 +343,8 @@ export function createWebChatChannel(
           sessionId = randomUUID();
         }
         handleConnection(ws, sessionId);
-      });
+      };
+      wss.on('connection', connectionHandler);
 
       // Heartbeat to clean up dead connections
       heartbeatInterval = setInterval(() => {
@@ -366,6 +376,13 @@ export function createWebChatChannel(
     },
 
     stop(): void {
+      // Remove WSS connection listener to prevent double-registration on reload
+      if (wssRef && connectionHandler) {
+        wssRef.off('connection', connectionHandler);
+        connectionHandler = null;
+        wssRef = null;
+      }
+
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
         heartbeatInterval = null;

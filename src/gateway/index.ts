@@ -1761,7 +1761,26 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     return entry;
   }
 
+  // Message dedup guard — prevents double-processing from overlapping listeners
+  const recentMessageIds = new Map<string, number>();
+  const DEDUP_TTL_MS = 10_000;
+
   const handleIncomingMessage = async (message: IncomingMessage): Promise<void> => {
+    // Dedup: skip if same message ID processed recently
+    const dedupKey = `${message.platform}:${message.id}`;
+    const now = Date.now();
+    if (recentMessageIds.has(dedupKey)) {
+      logger.debug({ id: message.id, platform: message.platform }, 'Duplicate message suppressed');
+      return;
+    }
+    recentMessageIds.set(dedupKey, now);
+    // Prune old entries periodically
+    if (recentMessageIds.size > 500) {
+      for (const [key, ts] of recentMessageIds) {
+        if (now - ts > DEDUP_TTL_MS) recentMessageIds.delete(key);
+      }
+    }
+
     const normalized = normalizeIncomingMessage(message);
     const channelRateLimit = getChannelRateLimitConfig(normalized.platform);
     if (channelRateLimit) {
