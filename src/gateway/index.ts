@@ -1460,6 +1460,11 @@ export async function createGateway(config: Config): Promise<AppGateway> {
       .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
   });
 
+  // Clean up in-memory session cache when a webchat session is deleted via API
+  httpGateway.setOnSessionDelete((key: string) => {
+    sessions.deleteSession(key);
+  });
+
   webhookTool = createWebhookTool({
     manager: webhookManager,
     gatewayPort: currentConfig.gateway.port,

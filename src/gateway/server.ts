@@ -62,6 +62,7 @@ export interface GatewayServer {
   setCronRouter(router: Router | null): void;
   setCommandListHandler(handler: CommandListHandler | null): void;
   setHooksHandler(handler: HooksHandler | null): void;
+  setOnSessionDelete(handler: ((key: string) => void) | null): void;
 }
 
 /** Handler for /hooks/wake and /hooks/agent endpoints */
@@ -227,6 +228,7 @@ export function createServer(
   let featureEngineering: FeatureEngineering | null = null;
   let commandListHandler: CommandListHandler | null = null;
   let hooksHandler: HooksHandler | null = null;
+  let onSessionDelete: ((key: string) => void) | null = null;
 
   // Auth middleware for sensitive endpoints
   const authToken = process.env.CLODDS_TOKEN;
@@ -799,6 +801,10 @@ export function createServer(
         return;
       }
       db.deleteSession(session.key);
+      // Also clean up in-memory session cache
+      if (onSessionDelete) {
+        try { onSessionDelete(session.key); } catch { /* ignore cleanup errors */ }
+      }
       res.json({ ok: true });
     } catch (error) {
       logger.error({ error }, 'Failed to delete webchat session');
@@ -2808,6 +2814,9 @@ export function createServer(
     },
     setHooksHandler(handler: HooksHandler | null): void {
       hooksHandler = handler;
+    },
+    setOnSessionDelete(handler: ((key: string) => void) | null): void {
+      onSessionDelete = handler;
     },
   };
 }

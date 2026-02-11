@@ -520,10 +520,17 @@ class App {
   async deleteSession(sessionId) {
     if (!confirm('Delete this conversation?')) return;
     try {
-      await fetch(`/api/chat/sessions/${sessionId}?userId=${encodeURIComponent(this.userId)}`, {
+      const r = await fetch(`/api/chat/sessions/${sessionId}?userId=${encodeURIComponent(this.userId)}`, {
         method: 'DELETE',
       });
-    } catch { /* ignore */ }
+      if (!r.ok) {
+        this.chat.addMessage('Failed to delete conversation. Please try again.', 'system');
+        return;
+      }
+    } catch {
+      this.chat.addMessage('Failed to delete conversation. Please try again.', 'system');
+      return;
+    }
 
     this.sidebar.removeSession(sessionId);
 
