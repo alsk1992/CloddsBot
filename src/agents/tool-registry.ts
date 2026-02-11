@@ -397,7 +397,7 @@ const CATEGORY_KEYWORDS: [RegExp, string][] = [
   [/\b(?:buy|sell|orders?|trades?|trading|swap|long|short|close|execute|cancel|bridge|bet|dca|limit|arb|arbitrage)\b/i, 'trading'],
   [/\b(?:pool|liquidity|farm|lp|harvest|stake|reward|fee|claim)\b/i, 'defi'],
   [/\b(?:positions?|balances?|portfolio|pnl|profit|margin|leverage|collateral)\b|how much (?:do i|did i|am i|have)\b/i, 'portfolio'],
-  [/\b(?:prices?|quote|chart|orderbook|ticker|volume|spread|candlestick|midpoint|worth)\b/i, 'market_data'],
+  [/\b(?:prices?|quote|chart|orderbook|ticker|volume|spread|candlestick|midpoint|worth|markets?|fetch)\b/i, 'market_data'],
   [/\b(?:credentials?|api[\s._-]?key|setup|login|connect|config(?:ure)?)\b/i, 'admin'],
   [/\b(?:file|shell|docker|email|sms|sql|webhook|deploy)\b/i, 'infrastructure'],
   [/\b(?:alerts?|watch|whale|notifications?|news|monitor(?:ing)?|track(?:ing)?)\b/i, 'alerts'],
@@ -435,13 +435,14 @@ export function detectToolHints(message: string): { platforms: string[]; categor
  * These cover the most common use cases without needing tool_search.
  */
 export const CORE_TOOL_NAMES = new Set([
-  // Market discovery (6)
+  // Market discovery (7)
   'search_markets',
   'get_market',
   'market_index_search',
   'market_index_stats',
   'find_arbitrage',
   'compare_prices',
+  'polymarket_crypto_markets',
 
   // Portfolio (3)
   'get_portfolio',
