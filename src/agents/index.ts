@@ -7560,6 +7560,80 @@ function buildTools(): ToolDefinition[] {
       },
     },
     {
+      name: 'setup_drift_credentials',
+      description: 'Set up Drift (Solana) trading credentials. Required before trading perpetuals on Drift.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          private_key: { type: 'string', description: 'Solana private key (base58 format)' },
+          keypair_path: { type: 'string', description: 'Path to Solana keypair JSON file (alternative to private_key)' },
+        },
+        required: ['private_key'],
+      },
+    },
+    {
+      name: 'setup_smarkets_credentials',
+      description: 'Set up Smarkets trading credentials. Required before trading on Smarkets.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          api_token: { type: 'string', description: 'Smarkets API token' },
+          session_token: { type: 'string', description: 'Smarkets session token (alternative auth)' },
+        },
+        required: ['api_token'],
+      },
+    },
+    {
+      name: 'setup_opinion_credentials',
+      description: 'Set up Opinion.trade credentials. Required before trading on Opinion.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          api_key: { type: 'string', description: 'Opinion.trade API key' },
+          private_key: { type: 'string', description: 'BNB Chain wallet private key for trading' },
+          multi_sig_address: { type: 'string', description: 'Vault/funder address (optional)' },
+        },
+        required: ['api_key'],
+      },
+    },
+    {
+      name: 'setup_virtuals_credentials',
+      description: 'Set up Virtuals Protocol trading credentials. Required before trading AI agents on Virtuals.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          private_key: { type: 'string', description: 'EVM wallet private key (Base chain)' },
+          rpc_url: { type: 'string', description: 'Base chain RPC URL (optional, defaults to mainnet)' },
+        },
+        required: ['private_key'],
+      },
+    },
+    {
+      name: 'setup_hedgehog_credentials',
+      description: 'Set up Hedgehog Markets trading credentials. Required before trading on Hedgehog.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          private_key: { type: 'string', description: 'Solana wallet private key (base58)' },
+          api_key: { type: 'string', description: 'Hedgehog API key for higher rate limits (optional)' },
+        },
+        required: ['private_key'],
+      },
+    },
+    {
+      name: 'setup_predictfun_credentials',
+      description: 'Set up Predict.fun trading credentials. Required before trading on Predict.fun.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          private_key: { type: 'string', description: 'BNB Chain wallet private key for signing' },
+          predict_account: { type: 'string', description: 'Smart wallet/deposit address (optional)' },
+          api_key: { type: 'string', description: 'Predict.fun API key (optional)' },
+        },
+        required: ['private_key'],
+      },
+    },
+    {
       name: 'list_trading_credentials',
       description: 'List which platforms the user has trading credentials set up for',
       input_schema: {
@@ -7576,7 +7650,7 @@ function buildTools(): ToolDefinition[] {
           platform: {
             type: 'string',
             description: 'Platform to delete credentials for',
-            enum: ['polymarket', 'kalshi', 'manifold', 'binance', 'bybit', 'hyperliquid', 'mexc', 'betfair'],
+            enum: ['polymarket', 'kalshi', 'manifold', 'binance', 'bybit', 'hyperliquid', 'mexc', 'betfair', 'drift', 'smarkets', 'opinion', 'virtuals', 'hedgehog', 'predictfun'],
           },
         },
         required: ['platform'],
@@ -9906,6 +9980,74 @@ async function executeTool(
         return JSON.stringify({
           result: 'Betfair credentials saved! You can now trade on Betfair.',
           security_notice: 'Your credentials are encrypted with AES-256-GCM. Session tokens expire — you may need to refresh periodically.',
+        });
+      }
+
+      case 'setup_drift_credentials': {
+        await context.credentials.setCredentials(userId, 'drift', {
+          privateKey: toolInput.private_key as string,
+          keypairPath: (toolInput.keypair_path as string) || undefined,
+        });
+        return JSON.stringify({
+          result: 'Drift credentials saved! You can now trade perpetuals on Drift.',
+          security_notice: 'Your Solana private key is encrypted with AES-256-GCM. Use a dedicated trading wallet.',
+        });
+      }
+
+      case 'setup_smarkets_credentials': {
+        await context.credentials.setCredentials(userId, 'smarkets', {
+          apiToken: toolInput.api_token as string,
+          sessionToken: (toolInput.session_token as string) || undefined,
+        });
+        return JSON.stringify({
+          result: 'Smarkets credentials saved! You can now trade on Smarkets.',
+          security_notice: 'Your credentials are encrypted with AES-256-GCM.',
+        });
+      }
+
+      case 'setup_opinion_credentials': {
+        await context.credentials.setCredentials(userId, 'opinion', {
+          apiKey: toolInput.api_key as string,
+          privateKey: (toolInput.private_key as string) || undefined,
+          multiSigAddress: (toolInput.multi_sig_address as string) || undefined,
+        });
+        return JSON.stringify({
+          result: 'Opinion.trade credentials saved! You can now trade on Opinion.',
+          security_notice: 'Your credentials are encrypted with AES-256-GCM. Use a dedicated BNB Chain wallet for trading.',
+        });
+      }
+
+      case 'setup_virtuals_credentials': {
+        await context.credentials.setCredentials(userId, 'virtuals', {
+          privateKey: toolInput.private_key as string,
+          rpcUrl: (toolInput.rpc_url as string) || undefined,
+        });
+        return JSON.stringify({
+          result: 'Virtuals Protocol credentials saved! You can now trade AI agents on Virtuals.',
+          security_notice: 'Your EVM private key is encrypted with AES-256-GCM. Use a dedicated Base chain wallet.',
+        });
+      }
+
+      case 'setup_hedgehog_credentials': {
+        await context.credentials.setCredentials(userId, 'hedgehog', {
+          privateKey: toolInput.private_key as string,
+          apiKey: (toolInput.api_key as string) || undefined,
+        });
+        return JSON.stringify({
+          result: 'Hedgehog Markets credentials saved! You can now trade on Hedgehog.',
+          security_notice: 'Your Solana private key is encrypted with AES-256-GCM. Use a dedicated trading wallet.',
+        });
+      }
+
+      case 'setup_predictfun_credentials': {
+        await context.credentials.setCredentials(userId, 'predictfun', {
+          privateKey: toolInput.private_key as string,
+          predictAccount: (toolInput.predict_account as string) || undefined,
+          apiKey: (toolInput.api_key as string) || undefined,
+        });
+        return JSON.stringify({
+          result: 'Predict.fun credentials saved! You can now trade on Predict.fun.',
+          security_notice: 'Your BNB Chain private key is encrypted with AES-256-GCM. Use a dedicated trading wallet.',
         });
       }
 

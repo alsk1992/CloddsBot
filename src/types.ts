@@ -332,6 +332,16 @@ export interface BetfairCredentials {
 }
 
 /**
+ * PredictFun credentials (decrypted form)
+ */
+export interface PredictFunCredentials {
+  privateKey: string;
+  predictAccount?: string;
+  rpcUrl?: string;
+  apiKey?: string;
+}
+
+/**
  * Drift/Solana credentials (decrypted form)
  */
 export interface DriftCredentials {
@@ -399,6 +409,7 @@ export type PlatformCredentials =
   | { platform: 'hyperliquid'; data: HyperliquidCredentials }
   | { platform: 'mexc'; data: MexcCredentials }
   | { platform: 'betfair'; data: BetfairCredentials }
+  | { platform: 'predictfun'; data: PredictFunCredentials }
   | { platform: 'drift'; data: DriftCredentials }
   | { platform: 'smarkets'; data: SmarketsCredentials }
   | { platform: 'opinion'; data: OpinionCredentials }
@@ -591,7 +602,7 @@ export interface CredentialsManager {
   setCredentials: (
     userId: string,
     platform: Platform,
-    credentials: PolymarketCredentials | KalshiCredentials | ManifoldCredentials | BinanceCredentials | BybitCredentials | HyperliquidCredentials | MexcCredentials | BetfairCredentials
+    credentials: PolymarketCredentials | KalshiCredentials | ManifoldCredentials | BinanceCredentials | BybitCredentials | HyperliquidCredentials | MexcCredentials | BetfairCredentials | PredictFunCredentials | DriftCredentials | SmarketsCredentials | OpinionCredentials | VirtualsCredentials | HedgehogCredentials
   ) => Promise<void>;
   getCredentials: <T>(userId: string, platform: Platform) => Promise<T | null>;
   hasCredentials: (userId: string, platform: Platform) => Promise<boolean>;
