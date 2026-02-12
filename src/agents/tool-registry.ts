@@ -466,6 +466,11 @@ export const CORE_TOOL_NAMES = new Set([
   'save_session_checkpoint',
   'restore_session_checkpoint',
 
+  // Credentials (3) — always available so bot can onboard users naturally
+  'setup_polymarket_credentials',
+  'list_trading_credentials',
+  'delete_trading_credentials',
+
   // Quick price checks (3)
   'polymarket_price',
   'coingecko_price',
