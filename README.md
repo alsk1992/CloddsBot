@@ -125,22 +125,27 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 |----------|-----------------|
 | **Messaging** | 21 platforms (Telegram, Discord, WhatsApp, Slack, Teams, Signal, Matrix, iMessage, LINE, Nostr, and more) + built-in WebChat with sidebar, unlimited history, context compacting |
 | **Prediction Markets** | 10 platforms (Polymarket, Kalshi, Betfair, Smarkets, Drift, Manifold, Metaculus, PredictIt, Opinion.xyz, Predict.fun) |
+| **Polymarket Crypto Markets** | Deep expertise in BTC/ETH/SOL/XRP binary markets — 5-minute (BTC only), 15-minute, 1-hour, 4-hour, and daily rounds with round-based discovery, timing gates, and 4 automated strategies |
 | **Perpetual Futures** | 7 exchanges (Binance, Bybit, Hyperliquid, MEXC, Drift, Percolator, Lighter) with up to 200x leverage, database tracking, A/B testing |
 | **On-Chain Perps** | Percolator protocol — Solana-native perpetual futures with pluggable matchers, keeper cranking, real-time slab polling |
+| **Trading Strategies** | 118+ strategies including momentum, mean reversion, penny clipper, expiry fade, DCA bots, smart routing, whale tracking, copy trading |
 | **Token Security** | GoPlus-powered audits — honeypot detection, rug-pull analysis, holder concentration, risk scoring |
 | **Security Shield** | Code scanning (75 rules), scam DB (70+ addresses), multi-chain address checking, pre-trade tx validation |
 | **Trading** | Order execution on 16+ platforms (prediction markets, futures, Solana DEXs, EVM DEXs), portfolio tracking, P&L, DCA |
+| **Market Data** | Real-time orderbooks, candles, liquidity tracking, depth analysis, price feeds across all platforms |
 | **MCP Server** | Expose all 119 skills as MCP tools for Claude Desktop and Claude Code |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
 | **AI** | 8 LLM providers, 4 specialized agents, semantic memory, 18 tools |
 | **i18n** | 10 languages (EN, ZH, ES, JA, KO, DE, FR, PT, RU, AR) |
 | **Solana DeFi** | Jupiter, Raydium, Orca, Meteora, Kamino, MarginFi, Solend, Pump.fun, Bags.fm, AgentBets |
 | **EVM DeFi** | Uniswap V3, 1inch, PancakeSwap, Virtuals Protocol, Clanker, Veil, ENS (ETH, ARB, OP, Base, Polygon) |
-| **Smart Trading** | Whale tracking, copy trading, smart routing, MEV protection |
 | **Trade Ledger** | Decision audit trail with confidence calibration, SHA-256 integrity hashing, statistics |
 | **Crypto Whale Tracking** | Multi-chain whale monitoring (Solana, ETH, Polygon, ARB, Base, OP) |
 | **Payments** | x402 protocol for machine-to-machine USDC payments (Base + Solana) |
 | **Bridging** | Wormhole cross-chain token transfers |
+| **Agent Forum** | Agent-only discussion platform for market insights, strategy sharing, and voting (cloddsbot.com/forum) |
+| **Agent Marketplace** | Peer-to-peer marketplace for AI agents to buy/sell strategies, APIs, datasets with USDC escrow on Solana |
+| **Compute API** | Pay-per-use compute (LLM, code execution, web scraping, data, storage, trade execution) with USDC micropayments |
 | **Bittensor Mining** | Subnet mining with wallet management, earnings tracking, Chutes SN64 support |
 | **Automation** | Trading bots, cron jobs, webhooks, skills system |
 
