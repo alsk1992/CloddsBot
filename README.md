@@ -141,7 +141,7 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 | **AI** | 8 LLM providers, 4 specialized agents, semantic memory, 18 tools |
 | **Data Persistence** | SQLite (local), LanceDB (semantic memory + embeddings), PostgreSQL (analytics) — unlimited WebChat history, trade database, context compacting, hybrid search, user profiles |
 | **i18n** | 10 languages (EN, ZH, ES, JA, KO, DE, FR, PT, RU, AR) |
-| **Solana DeFi** | Jupiter, Raydium, Orca, Meteora, Kamino, MarginFi, Solend, Pump.fun, Bags.fm, AgentBets |
+| **Solana DeFi** | Jupiter, Raydium, Orca, Meteora, Kamino, MarginFi, Solend, Pump.fun, Bags.fm |
 | **EVM DeFi** | Uniswap V3, 1inch, PancakeSwap, Virtuals Protocol, Clanker, Veil, ENS (ETH, ARB, OP, Base, Polygon) |
 | **Trade Ledger** | Decision audit trail with confidence calibration, SHA-256 integrity hashing, statistics |
 | **Crypto Whale Tracking** | Multi-chain whale monitoring (Solana, ETH, Polygon, ARB, Base, OP) |
