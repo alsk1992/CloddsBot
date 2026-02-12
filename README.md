@@ -57,16 +57,17 @@ npm run build && npm start
 
 ## Demo
 
-**30-second onboarding walkthrough** — From `npm install` to market ready:
+**30-second terminal onboarding** — See Clodds in action:
 
 [![Watch the demo video](https://img.shields.io/badge/▶-Watch%20Demo-blue?style=for-the-badge)](https://cloddsbot.com/onboard.mp4)
 
-The interactive demo shows:
-- Running `npm install -g clodds`
-- Launching `clodds onboard` setup wizard
-- Fetching live 15-minute prediction markets from Polymarket
-- Setting up credentials (environment variables or input to Clodds)
-- Ready to trade with one command
+The demo shows:
+- `npm install -g clodds` → `clodds onboard`
+- Onboarding wizard walks through credentials setup
+- Fetches live 15-minute BTC prediction markets from Polymarket (in real-time)
+- One command away from trading
+
+After the demo: Set your env vars or input credentials, then you're ready to trade.
 
 ---
 
