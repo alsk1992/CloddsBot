@@ -31,7 +31,7 @@
 
 **Clodds** is a personal AI trading terminal for prediction markets, crypto spot, and **perpetual futures with leverage**. Run it on your own machine, chat via any of **21 messaging platforms**, trade across **10 prediction markets + 7 futures exchanges** (including on-chain Solana perps via Percolator), and manage your portfolio — all through natural conversation.
 
-Built on Claude with arbitrage detection algorithms based on [arXiv:2508.03474](https://arxiv.org/abs/2508.03474), which documented arbitrage patterns on Polymarket. See [Arbitrage Limitations](#arbitrage-limitations) for practical considerations.
+Powered by Claude with 118+ trading strategies, whale tracking, arbitrage detection, copy trading, and DCA bots.
 
 ---
 
