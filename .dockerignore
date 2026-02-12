@@ -10,3 +10,12 @@ logs
 *.db
 coverage
 tmp
+apps
+*.mp4
+*.gif
+*.png
+*.jpg
+workspace
+.clodds
+.vercel
+.vscode

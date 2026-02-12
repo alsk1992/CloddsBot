@@ -430,6 +430,11 @@ export interface AppGateway {
  * - Agent manager for non-command messages
  */
 export async function createGateway(config: Config): Promise<AppGateway> {
+  // Railway/Heroku inject PORT — override gateway port if set
+  const envPort = parseInt(process.env.PORT ?? '', 10);
+  if (envPort > 0 && envPort <= 65535) {
+    config = { ...config, gateway: { ...config.gateway, port: envPort } };
+  }
   let currentConfig = config;
   configureHttpClient(currentConfig.http);
   const configPath = process.env.CLODDS_CONFIG_PATH || CONFIG_FILE;
@@ -568,6 +573,19 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   {
     const { createAuditRouter } = await import('./audit-routes.js');
     httpGateway.setAuditRouter(createAuditRouter());
+  }
+
+  // Wire Launch API router (Solana token launches via Meteora DBC)
+  {
+    const { createLaunchRouter } = await import('./launch-routes.js');
+    const { getSolanaConnection, loadSolanaKeypair } = await import('../solana/wallet.js');
+    try {
+      const launchConnection = getSolanaConnection();
+      const launchKeypair = loadSolanaKeypair();
+      httpGateway.setLaunchRouter(createLaunchRouter(launchConnection, launchKeypair));
+    } catch (err) {
+      logger.warn({ err }, 'Launch API: Solana wallet not configured — launch endpoints disabled');
+    }
   }
 
   // DCA router is wired later (after executionService is created) so it can start the engine

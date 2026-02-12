@@ -60,6 +60,7 @@ export interface GatewayServer {
   setPaymentsRouter(router: Router | null): void;
   setEmbeddingsRouter(router: Router | null): void;
   setCronRouter(router: Router | null): void;
+  setLaunchRouter(router: Router | null): void;
   setCommandListHandler(handler: CommandListHandler | null): void;
   setHooksHandler(handler: HooksHandler | null): void;
   setOnSessionDelete(handler: ((key: string) => void) | null): void;
@@ -392,12 +393,15 @@ export function createServer(
         'POST /api/compute': { priceUsd: 0.01, description: 'Compute request' },
         'POST /api/backtest': { priceUsd: 0.05, description: 'Strategy backtest' },
         'GET /api/features': { priceUsd: 0.002, description: 'Feature snapshot' },
+        'POST /api/launch/token': { priceUsd: 1.00, description: 'Token launch' },
+        'POST /api/launch/swap': { priceUsd: 0.10, description: 'Bonding curve swap' },
+        'POST /api/launch/claim-fees': { priceUsd: 0.10, description: 'Claim creator fees' },
       }
     );
     logger.info({ network: config.x402.server.network || 'solana' }, 'x402 payment middleware enabled');
 
     // Apply x402 middleware to premium routes
-    app.use(['/api/compute', '/api/backtest', '/api/features'], x402.middleware);
+    app.use(['/api/compute', '/api/backtest', '/api/features', '/api/launch/token', '/api/launch/swap', '/api/launch/claim-fees'], x402.middleware);
   }
 
   // Health check endpoint (enhanced for production)
@@ -2810,6 +2814,11 @@ export function createServer(
     setCronRouter(router: Router | null): void {
       if (router) {
         app.use('/api/cron', requireAuth, router);
+      }
+    },
+    setLaunchRouter(router: Router | null): void {
+      if (router) {
+        app.use('/api/launch', requireAuth, router);
       }
     },
     setCommandListHandler(handler: CommandListHandler | null): void {

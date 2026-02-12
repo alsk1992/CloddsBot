@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 COPY src ./src
 
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 RUN npm run build
 
 FROM node:22-bookworm-slim AS runner
@@ -17,14 +17,11 @@ ENV CLODDS_STATE_DIR=/data
 ENV CLODDS_WORKSPACE=/data/workspace
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --legacy-peer-deps
 
 COPY --from=builder /app/dist ./dist
 
-RUN mkdir -p /data /data/workspace \
-  && chown -R node:node /data
-
-USER node
+RUN mkdir -p /data /data/workspace
 
 EXPOSE 18789
 
