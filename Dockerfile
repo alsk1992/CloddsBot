@@ -21,7 +21,10 @@ RUN npm ci --omit=dev --legacy-peer-deps
 
 COPY --from=builder /app/dist ./dist
 
-RUN mkdir -p /data /data/workspace
+RUN mkdir -p /data /data/workspace .transformers-cache
+
+# Pre-download embedding model so it's warm at runtime (no first-request hang)
+RUN node -e "const{pipeline,env}=require('@xenova/transformers');env.cacheDir='./.transformers-cache';pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2',{quantized:true}).then(()=>console.log('Model cached')).catch(e=>console.error('Model cache failed:',e))"
 
 EXPOSE 18789
 
