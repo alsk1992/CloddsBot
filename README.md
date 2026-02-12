@@ -29,7 +29,7 @@
 
 ---
 
-**Clodds** is a personal AI trading terminal for prediction markets, crypto spot, and **perpetual futures with leverage**. Run it on your own machine, chat via any of **21 messaging platforms**, trade across **10 prediction markets + 7 futures exchanges** (including on-chain Solana perps via Percolator), and manage your portfolio — all through natural conversation.
+**Clodds** is a personal AI trading terminal for prediction markets, crypto spot, perpetual futures with leverage, and **Bittensor subnet mining**. Run it on your own machine, chat via any of **21 messaging platforms**, trade across **10 prediction markets + 7 futures exchanges** (including on-chain Solana perps via Percolator), mine TAO on Bittensor, and manage your portfolio — all through natural conversation.
 
 Powered by Claude with 118+ trading strategies, whale tracking, arbitrage detection, copy trading, and DCA bots.
 
