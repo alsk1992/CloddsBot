@@ -436,6 +436,23 @@ Enable: `clodds config set ledger.enabled true`
                                                         │ • Leaderboards             │
                                                         │ • 9 Extensions             │
                                                         └────────────────────────────┘
+                                                                            │
+                                                                            ▼
+                        ┌───────────────────────────────────────────────────────────────┐
+                        │              DATA PERSISTENCE LAYER                           │
+                        ├───────────────────────────────────────────────────────────────┤
+                        │                                                               │
+                        │  SQLite (~/.clodds/)        LanceDB                PostgreSQL  │
+                        │  • Conversations            • Semantic Memory      • Trade DB  │
+                        │  • Trade History            • Embeddings           • Analytics │
+                        │  • Bots & Configs           • Hybrid BM25 Search   • A/B Tests │
+                        │  • WebChat Messages         • User Profiles        • Backtest  │
+                        │  • Portfolio Snapshots      • Facts DB             Data       │
+                        │  • Bittensor Earnings       • Context Cache        • Signals   │
+                        │  • A/B Test Results         • Similarity Search    • Stats     │
+                        │                                                               │
+                        │              Backup & Sync: 3x replication • Compression      │
+                        └───────────────────────────────────────────────────────────────┘
 ```
 
 ---
