@@ -1,9 +1,23 @@
 ---
 name: crypto-hft
-description: "Trade crypto binary markets on Polymarket (15-min & 5-min BTC) with 4 automated strategies"
+description: "Trade crypto binary markets on Polymarket with 4 automated strategies. Support: 5-min BTC, 15-min/1h/4h/daily all assets (BTC, ETH, SOL, XRP)"
 commands:
   - /crypto-hft
   - /hft
+keywords:
+  - "5 minute"
+  - "15 minute"
+  - "1 hour"
+  - "4 hour"
+  - "daily"
+  - "crypto trading"
+  - "binary markets"
+  - "polymarket"
+  - "automated strategies"
+  - "momentum"
+  - "mean reversion"
+  - "penny clipper"
+  - "expiry fade"
 gates:
   envs:
     - POLY_PRIVATE_KEY
@@ -15,13 +29,41 @@ gates:
 
 # Crypto HFT - Binary Market Trading
 
-Trade Polymarket's crypto binary markets with 4 automated strategies:
-- **15-minute markets**: BTC, ETH, SOL, XRP (all assets supported)
-- **5-minute markets**: BTC only (fastest settlement, high frequency)
+Trade Polymarket's crypto binary markets with 4 automated strategies. Just say what you want!
+
+**Available market durations** (pick one):
+- **5-minute**: BTC only - ultra-high frequency HFT
+- **15-minute**: All assets (BTC, ETH, SOL, XRP) - balanced, most popular
+- **1-hour**: All assets - faster swing trading
+- **4-hour**: All assets - multi-hour trends
+- **Daily**: All assets - position trading, overnight holds
 
 Each round has UP/DOWN token pairs that settle at 0 or 1 using Chainlink price feeds.
 
-Starts in **dry-run mode** by default (no real orders).
+Starts in **dry-run mode** by default (no real orders). Test for free before going live!
+
+## Talk to Clodds Naturally
+
+Just say what you want to trade:
+```
+"Trade 5-minute BTC markets"
+→ /hft start --preset 5min-btc
+
+"Start 1-hour trading on all assets"
+→ /hft start --preset 1h-all
+
+"I want 4-hour swing trades"
+→ /hft start --preset 4h-all
+
+"Show me daily market presets"
+→ /hft preset list
+
+"Trade conservatively on 15-minute markets"
+→ /hft start --preset conservative
+
+"Aggressive all-in on 15-min with all strategies"
+→ /hft start --preset aggressive
+```
 
 ## Quick Start
 
