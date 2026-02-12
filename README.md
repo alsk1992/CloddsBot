@@ -349,23 +349,26 @@ Enable: `clodds config set ledger.enabled true`
 │     HTTP • WebSocket • Auth • Rate Limiting • 1000 concurrent connections     │
 └──────────────────────────────────────────┬─────────────────────────────────────┘
                                            │
-    ┌──────────────────────────────────────┼──────────────────────────────────┐
-    ▼                                      ▼                                  ▼
-┌──────────────────────┐        ┌──────────────────────┐      ┌──────────────────────┐
-│   INPUT CHANNELS     │        │      AGENTS (4)      │      │   MARKET FEEDS       │
-│       (21)           │        │                      │      │      (15+)           │
-├──────────────────────┤        ├──────────────────────┤      ├──────────────────────┤
-│ WebChat (Full UI)    │        │ Main (Claude)        │      │ Polymarket (5-min    │
-│ Telegram             │        │ Trading (Exec)       │      │   /1h/4h/daily)      │
-│ Discord              │        │ Research (Data)      │      │ Kalshi               │
-│ Slack, Teams, Signal │        │ Alerts (Monitor)     │      │ Betfair              │
-│ WhatsApp, Matrix     │        │                      │      │ Manifold             │
-│ +14 more platforms   │        │ Tools: 18            │      │ Crypto (BTC/ETH/SOL) │
-│                      │        │ Skills: 119+         │      │                      │
-│                      │        │ Memory: LanceDB      │      │ Arbitrage Detector   │
-└──────────────────────┘        └──────────────────────┘      └──────────────────────┘
-    │                                   │                                  │
-    └───────────────────────────────────┼──────────────────────────────────┘
+    ┌────────────────────────────────┬─────────────────────────────────────┬────────────────────────────────┐
+    ▼                                ▼                                     ▼
+┌──────────────────────┐    ┌──────────────────────────────┐    ┌──────────────────────────────┐
+│   USER CHANNELS      │    │      AI AGENTS (4)           │    │  EXTERNAL INTEGRATIONS       │
+│       (21)           │    │                              │    │   (Markets + Data)           │
+├──────────────────────┤    ├──────────────────────────────┤    ├──────────────────────────────┤
+│ WebChat (Full UI)    │    │ Main (Claude)                │    │ Prediction Markets:          │
+│ Telegram             │    │ Trading (Execution)          │    │  • Polymarket (5-min/1h/4h/  │
+│ Discord              │    │ Research (Data Analysis)     │    │    daily BTC/ETH/SOL/XRP)    │
+│ Slack, Teams, Signal │    │ Alerts (Monitoring)          │    │  • Kalshi, Betfair, Smarkets │
+│ WhatsApp, Matrix     │    │                              │    │ Crypto Exchanges:            │
+│ +14 more platforms   │    │ Tools: 18 • Skills: 119+     │    │  • Binance, Bybit, Hyperliq, │
+│                      │    │ Memory: LanceDB + BM25       │    │    MEXC, Drift, Percolator   │
+│ User Input → Claude  │    │ Decision Making              │    │ DeFi: Jupiter, Uniswap, etc  │
+└──────────────────────┘    │ Trade Execution Logic        │    │ Data: Binance WS, Gamma API  │
+                            └──────────────────────────────┘    │ Whale Tracking, Price Feeds  │
+                                                                 └──────────────────────────────┘
+    │ Chat messages                   │ Process                              │ Real-time market
+    │ Commands                        │ & decide                            │ data, execute
+    └────────────────────────────────┬──────────────────────────────────────┘
                                         │
         ┌───────────────────────────────┼───────────────────────────────────┐
         ▼                               ▼                                   ▼
