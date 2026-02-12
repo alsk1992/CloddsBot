@@ -17,6 +17,11 @@ import {
   PolymarketCredentials,
   KalshiCredentials,
   ManifoldCredentials,
+  BinanceCredentials,
+  BybitCredentials,
+  HyperliquidCredentials,
+  MexcCredentials,
+  BetfairCredentials,
 } from '../types.js';
 import { Database } from '../db/index.js';
 import { logger } from '../utils/logger.js';
@@ -103,7 +108,7 @@ export interface CredentialsManager {
   setCredentials: (
     userId: string,
     platform: Platform,
-    credentials: PolymarketCredentials | KalshiCredentials | ManifoldCredentials
+    credentials: PolymarketCredentials | KalshiCredentials | ManifoldCredentials | BinanceCredentials | BybitCredentials | HyperliquidCredentials | MexcCredentials | BetfairCredentials
   ) => Promise<void>;
 
   /**

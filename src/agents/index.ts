@@ -7500,6 +7500,66 @@ function buildTools(): ToolDefinition[] {
       },
     },
     {
+      name: 'setup_binance_credentials',
+      description: 'Set up Binance Futures trading credentials. Required before trading futures on Binance.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          api_key: { type: 'string', description: 'Binance API key' },
+          api_secret: { type: 'string', description: 'Binance API secret' },
+        },
+        required: ['api_key', 'api_secret'],
+      },
+    },
+    {
+      name: 'setup_bybit_credentials',
+      description: 'Set up Bybit Futures trading credentials. Required before trading futures on Bybit.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          api_key: { type: 'string', description: 'Bybit API key' },
+          api_secret: { type: 'string', description: 'Bybit API secret' },
+        },
+        required: ['api_key', 'api_secret'],
+      },
+    },
+    {
+      name: 'setup_hyperliquid_credentials',
+      description: 'Set up Hyperliquid trading credentials. Required before trading on Hyperliquid.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          private_key: { type: 'string', description: 'Ethereum private key (0x...) for signing' },
+          wallet_address: { type: 'string', description: 'Wallet address (0x...)' },
+        },
+        required: ['private_key'],
+      },
+    },
+    {
+      name: 'setup_mexc_credentials',
+      description: 'Set up MEXC Futures trading credentials. Required before trading futures on MEXC.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          api_key: { type: 'string', description: 'MEXC API key' },
+          api_secret: { type: 'string', description: 'MEXC API secret' },
+        },
+        required: ['api_key', 'api_secret'],
+      },
+    },
+    {
+      name: 'setup_betfair_credentials',
+      description: 'Set up Betfair trading credentials. Required before trading on Betfair.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          app_key: { type: 'string', description: 'Betfair application key' },
+          session_token: { type: 'string', description: 'Betfair session token (SSOID)' },
+        },
+        required: ['app_key', 'session_token'],
+      },
+    },
+    {
       name: 'list_trading_credentials',
       description: 'List which platforms the user has trading credentials set up for',
       input_schema: {
@@ -7516,7 +7576,7 @@ function buildTools(): ToolDefinition[] {
           platform: {
             type: 'string',
             description: 'Platform to delete credentials for',
-            enum: ['polymarket', 'kalshi', 'manifold'],
+            enum: ['polymarket', 'kalshi', 'manifold', 'binance', 'bybit', 'hyperliquid', 'mexc', 'betfair'],
           },
         },
         required: ['platform'],
@@ -9791,6 +9851,61 @@ async function executeTool(
         return JSON.stringify({
           result: 'Manifold credentials saved! You can now bet on Manifold.',
           security_notice: 'Your API key is encrypted and stored securely. You can regenerate your API key on Manifold settings if needed.',
+        });
+      }
+
+      case 'setup_binance_credentials': {
+        await context.credentials.setCredentials(userId, 'binance', {
+          apiKey: toolInput.api_key as string,
+          apiSecret: toolInput.api_secret as string,
+        });
+        return JSON.stringify({
+          result: 'Binance credentials saved! You can now trade futures on Binance.',
+          security_notice: 'Your credentials are encrypted with AES-256-GCM. Use IP-restricted API keys for maximum security.',
+        });
+      }
+
+      case 'setup_bybit_credentials': {
+        await context.credentials.setCredentials(userId, 'bybit', {
+          apiKey: toolInput.api_key as string,
+          apiSecret: toolInput.api_secret as string,
+        });
+        return JSON.stringify({
+          result: 'Bybit credentials saved! You can now trade futures on Bybit.',
+          security_notice: 'Your credentials are encrypted with AES-256-GCM. Use IP-restricted API keys for maximum security.',
+        });
+      }
+
+      case 'setup_hyperliquid_credentials': {
+        await context.credentials.setCredentials(userId, 'hyperliquid', {
+          privateKey: toolInput.private_key as string,
+          walletAddress: (toolInput.wallet_address as string) || '',
+        });
+        return JSON.stringify({
+          result: 'Hyperliquid credentials saved! You can now trade on Hyperliquid.',
+          security_notice: 'Your private key is encrypted with AES-256-GCM. Consider using a dedicated trading wallet.',
+        });
+      }
+
+      case 'setup_mexc_credentials': {
+        await context.credentials.setCredentials(userId, 'mexc', {
+          apiKey: toolInput.api_key as string,
+          apiSecret: toolInput.api_secret as string,
+        });
+        return JSON.stringify({
+          result: 'MEXC credentials saved! You can now trade futures on MEXC.',
+          security_notice: 'Your credentials are encrypted with AES-256-GCM. Use IP-restricted API keys for maximum security.',
+        });
+      }
+
+      case 'setup_betfair_credentials': {
+        await context.credentials.setCredentials(userId, 'betfair', {
+          appKey: toolInput.app_key as string,
+          sessionToken: toolInput.session_token as string,
+        });
+        return JSON.stringify({
+          result: 'Betfair credentials saved! You can now trade on Betfair.',
+          security_notice: 'Your credentials are encrypted with AES-256-GCM. Session tokens expire — you may need to refresh periodically.',
         });
       }
 

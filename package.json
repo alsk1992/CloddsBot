@@ -1,6 +1,6 @@
 {
   "name": "clodds",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "Open-source AI trading terminal. Trade Polymarket, Kalshi, Betfair, Binance, Bybit, Hyperliquid, Solana DEXs from Telegram, Discord, Slack or web. Arbitrage detection, whale tracking, copy trading, perpetual futures up to 200x, DeFi swaps, MEV protection. Self-hosted, 119 skills, powered by Claude.",
   "main": "dist/index.js",
   "bin": {

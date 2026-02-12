@@ -466,8 +466,15 @@ export const CORE_TOOL_NAMES = new Set([
   'save_session_checkpoint',
   'restore_session_checkpoint',
 
-  // Credentials (3) — always available so bot can onboard users naturally
+  // Credentials (10) — always available so bot can onboard users naturally
   'setup_polymarket_credentials',
+  'setup_kalshi_credentials',
+  'setup_manifold_credentials',
+  'setup_binance_credentials',
+  'setup_bybit_credentials',
+  'setup_hyperliquid_credentials',
+  'setup_mexc_credentials',
+  'setup_betfair_credentials',
   'list_trading_credentials',
   'delete_trading_credentials',
 

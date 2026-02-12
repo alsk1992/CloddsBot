@@ -286,6 +286,42 @@ export interface ManifoldCredentials {
 }
 
 /**
+ * Binance credentials (decrypted form)
+ */
+export interface BinanceCredentials {
+  apiKey: string;
+  apiSecret: string;
+  testnet?: boolean;
+}
+
+/**
+ * Bybit credentials (decrypted form)
+ */
+export interface BybitCredentials {
+  apiKey: string;
+  apiSecret: string;
+  testnet?: boolean;
+}
+
+/**
+ * Hyperliquid credentials (decrypted form)
+ */
+export interface HyperliquidCredentials {
+  privateKey: string;
+  walletAddress?: string;
+  vaultAddress?: string;
+  testnet?: boolean;
+}
+
+/**
+ * MEXC credentials (decrypted form)
+ */
+export interface MexcCredentials {
+  apiKey: string;
+  apiSecret: string;
+}
+
+/**
  * Betfair credentials (decrypted form)
  */
 export interface BetfairCredentials {
@@ -358,6 +394,10 @@ export type PlatformCredentials =
   | { platform: 'polymarket'; data: PolymarketCredentials }
   | { platform: 'kalshi'; data: KalshiCredentials }
   | { platform: 'manifold'; data: ManifoldCredentials }
+  | { platform: 'binance'; data: BinanceCredentials }
+  | { platform: 'bybit'; data: BybitCredentials }
+  | { platform: 'hyperliquid'; data: HyperliquidCredentials }
+  | { platform: 'mexc'; data: MexcCredentials }
   | { platform: 'betfair'; data: BetfairCredentials }
   | { platform: 'drift'; data: DriftCredentials }
   | { platform: 'smarkets'; data: SmarketsCredentials }
@@ -551,7 +591,7 @@ export interface CredentialsManager {
   setCredentials: (
     userId: string,
     platform: Platform,
-    credentials: PolymarketCredentials | KalshiCredentials | ManifoldCredentials
+    credentials: PolymarketCredentials | KalshiCredentials | ManifoldCredentials | BinanceCredentials | BybitCredentials | HyperliquidCredentials | MexcCredentials | BetfairCredentials
   ) => Promise<void>;
   getCredentials: <T>(userId: string, platform: Platform) => Promise<T | null>;
   hasCredentials: (userId: string, platform: Platform) => Promise<boolean>;
