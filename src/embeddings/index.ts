@@ -19,38 +19,62 @@ export type Pipeline = (texts: string | string[], options?: { pooling?: string; 
 // Lazy-loaded transformers.js pipeline
 let localPipeline: Pipeline | null = null;
 let pipelinePromise: Promise<Pipeline> | null = null;
+let pipelineLoadFailed = false;
 const LOCAL_MODEL = 'Xenova/all-MiniLM-L6-v2'; // 384-dim, fast & good quality
+
+/**
+ * Kick off model loading in the background (non-blocking).
+ * Call at startup so the model is warm when the first message arrives.
+ */
+export function preloadTransformersPipeline(): void {
+  if (localPipeline || pipelinePromise) return;
+  // Fire-and-forget — errors are caught internally
+  getTransformersPipeline().catch(() => {});
+}
+
+/**
+ * Returns the pipeline ONLY if it's already loaded. Never blocks.
+ * Returns null if still loading or failed.
+ */
+export function getTransformersPipelineIfReady(): Pipeline | null {
+  return localPipeline;
+}
 
 /**
  * Initialize transformers.js pipeline (lazy-loaded, singleton)
  */
 export async function getTransformersPipeline(): Promise<Pipeline> {
   if (localPipeline) return localPipeline;
+  if (pipelineLoadFailed) throw new Error('Embedding model previously failed to load');
 
   if (pipelinePromise) return pipelinePromise;
 
   pipelinePromise = (async () => {
     try {
-      // Dynamic import to avoid loading heavy model at startup
       const { pipeline, env } = await import('@xenova/transformers');
 
-      // Configure transformers.js
       env.cacheDir = './.transformers-cache';
       env.allowLocalModels = true;
 
       logger.info({ model: LOCAL_MODEL }, 'Loading local embedding model...');
 
-      // Create feature-extraction pipeline
-      const pipe = await pipeline('feature-extraction', LOCAL_MODEL, {
-        quantized: true, // Use quantized model for faster inference
-      });
+      // 30s timeout — if model download/init hangs, fail fast
+      const timeoutMs = 30_000;
+      const pipe = await Promise.race([
+        pipeline('feature-extraction', LOCAL_MODEL, { quantized: true }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Embedding model load timed out after ${timeoutMs}ms`)), timeoutMs)
+        ),
+      ]);
 
       localPipeline = pipe as unknown as Pipeline;
       logger.info({ model: LOCAL_MODEL }, 'Local embedding model loaded');
 
       return localPipeline;
     } catch (error) {
-      logger.error({ error }, 'Failed to load transformers.js model');
+      pipelinePromise = null;
+      pipelineLoadFailed = true; // Don't retry — use simple fallback permanently
+      logger.error({ error }, 'Failed to load transformers.js model — using simple embeddings');
       throw error;
     }
   })();
@@ -340,27 +364,38 @@ export function createEmbeddingsService(
   }
 
   /**
-   * Generate local embedding with transformers.js (fallback to simple if fails)
+   * Generate local embedding — uses transformers.js if ready, simple fallback otherwise.
+   * NEVER blocks waiting for model init (that would hang message responses).
    */
   async function generateLocalEmbedding(text: string): Promise<EmbeddingVector> {
-    try {
-      return await generateTransformersEmbedding(text);
-    } catch (error) {
-      logger.warn({ error }, 'Transformers.js failed, using simple fallback');
-      return generateSimpleEmbedding(text);
+    // If model is already loaded, use it
+    const readyPipeline = getTransformersPipelineIfReady();
+    if (readyPipeline) {
+      try {
+        return await generateTransformersEmbedding(text);
+      } catch (error) {
+        logger.warn({ error }, 'Transformers.js failed, using simple fallback');
+        return generateSimpleEmbedding(text);
+      }
     }
+    // Model not ready — use simple embeddings, don't block
+    return generateSimpleEmbedding(text);
   }
 
   /**
-   * Generate local embeddings in batch
+   * Generate local embeddings in batch — non-blocking
    */
   async function generateLocalEmbeddingBatch(texts: string[]): Promise<EmbeddingVector[]> {
-    try {
-      return await generateTransformersEmbeddingBatch(texts);
-    } catch (error) {
-      logger.warn({ error }, 'Transformers.js batch failed, using simple fallback');
-      return texts.map(generateSimpleEmbedding);
+    const readyPipeline = getTransformersPipelineIfReady();
+    if (readyPipeline) {
+      try {
+        return await generateTransformersEmbeddingBatch(texts);
+      } catch (error) {
+        logger.warn({ error }, 'Transformers.js batch failed, using simple fallback');
+        return texts.map(generateSimpleEmbedding);
+      }
     }
+    return texts.map(generateSimpleEmbedding);
   }
 
   const service: EmbeddingsService = {

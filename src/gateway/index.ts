@@ -38,7 +38,7 @@ import { createWebhookManager, createHeartbeatService, type HeartbeatService } f
 import { createWebhookTool, WebhookTool } from '../tools/webhooks';
 import { createProviders, createProviderHealthMonitor, ProviderHealthMonitor } from '../providers';
 import { createMonitoringService, MonitoringService } from '../monitoring';
-import { createEmbeddingsService } from '../embeddings';
+import { createEmbeddingsService, preloadTransformersPipeline } from '../embeddings';
 import { createMarketIndexService } from '../market-index';
 import { createOpportunityFinder, type OpportunityFinder } from '../opportunity';
 import { createWhaleTracker, type WhaleTracker } from '../feeds/polymarket/whale-tracker';
@@ -495,6 +495,8 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   let marketIndexSyncInterval: NodeJS.Timeout | null = null;
   const channelRateLimiters = new Map<string, { config: RateLimitConfig; limiter: RateLimiter }>();
   const embeddings = createEmbeddingsService(db);
+  // Warm up embedding model in background — never blocks message handling
+  preloadTransformersPipeline();
   const marketIndex = createMarketIndexService(db, embeddings, {
     platformWeights: config.marketIndex?.platformWeights,
   });
