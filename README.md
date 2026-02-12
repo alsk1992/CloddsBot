@@ -55,6 +55,17 @@ npm run build && npm start
 ```
 </details>
 
+## Demo
+
+**[Watch the 30-second onboarding video](https://cloddsbot.com)** — See how to go from npm install to live trading in under a minute.
+
+<video width="100%" controls style="max-width: 800px; border-radius: 8px; margin: 20px 0;">
+  <source src="/onboard.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+---
+
 ## WebChat
 
 Built-in browser interface at `http://localhost:18789/webchat` -- no setup, no third-party dependencies.
