@@ -80,8 +80,19 @@ export function createMarketScanner(config: CryptoHftConfig | (() => CryptoHftCo
     const cfg = getConfig();
     const found: CryptoMarket[] = [];
 
-    // Determine duration label (5m or 15m)
-    const durationLabel = cfg.roundDurationSec === 300 ? '5m' : '15m';
+    // Determine duration label — must match Polymarket slug patterns exactly
+    const durationMap: Record<number, string> = {
+      300: '5m',
+      900: '15m',
+      3600: '1h',
+      14400: '4h',
+      86400: 'daily',
+    };
+    const durationLabel = durationMap[cfg.roundDurationSec];
+    if (!durationLabel) {
+      logger.warn({ roundDurationSec: cfg.roundDurationSec }, 'Unsupported market duration');
+      return found;
+    }
 
     for (const asset of cfg.assets) {
       try {
@@ -207,7 +218,10 @@ export function createMarketScanner(config: CryptoHftConfig | (() => CryptoHftCo
           if (found.some((f) => f.asset === asset.toUpperCase())) break;
         }
       } catch (err) {
-        logger.warn({ err, asset }, 'Market scan failed for asset');
+        logger.warn(
+          { err, asset, durationLabel, roundDurationSec: cfg.roundDurationSec },
+          'Market scan failed for asset'
+        );
       }
     }
 
