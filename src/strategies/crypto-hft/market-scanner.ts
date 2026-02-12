@@ -1,8 +1,11 @@
 /**
- * Market Scanner — Round-based 15-minute market discovery and rotation
+ * Market Scanner — Round-based market discovery and rotation
  *
- * Tracks round slots (unix_ts / 900) and automatically fetches new markets
+ * Tracks round slots (unix_ts / roundDurationSec) and automatically fetches new markets
  * when rounds transition. Enforces timing gates: min round age, min time left.
+ *
+ * Discovery method: Direct slug-based queries (e.g., btc-updown-5m-1770935700)
+ * This ensures reliable discovery of time-duration-specific markets.
  */
 
 import { logger } from '../../utils/logger.js';
@@ -77,37 +80,92 @@ export function createMarketScanner(config: CryptoHftConfig | (() => CryptoHftCo
     const cfg = getConfig();
     const found: CryptoMarket[] = [];
 
+    // Determine duration label (5m or 15m)
+    const durationLabel = cfg.roundDurationSec === 300 ? '5m' : '15m';
+
     for (const asset of cfg.assets) {
       try {
-        const queries = [
+        // Calculate current market slot and build slug
+        // E.g., for 5-min: btc-updown-5m-1770935700
+        // The timestamp is floored to the slot boundary: floor(now / 300) * 300
+        const nowSec = Math.floor(Date.now() / 1000);
+        const slotStart = Math.floor(nowSec / cfg.roundDurationSec) * cfg.roundDurationSec;
+        const slug = `${asset.toLowerCase()}-updown-${durationLabel}-${slotStart}`;
+
+        // Try direct slug query first (most reliable)
+        const slugRes = await fetch(
+          `${GAMMA_URL}/markets?slug=${encodeURIComponent(slug)}&active=true&closed=false`
+        );
+
+        if (slugRes.ok) {
+          const slugData = (await slugRes.json()) as GammaMarket[];
+          if (slugData.length > 0) {
+            const m = slugData[0]; // slug should return exactly 1 result
+            if (!m.closed && m.active && m.tokens && m.tokens.length >= 2) {
+              const upToken = m.tokens.find(
+                (t) => t.outcome.toLowerCase() === 'yes' || t.outcome.toLowerCase() === 'up'
+              );
+              const downToken = m.tokens.find(
+                (t) => t.outcome.toLowerCase() === 'no' || t.outcome.toLowerCase() === 'down'
+              );
+
+              if (upToken && downToken) {
+                const expiresAt = new Date(m.end_date_iso).getTime();
+                const roundSlot = Math.floor(expiresAt / 1000 / cfg.roundDurationSec);
+
+                found.push({
+                  asset: asset.toUpperCase(),
+                  conditionId: m.condition_id,
+                  questionId: m.question_id,
+                  upTokenId: upToken.token_id,
+                  downTokenId: downToken.token_id,
+                  upPrice: upToken.price,
+                  downPrice: downToken.price,
+                  expiresAt,
+                  roundSlot,
+                  negRisk: m.neg_risk ?? true,
+                  question: m.question,
+                });
+
+                logger.debug({ asset, slug, slot: roundSlot }, 'Found market by slug');
+                continue; // Successfully found, move to next asset
+              }
+            }
+          }
+        }
+
+        // Fallback: try generic search if slug query fails (between rounds, market not yet live)
+        const searchQueries = [
           `Will ${asset} go up`,
           `${asset} price`,
-          `Will the price of ${asset}`,
+          `${asset}-updown`,
         ];
 
-        for (const query of queries) {
-          const res = await fetch(
+        for (const query of searchQueries) {
+          const searchRes = await fetch(
             `${GAMMA_URL}/markets?_limit=10&active=true&closed=false&_q=${encodeURIComponent(query)}`
           );
-          if (!res.ok) continue;
+          if (!searchRes.ok) continue;
 
-          const data = (await res.json()) as GammaMarket[];
+          const searchData = (await searchRes.json()) as GammaMarket[];
 
-          for (const m of data) {
+          for (const m of searchData) {
             if (m.closed || !m.active) continue;
             if (!m.tokens || m.tokens.length < 2) continue;
 
-            // Must mention this asset
+            // Verify this is the right duration market
             const q = m.question.toLowerCase();
             if (!q.includes(asset.toLowerCase())) continue;
 
-            // Must be a short-duration market (expires within roundDuration + buffer)
+            // Filter by duration: must expire within roundDuration + buffer
             const expiresAt = new Date(m.end_date_iso).getTime();
             const now = Date.now();
             const secsLeft = (expiresAt - now) / 1000;
 
-            // Skip expired or too-far-out markets
             if (secsLeft <= 0 || secsLeft > cfg.roundDurationSec + 60) continue;
+
+            // Verify slug matches expected pattern
+            if (!m.slug.includes(`-${durationLabel}-`)) continue;
 
             // Find UP/YES and DOWN/NO tokens
             const upToken = m.tokens.find(
@@ -118,11 +176,10 @@ export function createMarketScanner(config: CryptoHftConfig | (() => CryptoHftCo
             );
             if (!upToken || !downToken) continue;
 
-            // Skip if we already found a closer-expiry market for this asset
+            // Skip if already found a closer-expiry market for this asset
             const existing = found.find((f) => f.asset === asset.toUpperCase());
             if (existing && existing.expiresAt <= expiresAt) continue;
             if (existing) {
-              // Replace with closer expiry
               const idx = found.indexOf(existing);
               found.splice(idx, 1);
             }
@@ -142,6 +199,8 @@ export function createMarketScanner(config: CryptoHftConfig | (() => CryptoHftCo
               negRisk: m.neg_risk ?? true,
               question: m.question,
             });
+
+            logger.debug({ asset, slug: m.slug, slot: roundSlot }, 'Found market by search');
           }
 
           // Found one for this asset, stop trying queries
