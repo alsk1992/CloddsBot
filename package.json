@@ -1,6 +1,6 @@
 {
   "name": "clodds",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Open-source AI trading terminal. Trade Polymarket, Kalshi, Betfair, Binance, Bybit, Hyperliquid, Solana DEXs from Telegram, Discord, Slack or web. Arbitrage detection, whale tracking, copy trading, perpetual futures up to 200x, DeFi swaps, MEV protection. Self-hosted, 119 skills, powered by Claude.",
   "main": "dist/index.js",
   "bin": {
@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx --import ./tests/helpers/test-setup.ts tests/**/*.test.ts",
     "ci": "npm run typecheck && npm run test && npm run build",
+    "postinstall": "node -e \"try{const{pipeline,env}=require('@xenova/transformers');env.cacheDir='./.transformers-cache';pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2',{quantized:true}).then(()=>console.log('Embedding model cached')).catch(()=>{})}catch{}\"",
     "prepublishOnly": "npm run build",
     "publish:npm": "npm publish --registry https://registry.npmjs.org"
   },
