@@ -343,60 +343,99 @@ Enable: `clodds config set ledger.enabled true`
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                            GATEWAY                                   │
-│       HTTP • WebSocket • Auth • Rate Limiting • 1000 connections     │
-└─────────────────────────────────┬───────────────────────────────────┘
-                                  │
-        ┌─────────────────────────┼─────────────────────────┐
-        ▼                         ▼                         ▼
-┌───────────────┐         ┌───────────────┐         ┌───────────────┐
-│   CHANNELS    │         │    AGENTS     │         │    FEEDS      │
-│   (21)        │         │    (4)        │         │    (12+)      │
-├───────────────┤         ├───────────────┤         ├───────────────┤
-│ Telegram      │         │ Main          │         │ Polymarket    │
-│ Discord       │         │ Trading       │         │ Kalshi        │
-│ WhatsApp      │         │ Research      │         │ Betfair       │
-│ Slack         │         │ Alerts        │         │ Manifold      │
-│ Teams         │         │               │         │ Crypto (10)   │
-│ Matrix        │         │ Tools (18)    │         │               │
-│ Signal        │         │ Skills (118)  │         │ Arbitrage     │
-│ +14 more      │         │ Memory        │         │ Detector      │
-└───────────────┘         └───────────────┘         └───────────────┘
-        │                         │                         │
-        └─────────────────────────┼─────────────────────────┘
-                                  │
-        ┌─────────────────────────┼─────────────────────────┐
-        ▼                         ▼                         ▼
-┌───────────────┐         ┌───────────────┐         ┌───────────────┐
-│   TRADING     │         │   SOLANA      │         │   PAYMENTS    │
-│               │         │   DeFi        │         │   (x402)      │
-├───────────────┤         ├───────────────┤         ├───────────────┤
-│ Execution     │         │ Jupiter       │         │ Base USDC     │
-│ Portfolio     │         │ Raydium       │         │ Solana USDC   │
-│ Trade Logger  │         │ Orca          │         │ Auto-approve  │
-│ Bots          │         │ Meteora       │         │               │
-│ Risk Manager  │         │ Pump.fun      │         │ Wormhole      │
-│ Backtesting   │         │               │         │ Bridge        │
-└───────────────┘         └───────────────┘         └───────────────┘
-                                  │
-                          ┌───────────────┐
-                          │  BITTENSOR    │
-                          ├───────────────┤
-                          │ Wallet        │
-                          │ Subnet Mining │
-                          │ Earnings      │
-                          │ Chutes (SN64) │
-                          └───────────────┘
-                                  │
-                          ┌───────────────┐
-                          │  PERCOLATOR   │
-                          ├───────────────┤
-                          │ Slab Parser   │
-                          │ Trade CPI     │
-                          │ Keeper Crank  │
-                          │ Oracle Feed   │
-                          └───────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              GATEWAY LAYER                                    │
+│     HTTP • WebSocket • Auth • Rate Limiting • 1000 concurrent connections     │
+└──────────────────────────────────────────┬─────────────────────────────────────┘
+                                           │
+    ┌──────────────────────────────────────┼──────────────────────────────────┐
+    ▼                                      ▼                                  ▼
+┌──────────────────────┐        ┌──────────────────────┐      ┌──────────────────────┐
+│   INPUT CHANNELS     │        │      AGENTS (4)      │      │   MARKET FEEDS       │
+│       (21)           │        │                      │      │      (15+)           │
+├──────────────────────┤        ├──────────────────────┤      ├──────────────────────┤
+│ WebChat (Full UI)    │        │ Main (Claude)        │      │ Polymarket (5-min    │
+│ Telegram             │        │ Trading (Exec)       │      │   /1h/4h/daily)      │
+│ Discord              │        │ Research (Data)      │      │ Kalshi               │
+│ Slack, Teams, Signal │        │ Alerts (Monitor)     │      │ Betfair              │
+│ WhatsApp, Matrix     │        │                      │      │ Manifold             │
+│ +14 more platforms   │        │ Tools: 18            │      │ Crypto (BTC/ETH/SOL) │
+│                      │        │ Skills: 119+         │      │                      │
+│                      │        │ Memory: LanceDB      │      │ Arbitrage Detector   │
+└──────────────────────┘        └──────────────────────┘      └──────────────────────┘
+    │                                   │                                  │
+    └───────────────────────────────────┼──────────────────────────────────┘
+                                        │
+        ┌───────────────────────────────┼───────────────────────────────────┐
+        ▼                               ▼                                   ▼
+┌────────────────────────┐    ┌────────────────────────┐    ┌────────────────────────┐
+│   STRATEGY ENGINE      │    │  RISK & ANALYTICS     │    │  EXECUTION LAYER       │
+├────────────────────────┤    ├────────────────────────┤    ├────────────────────────┤
+│ • 118+ Strategies      │    │ • Circuit Breaker      │    │ • Order Execution      │
+│ • Momentum             │    │ • VaR/CVaR             │    │ • Orderbook Analysis   │
+│ • Mean Reversion       │    │ • Volatility Regimes   │    │ • Smart Routing        │
+│ • Penny Clipper        │    │ • Kelly Sizing         │    │ • Whale Tracking       │
+│ • Expiry Fade          │    │ • Stress Testing       │    │ • Copy Trading         │
+│ • DCA Bots             │    │ • Daily Loss Limits    │    │ • MEV Protection       │
+│ • Crypto HFT (5-min+)  │    │ • Kill Switch          │    │ • Trade Logger         │
+│ • Copy Trading         │    │ • Position Manager     │    │ • Portfolio Tracking   │
+│ • Arbitrage Detection  │    │ • Backtesting Engine   │    │ • Real-time P&L        │
+│ • Security Audits      │    │ • Trade Ledger        │    │ • Settlement Polling   │
+└────────────────────────┘    └────────────────────────┘    └────────────────────────┘
+        │                               │                                   │
+        └───────────────────────────────┼───────────────────────────────────┘
+                                        │
+        ┌───────────────────────────────┼───────────────────────────────────┐
+        ▼                               ▼                                   ▼
+┌────────────────────────┐    ┌────────────────────────┐    ┌────────────────────────┐
+│  MARKET DATA LAYER     │    │  PREDICTION MARKETS    │    │  PERPETUAL FUTURES     │
+├────────────────────────┤    ├────────────────────────┤    ├────────────────────────┤
+│ • Real-time Candles    │    │ • Polymarket           │    │ • Binance (125x)       │
+│ • Orderbooks           │    │ • Kalshi               │    │ • Bybit (100x)         │
+│ • Liquidity Tracking   │    │ • Betfair              │    │ • Hyperliquid (50x)    │
+│ • Depth Analysis       │    │ • Smarkets             │    │ • MEXC (200x)          │
+│ • Price Feeds (30+)    │    │ • Drift (on Solana)    │    │ • Drift (Solana)       │
+│ • Volatility Feeds     │    │ • Opinion.xyz          │    │ • Percolator (On-chain)│
+│ • Trade History        │    │ • Predict.fun          │    │ • Lighter (ARB)        │
+│ • Semantic Memory      │    │ • Manifold (play $)    │    │ Leverage: up to 200x   │
+│ • Analytics/Stats      │    │ • Metaculus (forecast) │    │ Features: TP/SL, Liquidation Alerts │
+└────────────────────────┘    └────────────────────────┘    └────────────────────────┘
+        │                               │                                   │
+        └───────────────────────────────┼───────────────────────────────────┘
+                                        │
+        ┌───────────────────────────────┼───────────────────────────────────┐
+        ▼                               ▼                                   ▼
+┌────────────────────────┐    ┌────────────────────────┐    ┌────────────────────────┐
+│   DeFi & SWAPS         │    │  MINING & STAKING      │    │  SECURITY & PAYMENTS   │
+├────────────────────────┤    ├────────────────────────┤    ├────────────────────────┤
+│ Solana:                │    │ • Bittensor Mining     │    │ • Token Security Audits│
+│  • Jupiter             │    │ • Wallet Management    │    │ • GoPlus Analysis      │
+│  • Raydium             │    │ • Chutes SN64 Support  │    │ • Code Scanning (75+)  │
+│  • Orca                │    │ • Earnings Tracking    │    │ • Scam DB (70+)        │
+│  • Meteora             │    │ • TAO Rewards          │    │ • Security Shield      │
+│  • Kamino              │    │ • Subnet Stats         │    │ • Pre-trade TX Check   │
+│  • MarginFi            │    │                        │    │ • x402 Payments        │
+│  • Pump.fun            │    │ EVM:                   │    │ • Wormhole Bridging    │
+│ EVM:                   │    │ • Proof-of-stake       │    │ • Encrypted Creds      │
+│  • Uniswap V3          │    │ • Validator Pools      │    │ • MCP Server (119 tools)│
+│  • 1inch               │    │ • Rewards APY          │    │ • Compute API          │
+│  • PancakeSwap         │    │                        │    │ • Kill Switch          │
+│ Jito Bundles           │    └────────────────────────┘    └────────────────────────┘
+│ MEV Protection         │
+└────────────────────────┘
+        │
+        └───────────────────────────────────────────────────────────────────┐
+                                                                            ▼
+                                                        ┌────────────────────────────┐
+                                                        │   COMMUNITY & ECOSYSTEM    │
+                                                        ├────────────────────────────┤
+                                                        │ • Agent Forum              │
+                                                        │ • Agent Marketplace        │
+                                                        │ • Peer-to-peer Trade (USDC)│
+                                                        │ • Strategy Sharing         │
+                                                        │ • Leaderboards             │
+                                                        │ • 9 Extensions             │
+                                                        └────────────────────────────┘
 ```
 
 ---
