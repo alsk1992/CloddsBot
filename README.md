@@ -139,6 +139,7 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 | **MCP Server** | Expose all 119 skills as MCP tools for Claude Desktop and Claude Code |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
 | **AI** | 8 LLM providers, 4 specialized agents, semantic memory, 18 tools |
+| **Data Persistence** | SQLite (local), LanceDB (semantic memory + embeddings), PostgreSQL (analytics) — unlimited WebChat history, trade database, context compacting, hybrid search, user profiles |
 | **i18n** | 10 languages (EN, ZH, ES, JA, KO, DE, FR, PT, RU, AR) |
 | **Solana DeFi** | Jupiter, Raydium, Orca, Meteora, Kamino, MarginFi, Solend, Pump.fun, Bags.fm, AgentBets |
 | **EVM DeFi** | Uniswap V3, 1inch, PancakeSwap, Virtuals Protocol, Clanker, Veil, ENS (ETH, ARB, OP, Base, Polygon) |
