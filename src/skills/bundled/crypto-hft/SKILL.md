@@ -28,8 +28,10 @@ Starts in **dry-run mode** by default (no real orders).
 ```
 /crypto-hft start                          # 15-min (default): BTC,ETH,SOL,XRP
 /crypto-hft start --preset 5min-btc        # 5-minute BTC (fast, aggressive)
+/crypto-hft start --preset 1h-all          # 1-hour all assets
+/crypto-hft start --preset 4h-all          # 4-hour all assets (swing)
+/crypto-hft start --preset daily-all       # Daily all assets (position)
 /crypto-hft start BTC,ETH --dry-run       # 15-min specific assets, dry run
-/crypto-hft start --preset scalper         # Use a built-in preset
 /crypto-hft status                         # Check stats + open positions
 /crypto-hft stop                           # Stop and show summary
 ```
@@ -93,39 +95,58 @@ export POLY_API_PASSPHRASE="..."
 
 ## Built-in Presets
 
-### 15-Minute Markets
-| Preset | Size | Strategies | Risk |
-|--------|------|-----------|------|
-| **conservative** | $10 | mean_reversion, penny_clipper | Low - dry run, tight stops |
-| **aggressive** | $50 | All 4 | High - live, wide stops |
-| **scalper** | $20 | penny_clipper only | Medium - ratchet on |
-| **momentum_only** | $30 | momentum only | Medium - ratchet + trailing |
+### By Market Duration
 
-### 5-Minute Markets (BTC Only)
-| Preset | Size | Strategies | Features |
-|--------|------|-----------|----------|
-| **5min-btc** | $15 | All 4 | Aggressive - 10s min age, 50s min time left |
-| **5min-btc-conservative** | $10 | mean_reversion, penny_clipper | Conservative - 15s min age, 60s min time left |
+#### 5-Minute (BTC Only)
+| Preset | Size | Max Pos | Strategies | Features |
+|--------|------|---------|-----------|----------|
+| **5min-btc** | $15 | 1 | All 4 | Aggressive - 10s min age |
+| **5min-btc-conservative** | $10 | 1 | MR, PC | Conservative - 15s min age |
 
-## 5-Minute vs 15-Minute Markets
+#### 1-Hour (All Assets)
+| Preset | Size | Max Pos | Strategies | Features |
+|--------|------|---------|-----------|----------|
+| **1h-all** | $20 | 3 | All 4 | Balanced - ratchet + trailing |
 
-| Aspect | 5-Minute | 15-Minute |
-|--------|----------|-----------|
-| **Assets** | BTC only | BTC, ETH, SOL, XRP |
-| **Duration** | 5 minutes (300s) | 15 minutes (900s) |
-| **Min Round Age** | 10s | 30s |
-| **Min Time Left** | 50s | 130s |
-| **Force Exit** | 10s before | 30s before |
-| **Best For** | High-frequency scalping | Swing/momentum capture |
-| **Liquidity** | Thinner (watch spreads) | Better established |
-| **Fee Impact** | Critical (3x cycles) | Manageable |
+#### 4-Hour (All Assets - Swing)
+| Preset | Size | Max Pos | Strategies | Features |
+|--------|------|---------|-----------|----------|
+| **4h-all** | $30 | 4 | Mom + MR | Swing trading focus |
 
-**5-minute trading tips:**
-- Lower position sizes due to faster settlement
-- Tighter stops to avoid being wedged in expiry
-- Focus on liquid tokens and penny_clipper/mean_reversion strategies
-- Expect smaller wins but higher frequency
-- Watch orderbook staleness (orders fill slower near expiry)
+#### Daily (All Assets - Position)
+| Preset | Size | Max Pos | Strategies | Features |
+|--------|------|---------|-----------|----------|
+| **daily-all** | $50 | 4 | Mom + MR | Position trading, tight ratchet |
+
+#### 15-Minute (Classic - All Assets)
+| Preset | Size | Max Pos | Strategies | Risk |
+|--------|------|---------|-----------|------|
+| **conservative** | $10 | 2 | MR, PC | Low - dry run, tight stops |
+| **aggressive** | $50 | 4 | All 4 | High - live, wide stops |
+| **scalper** | $20 | 3 | PC only | Medium - ratchet on |
+| **momentum_only** | $30 | 3 | Mom only | Medium - ratchet + trailing |
+
+**Legend:** MR=mean_reversion, PC=penny_clipper, Mom=momentum
+
+## Market Duration Comparison
+
+| Aspect | 5-Min | 1-Hour | 4-Hour | Daily |
+|--------|-------|--------|--------|-------|
+| **Assets** | BTC | All | All | All |
+| **Duration** | 300s | 3,600s | 14,400s | 86,400s |
+| **Min Round Age** | 10s | 60s | 120s | 600s |
+| **Min Time Left** | 50s | 180s | 600s | 3,600s |
+| **Force Exit** | 10s | 60s | 120s | 600s |
+| **Best For** | HFT scalping | Fast swing | Swing trading | Position trading |
+| **Liquidity** | Thin | Good | Very good | Excellent |
+| **Fee Impact** | Critical | Moderate | Low | Very low |
+| **Daily Cycles** | 288 | 24 | 6 | 1 |
+
+**Trading Strategy by Duration:**
+- **5-min**: Ultra-high frequency, requires tight risk management, penny_clipper focus
+- **1-hour**: Balanced entry points, good for mean reversion + momentum
+- **4-hour**: Swing trading, catch multi-hour trends, focus on momentum
+- **Daily**: Position trading, macroeconomic drivers, long holding periods
 
 ## Exit Logic
 
