@@ -129,6 +129,9 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 | **Perpetual Futures** | 7 exchanges (Binance, Bybit, Hyperliquid, MEXC, Drift, Percolator, Lighter) with up to 200x leverage, database tracking, A/B testing |
 | **On-Chain Perps** | Percolator protocol — Solana-native perpetual futures with pluggable matchers, keeper cranking, real-time slab polling |
 | **Trading Strategies** | 118+ strategies including momentum, mean reversion, penny clipper, expiry fade, DCA bots, smart routing, whale tracking, copy trading |
+| **Risk Management** | Unified risk engine with circuit breaker, VaR/CVaR, volatility regime detection, stress testing, Kelly sizing, daily loss limits, kill switch |
+| **Backtesting** | Configurable strategy backtesting with historical data, SL/TP validation, P&L analysis |
+| **Skills System** | 119 bundled skills + lazy-loaded extensions (no missing dependencies crash) — chat-driven automation |
 | **Token Security** | GoPlus-powered audits — honeypot detection, rug-pull analysis, holder concentration, risk scoring |
 | **Security Shield** | Code scanning (75 rules), scam DB (70+ addresses), multi-chain address checking, pre-trade tx validation |
 | **Trading** | Order execution on 16+ platforms (prediction markets, futures, Solana DEXs, EVM DEXs), portfolio tracking, P&L, DCA |
