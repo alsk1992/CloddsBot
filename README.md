@@ -345,118 +345,72 @@ Enable: `clodds config set ledger.enabled true`
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                              GATEWAY LAYER                                    │
-│     HTTP • WebSocket • Auth • Rate Limiting • 1000 concurrent connections     │
+│                         GATEWAY & USER INTERFACE                              │
+│  HTTP • WebSocket • Auth • Rate Limiting • 1000 connections                   │
+│  21 Messaging Channels: WebChat, Telegram, Discord, Slack, Teams, Matrix...  │
 └──────────────────────────────────────────┬─────────────────────────────────────┘
                                            │
-    ┌────────────────────────────────┬─────────────────────────────────────┬────────────────────────────────┐
-    ▼                                ▼                                     ▼
-┌──────────────────────┐    ┌──────────────────────────────┐    ┌──────────────────────────────┐
-│   USER CHANNELS      │    │      AI AGENTS (4)           │    │  EXTERNAL INTEGRATIONS       │
-│       (21)           │    │                              │    │   (Markets + Data)           │
-├──────────────────────┤    ├──────────────────────────────┤    ├──────────────────────────────┤
-│ WebChat (Full UI)    │    │ Main (Claude)                │    │ Prediction Markets:          │
-│ Telegram             │    │ Trading (Execution)          │    │  • Polymarket (5-min/1h/4h/  │
-│ Discord              │    │ Research (Data Analysis)     │    │    daily BTC/ETH/SOL/XRP)    │
-│ Slack, Teams, Signal │    │ Alerts (Monitoring)          │    │  • Kalshi, Betfair, Smarkets │
-│ WhatsApp, Matrix     │    │                              │    │ Crypto Exchanges:            │
-│ +14 more platforms   │    │ Tools: 18 • Skills: 119+     │    │  • Binance, Bybit, Hyperliq, │
-│                      │    │ Memory: LanceDB + BM25       │    │    MEXC, Drift, Percolator   │
-│ User Input → Claude  │    │ Decision Making              │    │ DeFi: Jupiter, Uniswap, etc  │
-└──────────────────────┘    │ Trade Execution Logic        │    │ Data: Binance WS, Gamma API  │
-                            └──────────────────────────────┘    │ Whale Tracking, Price Feeds  │
-                                                                 └──────────────────────────────┘
-    │ Chat messages                   │ Process                              │ Real-time market
-    │ Commands                        │ & decide                            │ data, execute
-    └────────────────────────────────┬──────────────────────────────────────┘
-                                        │
-        ┌───────────────────────────────┼───────────────────────────────────┐
-        ▼                               ▼                                   ▼
-┌────────────────────────┐    ┌────────────────────────┐    ┌────────────────────────┐
-│   STRATEGY ENGINE      │    │  RISK & ANALYTICS     │    │  EXECUTION LAYER       │
-├────────────────────────┤    ├────────────────────────┤    ├────────────────────────┤
-│ • 118+ Strategies      │    │ • Circuit Breaker      │    │ • Order Execution      │
-│ • Momentum             │    │ • VaR/CVaR             │    │ • Orderbook Analysis   │
-│ • Mean Reversion       │    │ • Volatility Regimes   │    │ • Smart Routing        │
-│ • Penny Clipper        │    │ • Kelly Sizing         │    │ • Whale Tracking       │
-│ • Expiry Fade          │    │ • Stress Testing       │    │ • Copy Trading         │
-│ • DCA Bots             │    │ • Daily Loss Limits    │    │ • MEV Protection       │
-│ • Crypto HFT (5-min+)  │    │ • Kill Switch          │    │ • Trade Logger         │
-│ • Copy Trading         │    │ • Position Manager     │    │ • Portfolio Tracking   │
-│ • Arbitrage Detection  │    │ • Backtesting Engine   │    │ • Real-time P&L        │
-│ • Security Audits      │    │ • Trade Ledger        │    │ • Settlement Polling   │
-└────────────────────────┘    └────────────────────────┘    └────────────────────────┘
-        │                               │                                   │
-        └───────────────────────────────┼───────────────────────────────────┘
-                                        │
-        ┌───────────────────────────────┼───────────────────────────────────┐
-        ▼                               ▼                                   ▼
-┌────────────────────────┐    ┌────────────────────────┐    ┌────────────────────────┐
-│  MARKET DATA LAYER     │    │  PREDICTION MARKETS    │    │  PERPETUAL FUTURES     │
-├────────────────────────┤    ├────────────────────────┤    ├────────────────────────┤
-│ • Real-time Candles    │    │ • Polymarket           │    │ • Binance (125x)       │
-│ • Orderbooks           │    │ • Kalshi               │    │ • Bybit (100x)         │
-│ • Liquidity Tracking   │    │ • Betfair              │    │ • Hyperliquid (50x)    │
-│ • Depth Analysis       │    │ • Smarkets             │    │ • MEXC (200x)          │
-│ • Price Feeds (30+)    │    │ • Drift (on Solana)    │    │ • Drift (Solana)       │
-│ • Volatility Feeds     │    │ • Opinion.xyz          │    │ • Percolator (On-chain)│
-│ • Trade History        │    │ • Predict.fun          │    │ • Lighter (ARB)        │
-│ • Semantic Memory      │    │ • Manifold (play $)    │    │ Leverage: up to 200x   │
-│ • Analytics/Stats      │    │ • Metaculus (forecast) │    │ Features: TP/SL, Liquidation Alerts │
-└────────────────────────┘    └────────────────────────┘    └────────────────────────┘
-        │                               │                                   │
-        └───────────────────────────────┼───────────────────────────────────┘
-                                        │
-        ┌───────────────────────────────┼───────────────────────────────────┐
-        ▼                               ▼                                   ▼
-┌────────────────────────┐    ┌────────────────────────┐    ┌────────────────────────┐
-│   DeFi & SWAPS         │    │  MINING & STAKING      │    │  SECURITY & PAYMENTS   │
-├────────────────────────┤    ├────────────────────────┤    ├────────────────────────┤
-│ Solana:                │    │ • Bittensor Mining     │    │ • Token Security Audits│
-│  • Jupiter             │    │ • Wallet Management    │    │ • GoPlus Analysis      │
-│  • Raydium             │    │ • Chutes SN64 Support  │    │ • Code Scanning (75+)  │
-│  • Orca                │    │ • Earnings Tracking    │    │ • Scam DB (70+)        │
-│  • Meteora             │    │ • TAO Rewards          │    │ • Security Shield      │
-│  • Kamino              │    │ • Subnet Stats         │    │ • Pre-trade TX Check   │
-│  • MarginFi            │    │                        │    │ • x402 Payments        │
-│  • Pump.fun            │    │ EVM:                   │    │ • Wormhole Bridging    │
-│ EVM:                   │    │ • Proof-of-stake       │    │ • Encrypted Creds      │
-│  • Uniswap V3          │    │ • Validator Pools      │    │ • MCP Server (119 tools)│
-│  • 1inch               │    │ • Rewards APY          │    │ • Compute API          │
-│  • PancakeSwap         │    │                        │    │ • Kill Switch          │
-│ Jito Bundles           │    └────────────────────────┘    └────────────────────────┘
-│ MEV Protection         │
-└────────────────────────┘
-        │
-        └───────────────────────────────────────────────────────────────────┐
-                                                                            ▼
-                                                        ┌────────────────────────────┐
-                                                        │   COMMUNITY & ECOSYSTEM    │
-                                                        ├────────────────────────────┤
-                                                        │ • Agent Forum              │
-                                                        │ • Agent Marketplace        │
-                                                        │ • Peer-to-peer Trade (USDC)│
-                                                        │ • Strategy Sharing         │
-                                                        │ • Leaderboards             │
-                                                        │ • 9 Extensions             │
-                                                        └────────────────────────────┘
-                                                                            │
-                                                                            ▼
-                        ┌───────────────────────────────────────────────────────────────┐
-                        │              DATA PERSISTENCE LAYER                           │
-                        ├───────────────────────────────────────────────────────────────┤
-                        │                                                               │
-                        │  SQLite (~/.clodds/)        LanceDB                PostgreSQL  │
-                        │  • Conversations            • Semantic Memory      • Trade DB  │
-                        │  • Trade History            • Embeddings           • Analytics │
-                        │  • Bots & Configs           • Hybrid BM25 Search   • A/B Tests │
-                        │  • WebChat Messages         • User Profiles        • Backtest  │
-                        │  • Portfolio Snapshots      • Facts DB             Data       │
-                        │  • Bittensor Earnings       • Context Cache        • Signals   │
-                        │  • A/B Test Results         • Similarity Search    • Stats     │
-                        │                                                               │
-                        │              Backup & Sync: 3x replication • Compression      │
-                        └───────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────┴─────────────────────────────────────┐
+│                            AI AGENTS LAYER (4)                                 │
+│  Main (Claude) • Trading (Exec) • Research (Data) • Alerts (Monitor)          │
+│  119+ Skills • 18 Tools • LanceDB Memory • Semantic Reasoning                  │
+└──────────────────────────────────────────┬─────────────────────────────────────┘
+                                           │
+┌──────────────────────────────────────────┴─────────────────────────────────────┐
+│                    UNIFIED STRATEGY & RISK LAYER                               │
+│  118+ Strategies • Risk Engine (VaR/CVaR/Circuit Breaker) • Kelly Sizing      │
+│  Backtesting • Trade Ledger • Position Manager • Arbitrage Detection          │
+│  Whale Tracking • Copy Trading • MEV Protection • Smart Routing               │
+└──────────────────────────────────────────┬─────────────────────────────────────┘
+                                           │
+    ┌──────────────────────┬──────────────┼──────────────┬──────────────────────┐
+    ▼                      ▼              ▼              ▼                      ▼
+┌──────────────────┐ ┌──────────────┐ ┌──────────────┐ ┌─────────────┐ ┌──────────────┐
+│ PREDICTION       │ │ SOLANA DeFi  │ │ EVM DeFi     │ │ PERPETUAL   │ │ ON-CHAIN     │
+│ MARKETS          │ │              │ │              │ │ FUTURES     │ │ PERPS        │
+├──────────────────┤ ├──────────────┤ ├──────────────┤ ├─────────────┤ ├──────────────┤
+│ Polymarket:      │ │ Jupiter      │ │ Uniswap V3   │ │ Binance     │ │ Percolator   │
+│  • 5-min BTC     │ │ Raydium      │ │ 1inch        │ │  (125x)     │ │ (Solana)     │
+│  • 1h/4h/daily   │ │ Orca         │ │ PancakeSwap  │ │ Bybit       │ │              │
+│    (All assets)  │ │ Meteora      │ │ Virtuals     │ │  (100x)     │ │ Slab Parser  │
+│ Kalshi           │ │ Kamino       │ │ Clanker      │ │ Hyperliquid │ │ Keeper Crank │
+│ Betfair          │ │ MarginFi     │ │ Veil         │ │  (50x)      │ │ Oracle Feed  │
+│ Smarkets         │ │ Solend       │ │ (ETH, ARB,   │ │ MEXC (200x) │ │              │
+│ Drift           │ │ Pump.fun     │ │  OP, Base,   │ │ Drift       │ │ Settlement   │
+│ Opinion.xyz      │ │ Bags.fm      │ │  Polygon)    │ │  (Solana)   │ │ Monitoring   │
+│ Predict.fun      │ │              │ │              │ │ Percolator  │ │ Liquidation  │
+│ Manifold         │ │ Jito Bundles │ │ Flashbots    │ │ Lighter     │ │ Alerts       │
+│ Metaculus        │ │ MEV Protect. │ │ MEV Protect. │ │  (ARB)      │ │              │
+│ PredictIt        │ │              │ │              │ │             │ │ Up to 200x   │
+│                  │ │ WebSocket &  │ │ WebSocket &  │ │ WebSocket & │ │ leverage     │
+│ CLOB Orders      │ │ HTTP APIs    │ │ HTTP APIs    │ │ HTTP APIs   │ │              │
+│ Settlement       │ │              │ │              │ │             │ │ Fully        │
+│ Tracking         │ │ Real-time    │ │ Real-time    │ │ Liquidation │ │ On-chain     │
+└──────────────────┘ │ Price Feeds  │ │ Price Feeds  │ │ Monitoring  │ │              │
+                     │              │ │              │ │             │ │ No KYC       │
+    │ Gamma API │    │ Chainlink    │ │ Chainlink    │ │ Funding     │ │              │
+    │ Poll for  │    │ Feeds        │ │ Feeds        │ │ Rates       │ └──────────────┘
+    │ rounds    │    │              │ │              │ │             │
+    │ Execution │    │ Execution    │ │ Execution    │ │ Execution   │
+    └──────────┘    └──────────────┘ └──────────────┘ └─────────────┘
+                     │                │                │
+    ┌────────────────┴────────────────┴────────────────┴──────────────┐
+    │          COMMON EXECUTION & DATA LAYER                          │
+    │  Order Builder • Balance Checker • Slippage Estimator           │
+    │  Fee Calculator • Real-time P&L • Settlement Polling            │
+    │  Bittensor Mining (TAO) • x402 Payments (USDC)                 │
+    │  Agent Forum • Agent Marketplace • Compute API                  │
+    └────────────────────────┬─────────────────────────────────────────┘
+                             │
+                             ▼
+        ┌───────────────────────────────────────────────────┐
+        │       DATA PERSISTENCE LAYER                       │
+        ├───────────────────────────────────────────────────┤
+        │ SQLite: Local configs, WebChat, earnings          │
+        │ LanceDB: Semantic memory, embeddings, profiles    │
+        │ PostgreSQL: Trade history, analytics, backtest    │
+        │ Backup & Sync: 3x replication • Compression       │
+        └───────────────────────────────────────────────────┘
 ```
 
 ---
