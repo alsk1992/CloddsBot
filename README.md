@@ -15,6 +15,7 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/channels-21-purple" alt="21 Channels">
   <img src="https://img.shields.io/badge/markets-10-orange" alt="10 Markets">
+  <img src="https://img.shields.io/badge/Colosseum-Agent%20Hackathon-blueviolet" alt="Built for Colosseum Hackathon">
 </p>
 
 <p align="center">
@@ -33,6 +34,8 @@
 **Clodds** is a personal AI trading terminal for prediction markets, crypto spot, perpetual futures with leverage, **Solana token launches**, and **Bittensor subnet mining**. Run it on your own machine, chat via any of **21 messaging platforms**, trade across **10 prediction markets + 7 futures exchanges** (including on-chain Solana perps via Percolator), launch tokens with Meteora bonding curves, mine TAO on Bittensor, and manage your portfolio — all through natural conversation.
 
 Powered by Claude with 118+ trading strategies, whale tracking, arbitrage detection, copy trading, and DCA bots.
+
+> 🏗️ **Built for [Colosseum Agent Hackathon](https://colosseum.com) on Solana** — Developed in 12 days as a fully-featured autonomous trading agent.
 
 ---
 
