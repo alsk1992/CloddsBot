@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/typescript-5.3-blue" alt="TypeScript">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/channels-21-purple" alt="21 Channels">
-  <img src="https://img.shields.io/badge/markets-10-orange" alt="10 Markets">
+  <img src="https://img.shields.io/badge/markets-1000%2B-orange" alt="1000+ Markets">
   <img src="https://img.shields.io/badge/Colosseum-Agent%20Hackathon-blueviolet" alt="Built for Colosseum Hackathon">
 </p>
 
