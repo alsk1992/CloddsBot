@@ -1,6 +1,6 @@
 ---
 name: metaculus
-description: "Metaculus forecasting platform (read-only)"
+description: "Search and view community forecasting questions, predictions, and tournaments on Metaculus. Use when users mention Metaculus, forecasting, prediction calibration, or tournament competitions."
 emoji: "🔮"
 commands:
   - /mc

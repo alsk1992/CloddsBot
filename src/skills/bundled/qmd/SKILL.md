@@ -1,6 +1,6 @@
 ---
 name: qmd
-description: Local hybrid search for markdown notes and docs. Use when searching notes, finding related content, or retrieving documents from indexed collections.
+description: "Search and retrieve local markdown notes and docs using BM25 keyword or semantic vector search. Use when searching notes, finding related content, or retrieving documents from indexed collections."
 homepage: https://github.com/tobi/qmd
 metadata: {"clawdbot":{"emoji":"🔍","os":["darwin","linux"],"requires":{"bins":["qmd"]},"install":[{"id":"bun-qmd","kind":"shell","command":"bun install -g https://github.com/tobi/qmd","bins":["qmd"],"label":"Install qmd via Bun"}]}}
 ---

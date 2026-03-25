@@ -1,6 +1,6 @@
 ---
 name: marginfi
-description: "MarginFi — Solana lending and borrowing"
+description: "Deposit collateral, borrow assets, check health factors, and view lending pool APYs on MarginFi (Solana). Use when users mention MarginFi, Solana lending, borrowing, health factor, or lending rates."
 emoji: "🏦"
 commands:
   - /marginfi

@@ -1,6 +1,6 @@
 ---
 name: divergence
-description: "Spot vs Polymarket divergence trading on 15-minute crypto markets"
+description: "Detect and trade spot-vs-Polymarket price divergences on 15-minute crypto binary markets using Binance spot feeds and configurable threshold buckets. Use when users ask about divergence trading, price-lag arbitrage, or spot-poly spread strategies."
 commands:
   - /divergence
   - /div

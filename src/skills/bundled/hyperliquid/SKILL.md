@@ -1,6 +1,6 @@
 ---
 name: hyperliquid
-description: Hyperliquid L1 perps DEX (69% market share)
+description: "Trade perpetual futures and spot on Hyperliquid L1 DEX. Open/close positions, set leverage, execute TWAP orders, manage HLP vault deposits, and query funding rates across 130+ markets. Use when users mention Hyperliquid, HL, perps DEX, TWAP, or HLP vault."
 emoji: "🔷"
 commands:
   - /hl

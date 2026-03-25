@@ -1,6 +1,6 @@
 ---
 name: tailscale
-description: "Tailscale VPN sharing, Serve, and Funnel for remote access"
+description: "Share local services privately via Tailscale Serve or expose them publicly via Funnel. Transfer files between peers and check network status. Use when sharing dev servers, exposing webhook endpoints, or accessing the bot remotely."
 emoji: "🔗"
 gates:
   envs:

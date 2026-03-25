@@ -1,6 +1,6 @@
 ---
 name: betfair
-description: "Betfair Exchange sports betting and trading"
+description: "Trade sports markets on Betfair Exchange with back/lay orders, live streaming, and orderbook data. Use when users ask about Betfair, sports betting, horse racing, football markets, or exchange trading."
 emoji: "🏇"
 commands:
   - /bf

@@ -1,6 +1,6 @@
 ---
 name: research
-description: "Research prediction markets - base rates, resolution rules, historical data"
+description: "Research prediction markets with base rate analysis, resolution rule lookups, and historical analogies. Use when users ask about win rates, market resolution criteria, or similar past markets."
 emoji: "🔬"
 ---
 

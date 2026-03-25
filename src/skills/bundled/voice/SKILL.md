@@ -1,6 +1,6 @@
 ---
 name: voice
-description: "Voice recognition, wake words, and voice-controlled trading"
+description: "Enable voice recognition with wake words and voice-controlled trading via OpenAI Whisper or local models. Transcribe speech to commands and execute trades hands-free. Use when setting up voice control, configuring wake words, or enabling spoken trade execution."
 emoji: "🎤"
 gates:
   envs:

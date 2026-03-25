@@ -1,6 +1,6 @@
 ---
 name: plugins
-description: "Plugin management, installation, and lifecycle control"
+description: "Install, configure, enable, and manage plugins to extend Clodds functionality with custom commands, tools, and event handlers. Use when users mention plugins, extensions, install plugin, or plugin settings."
 emoji: "🧩"
 ---
 

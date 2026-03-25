@@ -1,3 +1,9 @@
+---
+name: ticks
+description: "Query historical tick, OHLC, and orderbook data from TimescaleDB. Analyze price action, volume, spread history, and market depth over time. Use when users need historical market data, candlestick charts, tick-by-tick analysis, or orderbook snapshots."
+emoji: "📊"
+---
+
 # Tick Data Skill
 
 Query historical tick, OHLC, and orderbook data from TimescaleDB.

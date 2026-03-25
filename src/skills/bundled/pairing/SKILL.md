@@ -1,6 +1,6 @@
 ---
 name: pairing
-description: "User pairing, authentication, and trust management"
+description: "Pair new users to Clodds with code-based authentication, manage trust levels (owner/paired/stranger), and control access across channels. Use when users mention pairing, trust, user access, or authentication."
 emoji: "🔗"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: mm
-description: "Market making - two-sided quoting with inventory management"
+description: "Run automated two-sided market making on Polymarket and Kalshi with inventory skew, volatility-adjusted spreads, and risk controls. Use when users mention market making, quoting, spreads, or MM strategy."
 emoji: "📊"
 gates:
   envs:

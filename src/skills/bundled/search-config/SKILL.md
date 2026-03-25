@@ -1,6 +1,6 @@
 ---
 name: search-config
-description: "Search indexing configuration and full-text search management"
+description: "Configure search backends, manage full-text and semantic indexes, and tune hybrid search weights. Use when users need to rebuild indexes, switch search backends, or optimize search performance."
 emoji: "🔎"
 ---
 

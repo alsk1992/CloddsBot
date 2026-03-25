@@ -1,6 +1,6 @@
 ---
 name: permissions
-description: "Command approvals, tool policies, and exec security"
+description: "Manage command execution approvals, allowlist/blocklist rules, tool access policies, and security modes for safe agent operations. Use when users mention permissions, approvals, command security, or tool policies."
 emoji: "🛡️"
 ---
 

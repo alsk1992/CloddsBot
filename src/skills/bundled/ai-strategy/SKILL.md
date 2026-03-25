@@ -1,6 +1,6 @@
 ---
 name: ai-strategy
-description: "AI Strategy - natural language to trades"
+description: "Convert natural language into executable trading strategies with DCA, stop-loss, and ladder orders. Use when users describe trades in plain English or want automated strategy execution on Solana."
 command: strategy
 emoji: "🤖"
 gates:

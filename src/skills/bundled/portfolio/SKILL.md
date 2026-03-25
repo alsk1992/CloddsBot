@@ -1,6 +1,6 @@
 ---
 name: portfolio
-description: "Track your positions and P&L across prediction markets and futures exchanges"
+description: "Track positions, P&L, and balances across prediction markets and futures exchanges. Use when users ask about portfolio value, daily gains, platform exposure, risk analytics, or whale tracking."
 emoji: "💼"
 ---
 

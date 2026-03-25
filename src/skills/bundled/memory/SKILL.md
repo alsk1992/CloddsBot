@@ -1,6 +1,6 @@
 ---
 name: memory
-description: "Persistent memory system for preferences, facts, and notes"
+description: "Store and recall user preferences, trading rules, facts, and notes across conversations with semantic search powered by vector embeddings. Use when users mention remember, memory, preferences, trading rules, notes, or persistent storage."
 emoji: "🧠"
 ---
 

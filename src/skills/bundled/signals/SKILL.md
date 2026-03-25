@@ -1,6 +1,6 @@
 ---
 name: signals
-description: "Signal trading - RSS, Twitter, Telegram triggers to trades"
+description: "Monitor RSS feeds, Twitter accounts, Telegram channels, and webhooks to auto-trigger trades based on signal filters. Use when automating trade execution from external signal sources, keyword-based triggers, or sentiment-driven entries."
 command: signal
 emoji: "📡"
 gates:

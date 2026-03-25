@@ -1,6 +1,6 @@
 ---
 name: slippage
-description: "Slippage estimation, optimization, and protection for trade execution"
+description: "Estimate, minimize, and protect against slippage across prediction markets, futures, and DEXes. Analyze orderbook depth, optimize order splitting, and configure TWAP execution. Use when placing large orders, checking price impact, or setting slippage protection."
 emoji: "📉"
 ---
 

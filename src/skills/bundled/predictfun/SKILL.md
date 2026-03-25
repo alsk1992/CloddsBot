@@ -1,6 +1,6 @@
 ---
 name: predictfun
-description: "Predict.fun prediction market trading (BNB Chain)"
+description: "Trade binary and categorical prediction markets on Predict.fun (BNB Chain). Use when users want to buy, sell, or manage positions on Predict.fun markets."
 emoji: "🎯"
 commands:
   - /pf

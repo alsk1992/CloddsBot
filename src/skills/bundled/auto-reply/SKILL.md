@@ -1,6 +1,6 @@
 ---
 name: auto-reply
-description: "Automatic response rules, patterns, and scheduled messages"
+description: "Create automatic response rules with keyword matching, regex patterns, cooldowns, and conditional triggers. Use when users want to set up auto-replies, scheduled messages, or pattern-based bot responses."
 emoji: "🤖"
 ---
 

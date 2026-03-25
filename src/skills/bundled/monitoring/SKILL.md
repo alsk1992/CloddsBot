@@ -1,6 +1,6 @@
 ---
 name: monitoring
-description: "System health monitoring, alerts, and error tracking"
+description: "Monitor system health, check LLM provider status, configure alert thresholds, and receive notifications via email or webhook. Use when users mention monitoring, health checks, alerts, uptime, or provider status."
 emoji: "🔔"
 ---
 

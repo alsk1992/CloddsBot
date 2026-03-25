@@ -1,6 +1,6 @@
 ---
 name: news
-description: "Monitor news and correlate with prediction market movements"
+description: "Track breaking news from Twitter, RSS, and wire services and auto-correlate with prediction market price movements. Use when users mention news, market-moving events, price impact, sentiment, or news alerts."
 emoji: "📰"
 ---
 

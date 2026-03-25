@@ -1,6 +1,6 @@
 ---
 name: usage
-description: "Token usage tracking, cost estimation, and usage analytics"
+description: "Track AI token usage, estimate costs per model, and analyze consumption across sessions and users. View spending breakdowns and set budget limits. Use when monitoring AI costs, auditing token consumption, or optimizing model usage."
 emoji: "📊"
 ---
 

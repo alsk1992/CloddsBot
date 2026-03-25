@@ -1,6 +1,6 @@
 ---
 name: drift
-description: "Drift Protocol - perpetuals and prediction markets on Solana"
+description: "Trade perpetuals, spot, and prediction markets on Drift Protocol (Solana DEX) with long/short positions, leverage control, and order management. Use when users ask about Drift trading, Solana perpetual futures, or Drift market data."
 command: drift
 emoji: "🌊"
 gates:

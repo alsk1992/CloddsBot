@@ -1,6 +1,6 @@
 ---
 name: dca
-description: "Dollar-cost averaging across all platforms"
+description: "Schedule dollar-cost averaging orders across Polymarket, Kalshi, PumpFun, Hyperliquid, Binance Futures, Bybit, MEXC, Drift, Orca, Raydium, and more. Use when users ask about DCA, recurring buys, spread orders over time, or automated position building."
 command: dca
 emoji: "📊"
 ---

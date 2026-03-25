@@ -1,6 +1,6 @@
 ---
 name: sessions
-description: "Session management, conversation history, and checkpoints"
+description: "Manage conversation sessions, save and restore checkpoints, and export chat history across channels. Use when users need to start new sessions, save conversation state, or configure auto-reset behavior."
 emoji: "💬"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: routing
-description: "Multi-agent routing, channel bindings, and tool policies"
+description: "Route messages to specialized agents, bind channels to specific agents, and configure tool access policies. Use when users need to switch agents, set up channel bindings, or manage per-agent tool permissions."
 emoji: "🔀"
 ---
 

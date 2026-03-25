@@ -1,6 +1,6 @@
 ---
 name: strategy
-description: "Build and manage custom trading strategies with natural language"
+description: "Create, test, and deploy custom trading strategies using natural language or built-in templates (momentum, mean-reversion, arbitrage, breakout). Use when building automated strategies, backtesting ideas, or managing live strategy execution."
 emoji: "🎯"
 ---
 

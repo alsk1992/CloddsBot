@@ -1,6 +1,6 @@
 ---
 name: pump-swarm
-description: "Coordinated multi-wallet trading on Pump.fun"
+description: "Coordinate synchronized trades across up to 20 Solana wallets on Pump.fun, Bags.fm, and Meteora. Use when users need multi-wallet buys, bundled sells, or stealth execution strategies."
 command: swarm
 emoji: "🐝"
 gates:

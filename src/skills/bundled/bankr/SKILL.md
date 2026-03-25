@@ -1,6 +1,6 @@
 ---
 name: bankr
-description: "AI-powered crypto trading via natural language through Bankr API"
+description: "Execute crypto trades, DeFi operations, and portfolio management via natural language through Bankr API. Use when users want to buy, sell, swap, bridge tokens, or manage positions across Base, Polygon, Ethereum, and Solana."
 command: bankr
 emoji: "🏦"
 gates:

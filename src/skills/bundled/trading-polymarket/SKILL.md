@@ -1,6 +1,6 @@
 ---
 name: trading-polymarket
-description: "Execute trades on Polymarket using py_clob_client - full API access for market data, orders, positions"
+description: "Execute trades on Polymarket via py_clob_client with full API access for market data, limit/market orders, and position management. Use when buying or selling prediction market shares, checking orderbooks, or managing Polymarket positions."
 emoji: "💰"
 gates:
   envs:

@@ -1,6 +1,6 @@
 ---
 name: triggers
-description: "Conditional orders that auto-execute when price thresholds are met"
+description: "Set up conditional orders that auto-execute trades when price thresholds are met across prediction markets, futures, and crypto spot. Use when creating stop-loss, take-profit, or threshold-based automated entries and exits."
 emoji: "⚡"
 ---
 

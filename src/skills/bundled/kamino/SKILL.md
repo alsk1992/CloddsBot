@@ -1,6 +1,6 @@
 ---
 name: kamino
-description: "Kamino Finance — Solana lending, borrowing, and liquidity vaults"
+description: "Deposit collateral, borrow assets, manage liquidity vaults, and monitor health factors on Kamino Finance (Solana). Use when users mention Kamino, Solana lending, borrowing, liquidity vaults, or health factor monitoring."
 emoji: "🌀"
 commands:
   - /kamino

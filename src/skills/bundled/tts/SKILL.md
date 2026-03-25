@@ -1,6 +1,6 @@
 ---
 name: tts
-description: "Text-to-speech synthesis with ElevenLabs and system voices"
+description: "Synthesize speech from text using ElevenLabs or system TTS voices. Configure voice, speed, and output format. Use when converting bot responses to audio, enabling voice notifications, or generating spoken market updates."
 emoji: "🔊"
 gates:
   envs:

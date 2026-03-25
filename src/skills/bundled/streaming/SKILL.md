@@ -1,6 +1,6 @@
 ---
 name: streaming
-description: "Response streaming configuration and real-time output"
+description: "Configure response streaming, typing indicators, and chunk-based message delivery across Telegram, Discord, Slack, and other platforms. Use when tuning real-time output behavior or adjusting per-platform message limits."
 emoji: "📡"
 ---
 

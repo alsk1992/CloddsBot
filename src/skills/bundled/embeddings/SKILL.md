@@ -1,6 +1,6 @@
 ---
 name: embeddings
-description: "Vector embeddings configuration and semantic search"
+description: "Configure vector embedding providers (OpenAI, Voyage, Cohere, local), manage cached embeddings, and perform semantic search with similarity scoring. Use when users ask about embeddings, semantic search, vector storage, or text similarity."
 emoji: "🧬"
 ---
 

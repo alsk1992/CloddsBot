@@ -1,6 +1,6 @@
 ---
 name: positions
-description: "Position management with stop-loss, take-profit, and trailing stops"
+description: "Manage open positions with automated stop-loss, take-profit, and trailing stop orders. Use when users need to set price triggers, configure partial exits, or monitor position risk levels."
 emoji: "📍"
 ---
 

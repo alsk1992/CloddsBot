@@ -1,6 +1,6 @@
 ---
 name: dex
-description: "Cross-chain DEX market intelligence - trending tokens, gainers, losers, volume, stats across all chains and protocols"
+description: "Query cross-chain DEX data via DexScreener for trending tokens, gainers, losers, volume, and price lookups across Solana, Ethereum, Base, BSC, and 10+ chains. Use when users ask about token prices, what's trending, top movers, or DEX market data."
 command: dex
 emoji: "📊"
 ---

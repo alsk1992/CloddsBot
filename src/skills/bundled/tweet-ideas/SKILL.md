@@ -1,6 +1,6 @@
 ---
 name: tweet-ideas
-description: "Generate tweet ideas from trends and project updates"
+description: "Generate tweet ideas from market trends, prediction market movements, and project updates. Use when brainstorming social media content, creating market commentary tweets, or drafting project announcements."
 command: tweets
 emoji: "💭"
 ---

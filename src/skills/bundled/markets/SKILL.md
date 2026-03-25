@@ -1,6 +1,6 @@
 ---
 name: markets
-description: "Search and view prediction market data from Polymarket, Kalshi, Manifold, and Metaculus"
+description: "Search prediction markets and view live prices, orderbooks, and bid/ask spreads across Polymarket, Kalshi, Manifold, and Metaculus. Use when users mention market prices, prediction markets, odds comparison, or market search."
 emoji: "📊"
 ---
 

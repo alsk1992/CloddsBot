@@ -1,6 +1,6 @@
 ---
 name: risk
-description: "Unified risk engine with VaR, stress testing, volatility regimes, and automated controls"
+description: "Validate trades against a unified risk engine with VaR limits, stress testing, volatility regime detection, and circuit breakers. Use when users need risk checks, loss limits, kill switches, or portfolio risk dashboards."
 emoji: "🛑"
 ---
 

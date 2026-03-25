@@ -1,6 +1,6 @@
 ---
 name: copy-trading
-description: "Automatically copy trades from successful wallets on Polymarket and crypto"
+description: "Automatically mirror trades from top Polymarket and crypto wallets with configurable sizing, stop-loss, take-profit, and daily risk limits. Use when users want to follow whale traders, copy prediction market positions, or discover profitable wallets to copy."
 emoji: "📋"
 gates:
   envs:

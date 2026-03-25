@@ -1,6 +1,6 @@
 ---
 name: market-index
-description: "Search, discover, and browse indexed markets across all platforms"
+description: "Search, discover, and browse prediction markets across Polymarket, Kalshi, Manifold, and Betfair with full-text search, category filtering, and trending detection. Use when users mention market search, market index, trending markets, market discovery, or closing-soon markets."
 emoji: "🔍"
 ---
 

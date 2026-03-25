@@ -1,6 +1,6 @@
 ---
 name: bags
-description: "Bags.fm - Complete Solana token launchpad with creator monetization"
+description: "Trade, launch, and manage Solana tokens on Bags.fm with creator fee monetization and social wallet lookup. Use when users ask about Bags.fm pools, token launches, fee claiming, or creator revenue sharing."
 command: bags
 emoji: "💰"
 gates:

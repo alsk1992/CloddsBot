@@ -1,6 +1,6 @@
 ---
 name: bridge
-description: "Cross-chain token transfers using Wormhole and CCTP"
+description: "Transfer tokens across chains using Wormhole and Circle CCTP protocols with quote, send, and redeem flows. Use when users want to bridge USDC or tokens between Solana, Ethereum, Base, Arbitrum, Polygon, or other EVM chains."
 emoji: "🌉"
 gates:
   envs:

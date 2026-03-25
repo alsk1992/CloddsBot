@@ -1,6 +1,6 @@
 ---
 name: yoink
-description: "Play Yoink capture-the-flag game on Base - yoink the flag, check scores, compete for trophy"
+description: "Play the Yoink capture-the-flag game on Base chain. Yoink the flag from other players, check leaderboard scores, and compete for the trophy. Use when playing Yoink, checking game status, or strategizing flag captures."
 command: yoink
 emoji: "🚩"
 gates:

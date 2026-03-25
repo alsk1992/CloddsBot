@@ -1,6 +1,6 @@
 ---
 name: farcaster
-description: "Farcaster social protocol via Neynar API - read feeds, post casts, follow users"
+description: "Interact with Farcaster decentralized social protocol via Neynar API to read feeds, post casts, search users and channels, and perform write operations. Use when users ask about Farcaster, posting casts, trending content, or Warpcast social features."
 command: fc
 emoji: "🟪"
 gates:

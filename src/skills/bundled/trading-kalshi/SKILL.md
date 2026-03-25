@@ -1,6 +1,6 @@
 ---
 name: trading-kalshi
-description: "Kalshi trading - search markets, place orders, stream prices, advanced order types"
+description: "Search markets, place orders, stream real-time prices, and use advanced order types on Kalshi. Manage positions and view portfolio analytics. Use when trading event contracts on Kalshi or monitoring Kalshi market data."
 commands:
   - /kalshi
   - /trading-kalshi

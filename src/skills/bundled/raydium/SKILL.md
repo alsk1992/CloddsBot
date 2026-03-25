@@ -1,6 +1,6 @@
 ---
 name: raydium
-description: "Raydium - swaps, CLMM positions, AMM liquidity on Solana"
+description: "Execute token swaps, manage CLMM concentrated liquidity positions, and provide AMM liquidity on Raydium DEX (Solana). Use when users ask about Raydium pools, swaps, or LP management."
 command: ray
 emoji: "💜"
 gates:

@@ -1,6 +1,6 @@
 ---
 name: smarkets
-description: "Smarkets Exchange betting with 2% commission"
+description: "Trade on Smarkets betting exchange with 2% commission. Search politics, sports, and entertainment markets, place buy/sell orders, and stream real-time prices. Use when trading on Smarkets or comparing exchange fees."
 emoji: "🎰"
 commands:
   - /sm

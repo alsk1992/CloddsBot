@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Setup Wizard — Configure environment for all skills"
+description: "Run the interactive setup wizard to check environment variables, configure platform credentials, and verify skill readiness. Use when users need to onboard, check what is configured, or set up a new category."
 emoji: "🔧"
 commands:
   - /setup

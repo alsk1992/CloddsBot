@@ -1,6 +1,6 @@
 ---
 name: integrations
-description: "External data sources, connectors, and custom data streams"
+description: "Connect and manage external data sources including FedWatch, FiveThirtyEight, crypto exchanges, custom webhooks, REST APIs, and WebSocket feeds for trading signals. Use when users mention data integrations, custom signals, webhooks, data sources, or live feeds."
 emoji: "🔗"
 ---
 
