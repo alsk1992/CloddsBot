@@ -16,6 +16,11 @@
   <img src="https://img.shields.io/badge/skills-119%2B-purple" alt="119+ Skills">
   <img src="https://img.shields.io/badge/markets-1000%2B-orange" alt="1000+ Markets">
   <img src="https://img.shields.io/badge/Colosseum-Agent%20Hackathon-blueviolet" alt="Built for Colosseum Hackathon">
+  <img src="https://img.shields.io/badge/clones%2F14d-10.7k-brightgreen" alt="10.7k clones in 14 days">
+</p>
+
+<p align="center">
+  <img src="./assets/screenshots/clones-14d.jpeg" alt="10,746 Git clones in last 14 days" width="520">
 </p>
 
 <p align="center">
