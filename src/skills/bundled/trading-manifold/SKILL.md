@@ -1,6 +1,6 @@
 ---
 name: trading-manifold
-description: "Place bets on Manifold Markets using their REST API"
+description: "Place bets, search markets, and manage positions on Manifold Markets via REST API. Create markets and track portfolio performance. Use when trading on Manifold prediction markets or analyzing community forecasts."
 emoji: "🎲"
 gates:
   envs:

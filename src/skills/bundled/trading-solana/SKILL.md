@@ -1,6 +1,6 @@
 ---
 name: trading-solana
-description: "Trade tokens on Solana DEXes - Jupiter, Raydium, Orca, Meteora, Pump.fun"
+description: "Swap tokens on Solana via Jupiter, Raydium, Orca, Meteora, and Pump.fun DEXes. Get quotes, execute swaps with slippage control, and check balances. Use when trading Solana tokens, sniping new launches, or routing through multiple DEX aggregators."
 emoji: "☀️"
 gates:
   envs:

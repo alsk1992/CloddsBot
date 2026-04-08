@@ -1,6 +1,6 @@
 ---
 name: qrcoin
-description: "Participate in QR Coin auctions on Base - bid to display URLs on QR codes"
+description: "Bid in QR Coin auctions on Base blockchain to display URLs on QR codes. Use when users want to check auction status, place bids, or contribute USDC to existing bids."
 command: qr
 emoji: "📱"
 gates:

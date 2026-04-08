@@ -1,6 +1,6 @@
 ---
 name: history
-description: "Trade history tracking, sync, and performance analytics"
+description: "Fetch, sync, and analyze trade history from Polymarket and Kalshi with P&L breakdowns, win-rate stats, and CSV/JSON export. Use when users mention trade history, performance analytics, daily P&L, trade sync, or export trades."
 emoji: "📊"
 gates:
   envs:

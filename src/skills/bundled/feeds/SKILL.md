@@ -1,6 +1,6 @@
 ---
 name: feeds
-description: "Real-time market data feeds from 8 prediction market platforms"
+description: "Stream real-time and historical market data from Polymarket, Kalshi, Manifold, Metaculus, PredictIt, Drift, Betfair, and Smarkets with orderbook, news, and edge analysis. Use when users ask about market feeds, live prices, orderbooks, or cross-platform market data."
 emoji: "📡"
 ---
 

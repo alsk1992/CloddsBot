@@ -1,6 +1,6 @@
 ---
 name: x-research
-description: "X/Twitter research via Composio — search, threads, profiles, watchlists"
+description: "Research X/Twitter via Composio integration. Search tweets, analyze threads, monitor profiles, and manage watchlists for market intelligence. Use when gathering social sentiment, tracking influencer takes, or monitoring breaking news on X."
 emoji: "🐦"
 gates:
   envs:

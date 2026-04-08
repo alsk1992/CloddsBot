@@ -1,6 +1,6 @@
 ---
 name: solend
-description: "Solend — Solana lending and borrowing"
+description: "Deposit collateral, borrow assets, and manage lending positions on Solend (Solana). Monitor health factor, check APY rates, and avoid liquidation. Use when lending, borrowing, or managing DeFi positions on Solana."
 emoji: "💰"
 commands:
   - /solend

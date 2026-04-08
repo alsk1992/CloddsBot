@@ -1,6 +1,6 @@
 ---
 name: predictit
-description: "PredictIt political prediction market (read-only)"
+description: "Browse and search PredictIt political prediction markets with real-time pricing data. Use when users ask about US election odds, political market prices, or PredictIt contract details."
 emoji: "🗳️"
 commands:
   - /pi

@@ -1,6 +1,6 @@
 ---
 name: presence
-description: "Online status, activity tracking, and multi-device sync"
+description: "Manage online status, track user activity, and synchronize presence across multiple devices. Use when users need to set availability, check who is online, or configure auto-away behavior."
 emoji: "🟢"
 ---
 

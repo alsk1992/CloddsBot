@@ -1,6 +1,6 @@
 ---
 name: clanker
-description: "Deploy ERC20 tokens with Uniswap V4 pools on Base, Ethereum, Arbitrum"
+description: "Deploy ERC20 tokens with built-in Uniswap V4 liquidity pools, vesting vaults, and sniper protection on Base, Ethereum, or Arbitrum. Use when users want to launch tokens, claim rewards, or manage Clanker deployments."
 command: clanker
 emoji: "🪙"
 gates:

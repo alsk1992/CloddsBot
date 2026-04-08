@@ -1,6 +1,6 @@
 ---
 name: backtest
-description: "Test trading strategies on historical data with Monte Carlo simulation"
+description: "Backtest trading strategies on historical prediction market data with walk-forward analysis and Monte Carlo simulation. Use when users want to validate strategies, compare performance, or stress-test trading approaches."
 emoji: "📈"
 ---
 

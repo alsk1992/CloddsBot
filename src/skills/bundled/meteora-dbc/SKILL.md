@@ -1,6 +1,6 @@
 ---
 name: meteora-dbc
-description: "Launch tokens on Meteora dynamic bonding curves"
+description: "Launch, buy, and sell tokens on Meteora dynamic bonding curves with anti-sniper fees and automated DAMM migration. Use when users mention DBC, bonding curve launch, token launch on Meteora, or migration."
 command: dbc
 emoji: "🚀"
 ---
@@ -23,3 +23,33 @@ Launch tokens on Meteora's dynamic bonding curves with anti-sniper fees, configu
 /dbc pools <command> [args]                      Query pools and configs
 /dbc help                                        Show all commands
 ```
+
+## Examples
+
+```bash
+# Launch a new token on bonding curve
+/dbc launch "MyToken" MTK "A cool token" --market-cap 100000
+
+# Check pool status and migration progress
+/dbc status So1abc...xyz
+
+# Buy tokens with 0.5 SOL
+/dbc buy So1abc...xyz 0.5
+
+# Claim creator fees
+/dbc claim PoolAbc123
+```
+
+## Workflow
+
+1. **Launch** a token with name, symbol, and description via `/dbc launch`
+2. **Monitor** pool status and migration progress with `/dbc status`
+3. **Trade** on the curve using `/dbc buy` and `/dbc sell`
+4. **Claim** creator or partner fees once available with `/dbc claim`
+5. **Migrate** to DAMM when market cap target is reached via `/dbc migrate`
+
+## Notes
+
+- Anti-sniper fees protect against bot sniping at launch
+- Configurable market cap targets trigger automatic DAMM migration
+- Supports both v1 and v2 migration paths

@@ -1,6 +1,6 @@
 ---
 name: trading-evm
-description: "Trade tokens on EVM chains - Uniswap V3, 1inch on Ethereum, Arbitrum, Optimism, Base, Polygon"
+description: "Swap tokens on Ethereum, Arbitrum, Optimism, Base, and Polygon via Uniswap V3 and 1inch aggregator. Compare routes, check balances, and execute with MEV protection. Use when trading EVM tokens, getting DEX quotes, or bridging across L2 chains."
 emoji: "⟠"
 gates:
   envs:

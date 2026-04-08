@@ -1,6 +1,6 @@
 ---
 name: automation
-description: "Schedule cron jobs and automate recurring tasks"
+description: "Schedule cron jobs and automate recurring tasks with named presets and manual triggers. Use when users want to set up recurring scans, periodic reports, or automated trading schedules."
 commands:
   - /auto
   - /automation

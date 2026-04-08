@@ -1,6 +1,6 @@
 ---
 name: alerts
-description: "Create and manage price alerts for prediction markets"
+description: "Create and manage price alerts for prediction markets and crypto assets. Use when users want notifications on price thresholds, volume spikes, whale activity, or market movements on Polymarket, Kalshi, or crypto chains."
 emoji: "🔔"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: credentials
-description: "Secure credential management for trading platforms"
+description: "Store, manage, and test API credentials for trading platforms with AES-256-GCM encryption and cooldown protection. Use when users need to add, remove, or verify API keys for Polymarket, Kalshi, Binance, Betfair, or other exchanges."
 emoji: "🔐"
 ---
 

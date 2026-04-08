@@ -1,6 +1,6 @@
 ---
 name: identity
-description: "User identity, OAuth connections, and device management"
+description: "Manage user identity, link OAuth providers (Google, GitHub, Discord), authenticate devices, and control sessions and trust levels. Use when users mention identity, OAuth, device management, session security, or account linking."
 emoji: "🪪"
 ---
 

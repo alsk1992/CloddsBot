@@ -1,6 +1,6 @@
 ---
 name: veil
-description: "Privacy and shielded transactions on Base via Veil Cash - ZK-based anonymous transfers"
+description: "Execute privacy-preserving shielded transactions on Base via Veil Cash using ZK proofs. Deposit, withdraw, and transfer anonymously on-chain. Use when making private transfers, shielding transaction history, or protecting trading wallet identity."
 command: veil
 emoji: "🌪️"
 gates:

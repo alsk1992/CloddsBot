@@ -1,6 +1,6 @@
 ---
 name: endaoment
-description: "Donate to 501(c)(3) charities onchain via Endaoment - tax-deductible crypto donations"
+description: "Donate USDC to 501(c)(3) nonprofits onchain via Endaoment smart contracts on Base with charity search by name or EIN and tax-deductible receipts. Use when users ask about crypto donations, charitable giving, Endaoment, or onchain philanthropy."
 command: donate
 emoji: "💝"
 gates:

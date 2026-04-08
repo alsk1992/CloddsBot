@@ -1,6 +1,6 @@
 ---
 name: agentbets
-description: "AgentBets - AI-native prediction markets on Solana"
+description: "Browse and trade AI-native prediction markets on Solana. Use when users ask about AgentBets markets, +EV opportunities, or Solana prediction market trading."
 command: agentbets
 emoji: "🎲"
 ---

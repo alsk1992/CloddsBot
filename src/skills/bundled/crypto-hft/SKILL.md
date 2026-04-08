@@ -1,6 +1,6 @@
 ---
 name: crypto-hft
-description: "Trade crypto binary markets on Polymarket with 4 automated strategies. Support: 5-min BTC, 15-min/1h/4h/daily all assets (BTC, ETH, SOL, XRP)"
+description: "Automate crypto binary market trading on Polymarket with momentum, mean-reversion, penny-clipper, and expiry-fade strategies across 5-min to daily timeframes. Use when users ask about HFT, crypto scalping, binary options, or automated Polymarket trading."
 commands:
   - /crypto-hft
   - /hft

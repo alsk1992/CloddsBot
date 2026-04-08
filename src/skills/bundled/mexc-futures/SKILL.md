@@ -1,6 +1,6 @@
 ---
 name: mexc-futures
-description: MEXC Futures trading with DB tracking (No KYC)
+description: "Trade perpetual futures on MEXC with up to 200x leverage, track positions, and query historical PnL from the database. Use when users mention MEXC, futures, leverage trading, or no-KYC exchange."
 emoji: "🔵"
 commands:
   - /mx

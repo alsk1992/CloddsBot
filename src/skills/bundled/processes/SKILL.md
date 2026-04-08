@@ -1,6 +1,6 @@
 ---
 name: processes
-description: "Background jobs, long-running processes, and task management"
+description: "Spawn and manage background jobs, long-running processes, and scheduled tasks with auto-restart and resource limits. Use when users need to run backtests, train models, or manage daemon processes."
 emoji: "⚙️"
 ---
 

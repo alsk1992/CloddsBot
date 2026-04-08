@@ -1,6 +1,6 @@
 ---
 name: pancakeswap
-description: "PancakeSwap — Multi-chain DEX (BNB Chain, ETH, ARB, Base)"
+description: "Swap tokens on PancakeSwap V3 across BNB Chain, Ethereum, Arbitrum, and Base with quotes and balance checks. Use when users mention PancakeSwap, CAKE, multi-chain DEX swap, or BNB Chain trading."
 emoji: "🥞"
 commands:
   - /cake

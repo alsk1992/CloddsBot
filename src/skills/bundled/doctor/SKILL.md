@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: "System health diagnostics and troubleshooting"
+description: "Run system health diagnostics across OS, Node.js, network, API keys, database, and channel connections with configurable thresholds and formatted reports. Use when users ask about health checks, troubleshooting, system status, or component diagnostics."
 emoji: "🩺"
 ---
 

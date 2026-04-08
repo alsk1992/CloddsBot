@@ -1,6 +1,6 @@
 ---
 name: virtuals
-description: "Virtuals Protocol AI Agent marketplace (Base chain)"
+description: "Browse, trade, and interact with AI agents on the Virtuals Protocol marketplace (Base chain). View agent stats, buy/sell agent tokens, and track portfolio. Use when exploring AI agent tokens, checking Virtuals market data, or trading agent assets."
 emoji: "🤖"
 commands:
   - /virt

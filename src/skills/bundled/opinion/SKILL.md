@@ -1,6 +1,6 @@
 ---
 name: opinion
-description: Opinion.trade prediction market (BNB Chain CLOB)
+description: "Trade prediction markets on Opinion.trade via BNB Chain on-chain CLOB with limit orders, orderbook views, and position tracking. Use when users mention Opinion.trade, BNB prediction market, or on-chain CLOB."
 emoji: "🗳️"
 commands:
   - /op

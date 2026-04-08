@@ -1,6 +1,6 @@
 ---
 name: mcp
-description: "Model Context Protocol server management and tool integration"
+description: "Add, configure, and manage Model Context Protocol (MCP) servers to extend agent capabilities with external tools, file access, and API integrations. Use when users mention MCP, tool servers, MCP integration, or external tool management."
 emoji: "🔌"
 ---
 

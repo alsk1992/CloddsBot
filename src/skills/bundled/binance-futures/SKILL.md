@@ -1,6 +1,6 @@
 ---
 name: binance-futures
-description: Binance Futures trading with DB tracking
+description: "Trade perpetual futures on Binance with leveraged long/short positions, TP/SL orders, and full database tracking. Use when users ask about Binance futures, leveraged crypto trading, or position management on Binance."
 emoji: "🟡"
 commands:
   - /bf

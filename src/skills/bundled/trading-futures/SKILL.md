@@ -1,6 +1,6 @@
 ---
 name: trading-futures
-description: "Trade perpetual futures on Binance, Bybit, Hyperliquid, MEXC with up to 200x leverage"
+description: "Trade leveraged perpetual futures on Binance, Bybit, Hyperliquid, and MEXC with database tracking, custom strategies, and A/B testing. Open long/short positions, set TP/SL, and manage risk. Use when trading crypto futures, setting leverage, or running automated strategies."
 emoji: "📈"
 gates:
   envs:

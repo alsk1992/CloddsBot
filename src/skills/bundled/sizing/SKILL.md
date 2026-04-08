@@ -1,6 +1,6 @@
 ---
 name: sizing
-description: "Position sizing with Kelly criterion and bankroll management"
+description: "Calculate optimal position sizes using Kelly criterion, fractional Kelly, and portfolio-level allocation with bankroll management. Use when sizing trades, estimating edge, or rebalancing portfolio weights."
 emoji: "📐"
 ---
 

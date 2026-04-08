@@ -1,6 +1,6 @@
 ---
 name: ens
-description: "Set your primary ENS name on Base and L2s - configure reverse resolution"
+description: "Set and verify primary ENS names on Base, Arbitrum, Optimism, and Ethereum via the ENS Reverse Registrar for bidirectional address-to-name resolution. Use when users ask about ENS primary name, reverse resolution, or setting .eth identity on L2s."
 command: ens
 emoji: "🏷️"
 gates:

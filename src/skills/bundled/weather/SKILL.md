@@ -1,6 +1,6 @@
 ---
 name: weather
-description: "Weather betting - NOAA data for Polymarket weather markets"
+description: "Fetch NOAA weather data and analyze Polymarket weather markets for edge. Compare forecasts against market prices to find mispriced weather contracts. Use when trading weather prediction markets or evaluating climate-related event outcomes."
 command: weather
 emoji: "🌤️"
 gates:

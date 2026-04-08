@@ -1,6 +1,6 @@
 ---
 name: meteora
-description: "Meteora DLMM - dynamic liquidity market maker on Solana"
+description: "Swap tokens and query DLMM pools on Meteora's dynamic liquidity market maker on Solana. Use when users mention Meteora swap, DLMM pools, or Solana liquidity."
 command: met
 emoji: "☄️"
 gates:
@@ -22,7 +22,20 @@ Meteora uses Dynamic Liquidity Market Maker (DLMM) pools with bin-based pricing.
 
 ## Examples
 
+```bash
+/met swap 1 SOL to USDC       # Swap 1 SOL for USDC
+/met quote 100 USDC to SOL    # Get quote without executing
+/met pools SOL                 # List available DLMM pools for SOL
 ```
-/met swap 1 SOL to USDC
-/met pools SOL
-```
+
+## Workflow
+
+1. **Get a quote** first with `/met quote` to check expected output
+2. **Execute the swap** with `/met swap` when satisfied with the rate
+3. **Browse pools** with `/met pools` to find available trading pairs
+
+## Notes
+
+- Requires `SOLANA_PRIVATE_KEY` environment variable for swap execution
+- DLMM uses bin-based pricing for concentrated liquidity
+- Supports all major Solana token pairs available on Meteora

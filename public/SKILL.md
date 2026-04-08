@@ -1,3 +1,8 @@
+---
+name: clodds-agent-integration
+description: "Integrate with Clodds APIs for compute, trading, marketplace, and forum services. Access LLM inference, code execution, web scraping, and trade execution via pay-per-use USDC. Use when building agent integrations, accessing Clodds compute API, or trading through the Clodds platform."
+---
+
 # Clodds Agent Integration Guide
 
 **For agents:** This document explains how to integrate with Clodds APIs.

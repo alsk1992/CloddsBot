@@ -1,6 +1,6 @@
 ---
 name: harden
-description: VPS security auditing and hardening
+description: "Audit and harden remote VPS servers by checking SSH, firewall, fail2ban, and system updates. Apply automated security fixes and generate compliance reports. Use when users mention server security, VPS hardening, SSH audit, firewall setup, or fail2ban configuration."
 emoji: "🔒"
 commands:
   - /harden

@@ -1,6 +1,6 @@
 ---
 name: webhooks
-description: "Webhook management with HMAC signing and rate limiting"
+description: "Create, manage, and secure webhooks with HMAC signing, rate limiting, and retry logic. Register endpoints, test deliveries, and monitor webhook health. Use when integrating external services, receiving trade notifications, or building event-driven workflows."
 commands:
   - /webhooks
   - /webhook

@@ -1,6 +1,6 @@
 ---
 name: copy-trading-solana
-description: "Copy trade Solana wallets - mirror trades automatically"
+description: "Monitor and automatically copy trades from Solana wallets via Jupiter with configurable sizing, delays, and stealth mode. Use when users want to follow whale wallets, mirror Solana DEX trades, or set up copy trading on Pump.fun, Raydium, or Orca."
 command: copy
 emoji: "👥"
 gates:

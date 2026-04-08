@@ -1,6 +1,6 @@
 ---
 name: bybit-futures
-description: Bybit Futures trading with DB tracking
+description: "Trade perpetual futures on Bybit with leveraged long/short positions, TP/SL orders, and full database tracking. Use when users ask about Bybit futures, leveraged crypto trading, or position management on Bybit."
 emoji: "🟠"
 commands:
   - /bb

@@ -1,6 +1,6 @@
 ---
 name: onchainkit
-description: "Build onchain apps with Coinbase's OnchainKit React components - wallets, swaps, NFTs, payments"
+description: "Scaffold and build onchain apps using Coinbase OnchainKit React components for wallets, swaps, identity, and payments on Base. Use when users mention OnchainKit, onchain app, Base dApp, or Coinbase components."
 command: onchainkit
 emoji: "🔗"
 ---

@@ -1,6 +1,6 @@
 ---
 name: whale-tracking
-description: "Monitor whale trades on Polymarket and crypto chains (Solana, ETH, Polygon, ARB, Base, OP)"
+description: "Monitor large whale trades on Polymarket and track whale wallets across Solana, Ethereum, Polygon, Arbitrum, Base, and Optimism. Set alerts for whale movements and analyze accumulation patterns. Use when tracking smart money, detecting large trades, or following whale wallets."
 emoji: "🐋"
 gates:
   envs:

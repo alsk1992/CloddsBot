@@ -1,6 +1,6 @@
 ---
 name: remote
-description: "SSH tunnels, ngrok, and remote access management"
+description: "Create and manage SSH tunnels, ngrok endpoints, and Cloudflare tunnels for remote access to local services. Use when users need to expose ports, set up webhooks, or access the bot remotely."
 emoji: "🌐"
 ---
 

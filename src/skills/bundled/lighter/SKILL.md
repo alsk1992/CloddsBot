@@ -1,6 +1,6 @@
 ---
 name: lighter
-description: "Lighter — Orderbook DEX on Arbitrum"
+description: "Trade perpetual futures on Lighter, an on-chain orderbook DEX on Arbitrum. Open/close long and short positions, view orderbooks, and manage orders. Use when users mention Lighter, Arbitrum perps, on-chain orderbook, or Lighter DEX trading."
 emoji: "⚡"
 commands:
   - /lighter

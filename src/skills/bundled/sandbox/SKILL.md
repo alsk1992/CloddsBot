@@ -1,6 +1,6 @@
 ---
 name: sandbox
-description: "Visual HTML canvas sandbox for agent-driven UI and live previews"
+description: "Push HTML content to a live-updating canvas server for visual dashboards, charts, and agent-driven UI previews. Use when users want to render HTML, take screenshots, or preview content in a browser canvas."
 commands:
   - /sandbox
   - /canvas

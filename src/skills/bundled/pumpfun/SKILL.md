@@ -1,6 +1,6 @@
 ---
 name: pumpfun
-description: "Pump.fun - Complete Solana memecoin launchpad. Discovery, trending, gainers, losers, token data all work without a key. Trading requires SOLANA_PRIVATE_KEY."
+description: "Trade, discover, and analyze tokens on the Pump.fun Solana memecoin launchpad. Browse trending, gainers, and new launches without a key; execute trades with SOLANA_PRIVATE_KEY."
 command: pump
 emoji: "🚀"
 ---

@@ -1,6 +1,6 @@
 ---
 name: erc8004
-description: "Register AI agent identity on Ethereum via ERC-8004 Trustless Agents standard"
+description: "Register and manage AI agent identities on Ethereum mainnet via ERC-8004 Trustless Agents with ERC-721 IDs, reputation tracking, and third-party validation. Use when users ask about agent identity, ERC-8004, onchain agent registration, or agent reputation."
 command: agent-id
 emoji: "🤖"
 gates:

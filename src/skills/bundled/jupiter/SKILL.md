@@ -1,6 +1,6 @@
 ---
 name: jupiter
-description: "Jupiter DEX aggregator - swaps, limit orders, and DCA on Solana"
+description: "Swap tokens, create limit orders, and set up DCA strategies on Solana via Jupiter DEX aggregator. Routes across 20+ DEXes with MEV protection. Use when users mention Jupiter, Solana swaps, token swap, limit orders, DCA, or DEX aggregation."
 command: jup
 emoji: "🪐"
 gates:

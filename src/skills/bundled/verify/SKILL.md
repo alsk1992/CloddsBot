@@ -1,6 +1,6 @@
 ---
 name: verify
-description: "Verify agent identity using ERC-8004 on-chain registry"
+description: "Verify agent identity using the ERC-8004 on-chain registry to prevent impersonation attacks. Look up agent metadata, validate signatures, and check registration status. Use when verifying another agent's identity or registering your own agent on-chain."
 emoji: "🔐"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: drift-sdk
-description: "Drift Protocol perpetual futures trading on Solana (direct SDK)"
+description: "Trade perpetual futures on Drift Protocol via direct Solana SDK integration with market/limit orders, leverage control, and position management. Use when users ask about Drift SDK trading, Solana perps, or gateway-free Drift access."
 emoji: "🌊"
 commands:
   - /drift

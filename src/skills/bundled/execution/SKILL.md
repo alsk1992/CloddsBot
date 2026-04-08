@@ -1,6 +1,6 @@
 ---
 name: execution
-description: "Execute trades on prediction markets with slippage protection and order management"
+description: "Execute limit, market, maker, and protected orders on Polymarket and Kalshi with slippage estimation, order management, and maker rebates. Use when users ask about placing trades, order execution, slippage protection, or managing open orders."
 emoji: "⚡"
 gates:
   envs:

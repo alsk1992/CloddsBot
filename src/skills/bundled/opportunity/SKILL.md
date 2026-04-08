@@ -1,6 +1,6 @@
 ---
 name: opportunity
-description: "Find and execute cross-platform arbitrage opportunities across prediction markets"
+description: "Scan, monitor, and execute cross-platform arbitrage opportunities across Polymarket, Kalshi, Betfair, and more with risk modeling and Kelly sizing. Use when users mention arbitrage, odds comparison, cross-platform edge, or mispriced contracts."
 emoji: "🎯"
 gates:
   envs:

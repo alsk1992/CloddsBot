@@ -1,6 +1,6 @@
 ---
 name: trading-system
-description: "Unified trading system with auto-logging, bots, and performance analytics"
+description: "Manage the unified trading system with auto-logging, trading bots, and performance analytics across Polymarket and Kalshi. Track P&L, run automated bots, and analyze trade history. Use when configuring the trading system, reviewing bot performance, or querying trade logs."
 emoji: "🤖"
 gates:
   envs:

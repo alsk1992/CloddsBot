@@ -1,6 +1,6 @@
 ---
 name: arbitrage
-description: "Automated cross-platform arbitrage detection and monitoring"
+description: "Detect and monitor cross-platform arbitrage opportunities across Polymarket, Kalshi, Betfair, and other prediction markets. Use when users ask about price spreads, arb scanning, or cross-platform market comparison."
 emoji: "⚖️"
 gates:
   envs:

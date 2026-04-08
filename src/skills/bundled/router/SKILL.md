@@ -1,6 +1,6 @@
 ---
 name: router
-description: "Smart order routing for best price, liquidity, and execution"
+description: "Route prediction market orders to the best platform based on price, liquidity, fees, and execution quality. Use when users want to compare platforms, split large orders, or find optimal execution venues."
 emoji: "🔀"
 ---
 

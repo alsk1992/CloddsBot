@@ -1,6 +1,6 @@
 ---
 name: metrics
-description: "System metrics, telemetry, and performance monitoring"
+description: "Track system health, API latency, trade execution stats, and custom telemetry with alerts and Prometheus export. Use when users mention metrics, performance, latency, error rates, or dashboards."
 emoji: "📈"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: mev
-description: "MEV protection against sandwich attacks and front-running"
+description: "Protect trades from MEV sandwich attacks and front-running using Flashbots, MEV Blocker, and Jito bundles. Use when users mention MEV, sandwich attack, front-running, private mempool, or trade protection."
 emoji: "🛡️"
 ---
 

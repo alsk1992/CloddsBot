@@ -1,6 +1,6 @@
 ---
 name: analytics
-description: "Performance attribution, trade analytics, and strategy optimization"
+description: "Analyze trading performance with P&L attribution, win rate, Sharpe ratio, and time-of-day breakdowns. Use when users ask about trade analytics, performance reports, edge decay, or strategy optimization."
 emoji: "📊"
 ---
 

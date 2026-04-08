@@ -1,6 +1,6 @@
 ---
 name: portfolio-sync
-description: "Sync portfolio positions from Polymarket, Kalshi, and Manifold"
+description: "Fetch and synchronize portfolio positions across Polymarket, Kalshi, and Manifold prediction markets. Use when users need to sync balances, refresh on-chain positions, or aggregate holdings from multiple platforms."
 emoji: "📁"
 ---
 

@@ -1,3 +1,9 @@
+---
+name: acp
+description: "Agent Commerce Protocol - register agents, discover services, create escrow agreements on Solana. Use when users ask about agent-to-agent commerce, service discovery, on-chain escrow, or cryptographic agreements."
+emoji: "🤝"
+---
+
 # ACP - Agent Commerce Protocol
 
 Enable agent-to-agent commerce with on-chain escrow, cryptographic agreements, and service discovery.

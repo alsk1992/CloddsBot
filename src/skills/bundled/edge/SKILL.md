@@ -1,6 +1,6 @@
 ---
 name: edge
-description: "Find mispriced markets by comparing to external models and data sources"
+description: "Scan prediction markets for mispricing by comparing prices to 538, CME FedWatch, polls, Vegas lines, and other external models with Kelly criterion sizing. Use when users ask about finding edge, mispriced markets, fair value, or optimal bet sizing."
 emoji: "🎯"
 ---
 
