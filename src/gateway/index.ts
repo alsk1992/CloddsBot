@@ -592,6 +592,15 @@ export async function createGateway(config: Config): Promise<AppGateway> {
 
   // DCA router is wired later (after executionService is created) so it can start the engine
 
+  // Create alert service with stub price provider (no alerts configured yet;
+  // real price feed wired when alert monitoring is needed)
+  const alertsMod = await import('../alerts/index.js');
+  const stubPriceProvider: import('../alerts/index.js').PriceProvider = {
+    async getPrice() { return null; },
+    async getVolume24h() { return null; },
+  };
+  let alertService: import('../alerts/index.js').AlertService | null = alertsMod.createAlertService(stubPriceProvider, null);
+
   // Create alt-data sentiment pipeline if enabled
   let altDataService: AltDataService | null = null;
 
@@ -858,7 +867,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   // Wire Alerts API (lazy — alertService may not be instantiated)
   {
     const { createAlertsRouter } = await import('./alerts-routes.js');
-    httpGateway.setAlertsRouter(createAlertsRouter({ getService: () => null }));
+    httpGateway.setAlertsRouter(createAlertsRouter({ getService: () => alertService }));
     logger.info('Alerts API wired (service injected when available)');
   }
 
