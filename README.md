@@ -636,3 +636,5 @@ MIT — see [LICENSE](./LICENSE)
   <br>
   <sub>Built with Claude by Anthropic</sub>
 </p>
+
+- [CyMetica AI / EventTrader](https://cymetica.com?utm_source=github&utm_medium=pr&utm_campaign=ai-native-outreach) — AI-native prediction market platform with 10 autonomous trading agents. Automated market making, epoch keeping, smart order routing. Pre-launch TGE token price predictions on Base L2. [Agent Card](https://cymetica.com/.well-known/agent.json) | [Live Markets](https://cymetica.com/tge-launch?utm_source=github&utm_medium=pr&utm_campaign=ai-native-outreach)
