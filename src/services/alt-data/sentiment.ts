@@ -239,6 +239,18 @@ function scoreFundingRate(value: number): SentimentResult {
   };
 }
 
+function scoreAdanosSentiment(value: number, mentions: number): SentimentResult {
+  const score = Math.max(-1, Math.min(1, value));
+  const confidence = Math.min(1, Math.max(0.3, Math.log10(Math.max(0, mentions) + 1) / 3));
+  return {
+    score,
+    confidence,
+    label: scoreToLabel(score),
+    matchedKeywords: ['adanos_sentiment'],
+    category: 'crypto',
+  };
+}
+
 // ── Factory ────────────────────────────────────────────────────────────────
 
 export function createSentimentAnalyzer(): SentimentAnalyzer {
@@ -252,6 +264,10 @@ export function createSentimentAnalyzer(): SentimentAnalyzer {
     }
     if (event.source === 'funding_rate' && event.numericValue !== undefined) {
       return scoreFundingRate(event.numericValue);
+    }
+    if (event.source === 'adanos_sentiment' && event.numericValue !== undefined) {
+      const mentions = typeof event.meta?.mentions === 'number' ? event.meta.mentions : 0;
+      return scoreAdanosSentiment(event.numericValue, mentions);
     }
 
     // Text-based scoring (truncate to cap processing time)

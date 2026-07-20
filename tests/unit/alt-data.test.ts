@@ -112,6 +112,21 @@ describe('sentiment analyzer', () => {
     assert.ok(negative_funding.score > 0, `Expected positive score for negative funding, got ${negative_funding.score}`);
   });
 
+  it('uses Adanos numeric sentiment without keyword rescoring', () => {
+    const result = analyzer.analyze({
+      id: 'adanos-1',
+      source: 'adanos_sentiment',
+      timestamp: Date.now(),
+      text: 'Bitcoin market sentiment',
+      numericValue: -0.42,
+      categories: ['crypto'],
+      meta: { mentions: 100 },
+    });
+    assert.equal(result.score, -0.42);
+    assert.equal(result.label, 'bearish');
+    assert.ok(result.confidence > 0.6);
+  });
+
   it('returns neutral for empty/irrelevant text', () => {
     const result = analyzer.analyze({
       id: 'test-4',
@@ -362,5 +377,62 @@ describe('reddit feed', () => {
     assert.equal(typeof feed.start, 'function');
     assert.equal(typeof feed.stop, 'function');
     assert.equal(typeof feed.poll, 'function');
+  });
+});
+
+describe('Adanos feed', () => {
+  it('rejects unsafe polling intervals', async () => {
+    const mod = await import('../../src/services/alt-data/feeds/adanos.js');
+    assert.throws(() => mod.createAdanosFeed(() => {}, process.env.PATH ?? '', 0), /Adanos interval/);
+    assert.throws(() => mod.createAdanosFeed(() => {}, process.env.PATH ?? '', 2_147_483_648), /Adanos interval/);
+  });
+
+  it('emits validated changed sentiment snapshots', async () => {
+    const originalFetch = globalThis.fetch;
+    let bullishPct = 60;
+    globalThis.fetch = (async (_url: URL, init?: RequestInit) => {
+      assert.equal((init?.headers as Record<string, string>)['X-API-Key'], process.env.PATH);
+      return new Response(JSON.stringify([
+        { symbol: 'btc', name: 'Bitcoin', sentiment_score: 0.35, buzz_score: 72, mentions: 150, trend: 'rising', bullish_pct: bullishPct },
+        { symbol: '../bad', sentiment_score: 0.5 },
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      const mod = await import('../../src/services/alt-data/feeds/adanos.js');
+      const emitted: any[] = [];
+      const feed = mod.createAdanosFeed((event) => emitted.push(event), process.env.PATH ?? '', 60_000, 10);
+      const first = await feed.poll();
+      const second = await feed.poll();
+      bullishPct = 61;
+      const changed = await feed.poll();
+      assert.equal(first.length, 1);
+      assert.equal(second.length, 0);
+      assert.equal(changed.length, 1);
+      assert.equal(emitted[0].source, 'adanos_sentiment');
+      assert.equal(emitted[0].numericValue, 0.35);
+      assert.equal(emitted[0].meta.symbol, 'BTC');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('does not emit an in-flight manual poll after stop', async () => {
+    const originalFetch = globalThis.fetch;
+    let resolveFetch!: (response: Response) => void;
+    globalThis.fetch = (() => new Promise<Response>((resolve) => { resolveFetch = resolve; })) as typeof fetch;
+    try {
+      const mod = await import('../../src/services/alt-data/feeds/adanos.js');
+      const emitted: any[] = [];
+      const feed = mod.createAdanosFeed((event) => emitted.push(event), process.env.PATH ?? '', 60_000, 10);
+      const pending = feed.poll();
+      feed.stop();
+      resolveFetch(new Response(JSON.stringify([
+        { symbol: 'BTC', sentiment_score: 0.5, mentions: 100 },
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      await pending;
+      assert.equal(emitted.length, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
