@@ -1,4 +1,4 @@
-# Skills Catalog (119 Skills)
+# Skills Catalog (120 Skills)
 
 Complete reference of all bundled skills organized by category. Use `/skills` in chat to browse interactively, or `/skills search <query>` to find skills by keyword.
 
@@ -83,7 +83,7 @@ Complete reference of all bundled skills organized by category. Use `/skills` in
 | edge | `/edge` | Weather market edge calculation |
 | dca | `/dca` | Dollar-cost averaging across platforms |
 
-## Data & Feeds (10 skills)
+## Data & Feeds (11 skills)
 
 | Skill | Command | Description |
 |-------|---------|-------------|
@@ -97,6 +97,7 @@ Complete reference of all bundled skills organized by category. Use `/skills` in
 | analytics | `/analytics` | Opportunity analytics and performance breakdown |
 | metrics | `/metrics` | System health metrics and Prometheus export |
 | weather | `/weather` | NOAA weather data for Polymarket weather markets |
+| livetennis | `/tennis` | Live tennis scores, fixtures and players for tennis event markets |
 
 ## AI & Strategy (15 skills)
 

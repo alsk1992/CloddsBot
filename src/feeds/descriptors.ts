@@ -503,6 +503,32 @@ const polymarketRtds: FeedDescriptor = {
 };
 
 // =============================================================================
+// SPORTS DATA
+// =============================================================================
+
+const liveTennis: FeedDescriptor = {
+  id: 'livetennis',
+  name: 'Live Tennis API',
+  description: 'Live tennis scores, fixtures & players (ATP/WTA/Challenger/ITF) — ground truth for tennis event markets',
+  status: 'available',
+  skillCommand: '/tennis',
+  category: 'sports',
+  capabilities: [
+    FeedCapability.SPORTS,
+  ],
+  dataTypes: ['live_scores', 'fixtures', 'players'],
+  connectionType: 'polling',
+  requiredEnv: ['LIVETENNIS_API_KEY'],
+  optionalEnv: [],
+  docsUrl: 'https://docs.livetennisapi.com',
+  version: '1.0.0',
+  create: async () => {
+    const { createLiveTennisFeed } = await import('./livetennis/index');
+    return createLiveTennisFeed() as any;
+  },
+};
+
+// =============================================================================
 // PERPETUAL FUTURES
 // =============================================================================
 
@@ -570,6 +596,9 @@ export function registerAllFeeds(): void {
   registry.register(weatherNWS);
   registry.register(acledConflict);
   registry.register(fredEconomics);
+
+  // Sports data
+  registry.register(liveTennis);
 }
 
 /** Get all descriptor objects for programmatic access. */
@@ -577,5 +606,5 @@ export const allDescriptors: FeedDescriptor[] = [
   polymarket, kalshi, manifold, metaculus, predictit, drift, agentbets,
   betfair, smarkets, opinion, predictfunDesc, hedgehog, virtuals,
   polymarketRtds, percolator, crypto, news, externalData,
-  weatherOpenMeteo, weatherNWS, acledConflict, fredEconomics,
+  weatherOpenMeteo, weatherNWS, acledConflict, fredEconomics, liveTennis,
 ];

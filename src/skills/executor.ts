@@ -78,6 +78,7 @@ const SKILL_MANIFEST: string[] = [
   'kamino',
   'ledger',
   'lighter',
+  'livetennis',
   'marginfi',
   'market-index',
   // 'markets', // removed: stub returning fake data, use market-index instead
@@ -252,6 +253,7 @@ const SKILL_CATEGORIES: Record<string, SkillCategory> = {
   'analytics': 'Data & Feeds',
   'metrics': 'Data & Feeds',
   'weather': 'Data & Feeds',
+  'livetennis': 'Data & Feeds',
 
   // AI & Strategy
   'ai-strategy': 'AI & Strategy',
