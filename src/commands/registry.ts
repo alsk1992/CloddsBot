@@ -72,7 +72,7 @@ export const COMMAND_CATEGORIES: Record<string, string | string[]> = {
   markets: 'Market Data', compare: 'Market Data', trending: 'Market Data',
   'market-index': 'Market Data', news: 'Market Data', research: 'Market Data',
   analytics: 'Market Data', ticks: 'Market Data', features: 'Market Data',
-  weather: 'Market Data', stream: 'Market Data',
+  weather: 'Market Data', stream: 'Market Data', livetennis: 'Market Data',
 
   // ── Cross-platform commands → appear under each platform they support ──
   opportunity: ['Market Data', 'Polymarket', 'Kalshi', 'Sportsbooks'],

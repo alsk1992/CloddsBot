@@ -3753,7 +3753,7 @@ export function createOnboardCommand(program: Command): void {
       }
       console.log('');
       console.log(`  ${bold('AI Trading Terminal')} ${dim('for prediction markets, crypto & futures')}`);
-      console.log(`  ${dim('10 markets  \u00b7  21 channels  \u00b7  119 skills')}`);
+      console.log(`  ${dim('10 markets  \u00b7  21 channels  \u00b7  120 skills')}`);
       console.log('');
       console.log(`  ${dim('='.repeat(56))}`);
       console.log('');
