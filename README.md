@@ -40,8 +40,6 @@
 
 Powered by Claude with 118+ trading strategies, whale tracking, arbitrage detection, copy trading, and DCA bots.
 
-**Clodds CA:** `2puc76ehVHyPXhZmDprtP2phDSFE4kzZKDT4JgAWpump`
-
 > 🏗️ **Built for [Colosseum Agent Hackathon](https://colosseum.com) on Solana** — Developed in 12 days as a fully-featured autonomous trading agent.
 
 ---
