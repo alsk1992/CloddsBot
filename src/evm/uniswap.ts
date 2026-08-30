@@ -7,6 +7,7 @@
 
 import { ethers, Wallet, JsonRpcProvider, Contract, parseUnits, formatUnits } from 'ethers';
 import { logger } from '../utils/logger';
+import { getChainConfig } from './multichain';
 
 // =============================================================================
 // TYPES
@@ -58,42 +59,36 @@ export interface TokenInfo {
 
 const CHAIN_CONFIG: Record<EvmChain, {
   chainId: number;
-  rpc: string;
   quoterV2: string;
   swapRouter: string;
   weth: string;
 }> = {
   ethereum: {
     chainId: 1,
-    rpc: 'https://eth.llamarpc.com',
     quoterV2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
     swapRouter: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
     weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
   },
   arbitrum: {
     chainId: 42161,
-    rpc: 'https://arb1.arbitrum.io/rpc',
     quoterV2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
     swapRouter: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
     weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
   },
   optimism: {
     chainId: 10,
-    rpc: 'https://mainnet.optimism.io',
     quoterV2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
     swapRouter: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
     weth: '0x4200000000000000000000000000000000000006',
   },
   base: {
     chainId: 8453,
-    rpc: 'https://mainnet.base.org',
     quoterV2: '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a',
     swapRouter: '0x2626664c2603336E57B271c5C0b26F421741e481',
     weth: '0x4200000000000000000000000000000000000006',
   },
   polygon: {
     chainId: 137,
-    rpc: 'https://polygon-rpc.com',
     quoterV2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
     swapRouter: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
     weth: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', // WMATIC
@@ -153,9 +148,12 @@ const FEE_TIERS = [500, 3000, 10000]; // 0.05%, 0.3%, 1%
 // =============================================================================
 
 function getEvmProvider(chain: EvmChain): JsonRpcProvider {
-  const config = CHAIN_CONFIG[chain];
-  const customRpc = process.env[`${chain.toUpperCase()}_RPC_URL`];
-  return new JsonRpcProvider(customRpc || config.rpc);
+  // Delegates to multichain.ts's single source of truth for RPC URLs so *_RPC_URL env
+  // overrides (e.g. ETH_RPC_URL) actually take effect here too — this used to keep its
+  // own hardcoded rpc/env-var-name pair that silently diverged from multichain.ts's
+  // (ETHEREUM_RPC_URL here vs. ETH_RPC_URL there), so setting ETH_RPC_URL never reached
+  // Uniswap and it was stuck on the unreliable eth.llamarpc.com default.
+  return new JsonRpcProvider(getChainConfig(chain).rpc);
 }
 
 function getEvmWallet(chain: EvmChain): Wallet {

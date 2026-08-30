@@ -9,6 +9,7 @@
 
 import { ethers, Wallet, JsonRpcProvider, Contract, parseUnits, formatUnits } from 'ethers';
 import { logger } from '../utils/logger';
+import { getChainConfig } from './multichain';
 
 // =============================================================================
 // TYPES
@@ -53,35 +54,30 @@ export interface PancakeSwapResult {
 
 const CHAIN_CONFIG: Record<PancakeChain, {
   chainId: number;
-  rpc: string;
   quoterV2: string;
   swapRouter: string;
   weth: string;
 }> = {
   bsc: {
     chainId: 56,
-    rpc: 'https://bsc-dataseed1.binance.org',
     quoterV2: '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997',
     swapRouter: '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4',
     weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', // WBNB
   },
   ethereum: {
     chainId: 1,
-    rpc: 'https://eth.llamarpc.com',
     quoterV2: '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997',
     swapRouter: '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4',
     weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
   },
   arbitrum: {
     chainId: 42161,
-    rpc: 'https://arb1.arbitrum.io/rpc',
     quoterV2: '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997',
     swapRouter: '0x32226588378236Fd0c7c4053999F88aC0e5cAc77',
     weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
   },
   base: {
     chainId: 8453,
-    rpc: 'https://mainnet.base.org',
     quoterV2: '0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997',
     swapRouter: '0x678Aa4bF4E210cf2166753e054d5b7c31cc7fa86',
     weth: '0x4200000000000000000000000000000000000006',
@@ -143,10 +139,7 @@ const FEE_TIERS = [100, 500, 2500, 10000]; // 0.01%, 0.05%, 0.25%, 1%
 // =============================================================================
 
 function getPancakeProvider(chain: PancakeChain): JsonRpcProvider {
-  const config = CHAIN_CONFIG[chain];
-  const envKey = chain === 'bsc' ? 'BSC_RPC_URL' : `${chain.toUpperCase()}_RPC_URL`;
-  const customRpc = process.env[envKey];
-  return new JsonRpcProvider(customRpc || config.rpc);
+  return new JsonRpcProvider(getChainConfig(chain).rpc);
 }
 
 function getPancakeWallet(chain: PancakeChain): Wallet {

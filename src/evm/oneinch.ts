@@ -8,7 +8,8 @@
 import { ethers, Wallet, JsonRpcProvider, Contract, parseUnits, formatUnits } from 'ethers';
 import { logger } from '../utils/logger';
 import type { EvmChain, TokenInfo } from './uniswap';
-import { resolveToken, getTokenInfo, CHAIN_CONFIG } from './uniswap';
+import { resolveToken, getTokenInfo } from './uniswap';
+import { getChainConfig } from './multichain';
 
 // =============================================================================
 // TYPES
@@ -47,10 +48,13 @@ export interface OneInchSwapResult {
   error?: string;
 }
 
+// Field names verified live against 1inch's own official generated types
+// (1inch/1inch-sdk-go's aggregation_types.gen.go QuoteResponse/SwapResponse structs) —
+// the API's actual wire format uses dstAmount/gas, not toAmount/estimatedGas.
 interface OneInchApiQuoteResponse {
-  toAmount: string;
+  dstAmount: string;
   protocols?: unknown[][];
-  estimatedGas?: number;
+  gas?: number;
 }
 
 interface OneInchApiSwapResponse {
@@ -62,14 +66,18 @@ interface OneInchApiSwapResponse {
     gasPrice: string;
     gas: number;
   };
-  toAmount: string;
+  dstAmount: string;
 }
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
 
-const ONE_INCH_API_BASE = 'https://api.1inch.dev/swap/v6.0';
+// api.1inch.dev is the deprecated legacy host (1inch's migration notice points
+// integrators at api.1inch.com; confirmed against the official 1inch/1inch-sdk-go
+// example, which defaults ApiUrl to "https://api.1inch.com"). v6.0 is still the
+// correct path version — the same SDK's aggregation client hardcodes apiVersion = "v6.0".
+const ONE_INCH_API_BASE = 'https://api.1inch.com/swap/v6.0';
 
 const CHAIN_IDS: Record<EvmChain, number> = {
   ethereum: 1,
@@ -122,9 +130,7 @@ async function oneInchFetch<T>(endpoint: string, chainId: number): Promise<T> {
 // =============================================================================
 
 function getEvmProvider(chain: EvmChain): JsonRpcProvider {
-  const config = CHAIN_CONFIG[chain];
-  const customRpc = process.env[`${chain.toUpperCase()}_RPC_URL`];
-  return new JsonRpcProvider(customRpc || config.rpc);
+  return new JsonRpcProvider(getChainConfig(chain).rpc);
 }
 
 function getEvmWallet(chain: EvmChain): Wallet {
@@ -198,9 +204,9 @@ export async function getOneInchQuote(
     chainId
   );
 
-  const toAmount = formatUnits(BigInt(response.toAmount), toInfo.decimals);
+  const toAmount = formatUnits(BigInt(response.dstAmount), toInfo.decimals);
   const toAmountMin = formatUnits(
-    (BigInt(response.toAmount) * BigInt(10000 - slippageBps)) / 10000n,
+    (BigInt(response.dstAmount) * BigInt(10000 - slippageBps)) / 10000n,
     toInfo.decimals
   );
 
@@ -235,7 +241,7 @@ export async function getOneInchQuote(
     toAmount,
     toAmountMin,
     protocols,
-    estimatedGas: response.estimatedGas?.toString() ?? '0',
+    estimatedGas: response.gas?.toString() ?? '0',
   };
 }
 
@@ -311,7 +317,7 @@ export async function executeOneInchSwap(
     );
 
     logger.info(
-      { chain, fromToken, toToken, amount, estimatedOut: swapResponse.toAmount },
+      { chain, fromToken, toToken, amount, estimatedOut: swapResponse.dstAmount },
       'Executing 1inch swap'
     );
 
@@ -342,7 +348,7 @@ export async function executeOneInchSwap(
       ? { address: toAddress, symbol: 'ETH', decimals: 18 }
       : await getTokenInfo(toAddress, chain);
 
-    const toAmount = formatUnits(BigInt(swapResponse.toAmount), toInfo.decimals);
+    const toAmount = formatUnits(BigInt(swapResponse.dstAmount), toInfo.decimals);
 
     logger.info({ txHash: receipt.hash, gasUsed: receipt.gasUsed.toString() }, '1inch swap complete');
 
