@@ -16,6 +16,8 @@ export interface ChainConfig {
   name: string;
   chainId: number;
   rpc: string;
+  /** Extra RPC endpoints to race a signed tx across alongside `rpc` (see fast-broadcast.ts). Empty by default — opt in via *_RPC_FALLBACKS env vars. */
+  rpcFallbacks: string[];
   nativeCurrency: {
     name: string;
     symbol: string;
@@ -25,11 +27,32 @@ export interface ChainConfig {
   multicall?: string;
 }
 
+function envRpcFallbacks(envVar: string): string[] {
+  return (process.env[envVar] || '')
+    .split(',')
+    .map((url) => url.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Official write-only sequencer endpoints (eth_sendRawTransaction only — no state reads,
+ * so these must only ever appear in rpcFallbacks, never as the primary `rpc`). Submitting
+ * here skips public mempool propagation entirely, which is the fastest inclusion path on
+ * these L2s and the whole point of racing via fast-broadcast.ts.
+ * - Arbitrum: https://docs.arbitrum.io/for-devs/dev-tools-and-resources/chain-info (arb1-sequencer)
+ * - Base: base/node .env.mainnet RETH_SEQUENCER_HTTP (mainnet-sequencer.base.org)
+ * - Optimism: https://docs.optimism.io/op-mainnet/network-information/connecting-to-op
+ */
+function withSequencer(envVar: string, sequencerUrl: string): string[] {
+  return [...envRpcFallbacks(envVar), sequencerUrl];
+}
+
 export const CHAINS: Record<string, ChainConfig> = {
   ethereum: {
     name: 'Ethereum',
     chainId: 1,
     rpc: process.env.ETH_RPC_URL || 'https://eth.llamarpc.com',
+    rpcFallbacks: envRpcFallbacks('ETH_RPC_FALLBACKS'),
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     explorer: 'https://etherscan.io',
     multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -38,6 +61,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Base',
     chainId: 8453,
     rpc: process.env.BASE_RPC_URL || 'https://mainnet.base.org',
+    rpcFallbacks: withSequencer('BASE_RPC_FALLBACKS', 'https://mainnet-sequencer.base.org'),
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     explorer: 'https://basescan.org',
     multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -46,6 +70,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Polygon',
     chainId: 137,
     rpc: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    rpcFallbacks: envRpcFallbacks('POLYGON_RPC_FALLBACKS'),
     nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
     explorer: 'https://polygonscan.com',
     multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -54,6 +79,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Arbitrum',
     chainId: 42161,
     rpc: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
+    rpcFallbacks: withSequencer('ARBITRUM_RPC_FALLBACKS', 'https://arb1-sequencer.arbitrum.io/rpc'),
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     explorer: 'https://arbiscan.io',
     multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -62,6 +88,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'BNB Chain',
     chainId: 56,
     rpc: process.env.BSC_RPC_URL || 'https://bsc-dataseed.binance.org',
+    rpcFallbacks: envRpcFallbacks('BSC_RPC_FALLBACKS'),
     nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
     explorer: 'https://bscscan.com',
     multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -70,6 +97,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Optimism',
     chainId: 10,
     rpc: process.env.OPTIMISM_RPC_URL || 'https://mainnet.optimism.io',
+    rpcFallbacks: envRpcFallbacks('OPTIMISM_RPC_FALLBACKS'),
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     explorer: 'https://optimistic.etherscan.io',
     multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -78,6 +106,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Avalanche',
     chainId: 43114,
     rpc: process.env.AVALANCHE_RPC_URL || 'https://api.avax.network/ext/bc/C/rpc',
+    rpcFallbacks: envRpcFallbacks('AVALANCHE_RPC_FALLBACKS'),
     nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
     explorer: 'https://snowtrace.io',
     multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -113,6 +142,12 @@ export function getChainConfig(chain: ChainName): ChainConfig {
     throw new Error(`Unknown chain: ${chain}`);
   }
   return config;
+}
+
+/** Every RPC endpoint configured for `chain` (primary + fallbacks), deduped, primary first. */
+export function getRaceUrls(chain: ChainName): string[] {
+  const config = getChainConfig(chain);
+  return [...new Set([config.rpc, ...config.rpcFallbacks])];
 }
 
 // =============================================================================

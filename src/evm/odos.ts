@@ -6,7 +6,8 @@
  */
 
 import { JsonRpcProvider, Wallet, Contract, parseUnits, formatUnits } from 'ethers';
-import { getProvider, getChainConfig, ChainName, CHAINS } from './multichain';
+import { getProvider, getChainConfig, getRaceUrls, ChainName, CHAINS } from './multichain';
+import { signAndBroadcastRace } from './fast-broadcast';
 import { logger } from '../utils/logger';
 
 // =============================================================================
@@ -14,6 +15,9 @@ import { logger } from '../utils/logger';
 // =============================================================================
 
 const ODOS_API_BASE = 'https://api.odos.xyz';
+// sor/quote/v2 is retired — Odos's own current agent-skills repo (odos-xyz/odos-skills)
+// uses /sor/quote/v3 exclusively. sor/assemble itself has no version suffix and is unchanged.
+const ODOS_QUOTE_PATH = '/sor/quote/v3';
 
 // Chain IDs that Odos supports
 const ODOS_SUPPORTED_CHAINS: Record<ChainName, number> = {
@@ -87,6 +91,10 @@ interface OdosApiAssembleResponse {
     gas: number;
   };
   outputTokens: { amount: string }[];
+  simulation?: {
+    isSuccess: boolean;
+    simulationError?: unknown;
+  };
 }
 
 // =============================================================================
@@ -154,9 +162,10 @@ export async function getOdosQuote(request: OdosQuoteRequest): Promise<OdosQuote
     referralCode: 0,
     disableRFQs: true,
     compact: true,
+    pathViz: true,
   };
 
-  const response = await fetch(`${ODOS_API_BASE}/sor/quote/v2`, {
+  const response = await fetch(`${ODOS_API_BASE}${ODOS_QUOTE_PATH}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(quoteBody),
@@ -242,11 +251,12 @@ export async function executeOdosSwap(request: OdosSwapRequest): Promise<OdosSwa
     const provider = getProvider(request.chain);
     const wallet = new Wallet(request.privateKey, provider);
 
-    // Assemble transaction
+    // Assemble transaction. simulate: true is Odos's own hard rule (see odos-xyz/odos-skills'
+    // odos-swap.md) — refuse to broadcast a transaction their own simulator predicts will revert.
     const assembleBody = {
       userAddr: wallet.address,
       pathId: quote.pathId,
-      simulate: false,
+      simulate: true,
     };
 
     const assembleResponse = await fetch(`${ODOS_API_BASE}/sor/assemble`, {
@@ -261,6 +271,10 @@ export async function executeOdosSwap(request: OdosSwapRequest): Promise<OdosSwa
     }
 
     const assembled = await assembleResponse.json() as OdosApiAssembleResponse;
+
+    if (assembled.simulation && !assembled.simulation.isSuccess) {
+      throw new Error(`Odos simulation predicts revert: ${JSON.stringify(assembled.simulation.simulationError)}`);
+    }
     const tx = assembled.transaction;
 
     // Approve if needed (for ERC20 input)
@@ -284,15 +298,23 @@ export async function executeOdosSwap(request: OdosSwapRequest): Promise<OdosSwa
     const MAX_GAS_LIMIT = 5_000_000n;
     const bufferedGas = BigInt(Math.floor(tx.gas * 1.2));
     const gasLimit = bufferedGas > MAX_GAS_LIMIT ? MAX_GAS_LIMIT : bufferedGas;
+    const swapTx = { to: tx.to, data: tx.data, value: BigInt(tx.value), gasLimit };
 
-    const txResponse = await wallet.sendTransaction({
-      to: tx.to,
-      data: tx.data,
-      value: BigInt(tx.value),
-      gasLimit,
-    });
+    // Race across every configured RPC endpoint when more than one is set
+    // (opt-in via *_RPC_FALLBACKS env vars — see multichain.ts). With only the
+    // default single endpoint, behavior is unchanged from a plain sendTransaction.
+    const raceUrls = getRaceUrls(request.chain);
+    let txHash: string;
+    if (raceUrls.length > 1) {
+      const raced = await signAndBroadcastRace(wallet, swapTx, raceUrls);
+      logger.debug({ wonBy: raced.wonBy, latencyMs: raced.latencyMs }, 'Odos swap broadcast race');
+      txHash = raced.hash;
+    } else {
+      const txResponse = await wallet.sendTransaction(swapTx);
+      txHash = txResponse.hash;
+    }
 
-    const receipt = await txResponse.wait();
+    const receipt = await provider.waitForTransaction(txHash);
 
     if (!receipt || receipt.status !== 1) {
       throw new Error(`Odos swap reverted on-chain (txHash: ${receipt?.hash})`);
