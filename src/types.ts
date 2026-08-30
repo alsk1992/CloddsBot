@@ -862,6 +862,44 @@ export interface Config {
     /** Confirmation delay ms before executing (default: 0) */
     confirmationDelayMs?: number;
   };
+  venueArbitrage?: {
+    /** Enable HFT-style venue arbitrage planner (default: false) */
+    enabled?: boolean;
+    /** Platforms allowed for venue arbitrage */
+    platforms?: Platform[];
+    /** Leg execution style (default: 'taker_taker') */
+    executionStyle?: 'taker_taker' | 'maker_taker' | 'maker_maker';
+    /** Minimum net edge after fees and penalties in bps (default: 15) */
+    minNetEdgeBps?: number;
+    /** Minimum expected profit per plan in USD (default: 1) */
+    minTargetProfitUsd?: number;
+    /** Minimum order size in contracts/shares (default: 1) */
+    minSize?: number;
+    /** Maximum order size in contracts/shares (default: 1000) */
+    maxSize?: number;
+    /** Maximum deployed notional per plan in USD (default: 500) */
+    maxNotionalUsd?: number;
+    /** Maximum legs/hops to search in a path (default: 4) */
+    maxHops?: number;
+    /** Drop quotes older than this threshold in ms (default: 1500) */
+    maxQuoteAgeMs?: number;
+    /** Drop venues slower than this threshold in ms (default: 2000) */
+    maxLatencyMs?: number;
+    /** Penalize slow venues in bps per second of latency (default: 12) */
+    latencyPenaltyBpsPerSecond?: number;
+    /** Base staleness penalty scaled by quote age (default: 4) */
+    stalePenaltyBps?: number;
+    /** Inventory penalty in bps per $100 already parked on venues (default: 0.5) */
+    inventoryPenaltyBpsPer100Usd?: number;
+    /** Cap inventory considered by the penalty model (default: 2500) */
+    maxInventoryUsd?: number;
+    /** Bundle all-Solana paths atomically when possible (default: true) */
+    atomicSolanaBundles?: boolean;
+    /** Use exact-in entry sizing for all-EVM paths (default: 'exact_in') */
+    evmEntryMode?: 'exact_in';
+    /** Require sell bid to already cross buy ask (default: true) */
+    requireCrossedMarket?: boolean;
+  };
   whaleTracking?: {
     /** Enable whale tracking (default: false) */
     enabled?: boolean;
