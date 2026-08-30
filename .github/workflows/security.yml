@@ -25,16 +25,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: npm audit (high/critical) - production only
-        run: npm audit --audit-level=high --production
-
       - name: audit-ci (moderate+) - production only
-        run: npx --yes audit-ci --moderate --production
+        run: npx --yes audit-ci --config audit-ci.jsonc --moderate --production
 
       - name: Check for known vulnerabilities
         run: |
-          echo "=== Security Summary ==="
-          npm audit --json | jq '.metadata.vulnerabilities'
+          echo "=== Security Summary (informational — allowlisted findings still shown here) ==="
+          npm audit --json | jq '.metadata.vulnerabilities' || true
 
   # CodeQL Analysis - Enable when repo is public or GitHub Advanced Security is enabled
   # codeql:

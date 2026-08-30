@@ -716,12 +716,27 @@ export interface ImageProcessingService {
   getInfo(imagePath: string): Promise<{ width: number; height: number; format: string }>;
 }
 
-async function loadSharp() {
+/**
+ * Minimal callable shape for what this file actually uses — sharp's own exported
+ * types have changed shape across versions (its ESM types now separately export a
+ * named `SharpConstructor` and a `default`, neither of which is `typeof import('sharp')`
+ * itself), so pinning to sharp's exact type surface is brittle. This local type only
+ * needs to survive as long as sharp keeps this chainable resize/toFormat/toBuffer API,
+ * which is its stable, long-standing core surface.
+ */
+type SharpFactory = (input: string) => {
+  resize(options: { width?: number; height?: number; fit?: string; withoutEnlargement?: boolean }): unknown;
+  toFormat(format: string, options?: { quality?: number }): unknown;
+  toBuffer(): Promise<Buffer>;
+  metadata(): Promise<{ width?: number; height?: number; format?: string }>;
+};
+
+async function loadSharp(): Promise<SharpFactory> {
   try {
     const mod = await import('sharp');
     // Handle both ESM and CJS module formats
-    const sharpMod = (mod as unknown as { default?: typeof import('sharp') }).default ?? (mod as unknown as typeof import('sharp'));
-    return sharpMod;
+    const sharpMod = (mod as unknown as { default?: unknown }).default ?? mod;
+    return sharpMod as unknown as SharpFactory;
   } catch (error) {
     throw new Error(
       'Image processing requires the "sharp" package. Install it with: npm install sharp'

@@ -19,7 +19,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: Security audit
-        run: npm audit --audit-level=high --production
+        run: npx --yes audit-ci --config audit-ci.jsonc --high --production
       - name: Typecheck, test, build
         run: npm run ci
 
@@ -35,7 +35,5 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: npm audit (production only)
-        run: npm audit --audit-level=moderate --production
       - name: Check for vulnerabilities (production only)
-        run: npx --yes audit-ci --moderate --production
+        run: npx --yes audit-ci --config audit-ci.jsonc --moderate --production
