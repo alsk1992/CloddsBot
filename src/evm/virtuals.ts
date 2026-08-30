@@ -132,27 +132,47 @@ export type AgentStatus = 'prototype' | 'sentient' | 'graduated';
 // ABI FRAGMENTS (from Code4rena audit & verified contracts)
 // =============================================================================
 
-// FRouter - Main trading router with EXECUTOR_ROLE
-const FROUTER_ABI = [
-  'function sell(uint256 amountIn, address tokenAddress, address to, uint256 minAmountOut) returns (uint256, uint256)',
-  'function buy(uint256 amountIn, address tokenAddress, address to, uint256 minAmountOut) returns (uint256, uint256)',
+// ABIs below verified against the real deployed contracts (code-423n4/2025-04-virtuals-protocol
+// audit source) and live-checked on Base mainnet against VIRTUALS_CONTRACTS.bondingProxy — see
+// getBondingCurveQuote/buyAgentToken/sellAgentToken for how they fit together. The Bonding
+// contract is a SINGLETON that trades on behalf of every agent token — there is no per-token
+// bonding contract; buy/sell/state all live behind tokenAddress-parameterized calls here.
+
+// Bonding - singleton bonding-curve manager (VIRTUALS_CONTRACTS.bondingProxy)
+const BONDING_PROXY_ABI = [
+  'function factory() view returns (address)',
+  'function router() view returns (address)',
+  'function gradThreshold() view returns (uint256)',
+  // No minAmountOut param exists on-chain — Bonding.buy/sell take only (amountIn, tokenAddress).
+  // Recipient is always msg.sender (the Router call chain hardcodes `to = msg.sender`), so a
+  // custom recipient is not supported for bonding-curve trades (only for graduated/Uniswap trades).
+  'function buy(uint256 amountIn, address tokenAddress) payable returns (bool)',
+  'function sell(uint256 amountIn, address tokenAddress) returns (bool)',
 ];
 
-// Bonding curve contract (per-agent token)
-const BONDING_ABI = [
-  // View functions
-  'function assetBalance() view returns (uint256)', // VIRTUAL accumulated
-  'function tokenBalance() view returns (uint256)', // Agent tokens in curve
-  'function graduated() view returns (bool)',
-  'function gradThreshold() view returns (uint256)',
-  'function k() view returns (uint256)', // Constant product k
-  'function getAmountOut(uint256 amountIn, bool isBuy) view returns (uint256)',
-  // Trading functions
-  'function buy(uint256 amountIn, uint256 minAmountOut) returns (uint256)',
-  'function sell(uint256 amountIn, uint256 minAmountOut) returns (uint256)',
-  // Events
-  'event Graduated(address indexed token, address indexed pair)',
-  'event Trade(address indexed trader, bool isBuy, uint256 amountIn, uint256 amountOut)',
+// FFactory - resolves the per-token bonding pair and holds the protocol's buy/sell tax rate
+const FFACTORY_ABI = [
+  'function getPair(address tokenA, address tokenB) view returns (address)',
+  'function buyTax() view returns (uint256)', // whole-number percent, e.g. 1 = 1%
+  'function sellTax() view returns (uint256)',
+];
+
+// FRouter - getAmountsOut is the router's own quote math; calling it directly guarantees the
+// quote matches exactly what buy()/sell() will execute on-chain (no hand-rolled AMM formula
+// drift). buy() and sell() themselves are EXECUTOR_ROLE-gated and NOT callable by end users —
+// only Bonding (which holds that role) can call them, which is why trades go through Bonding.
+const FROUTER_QUOTE_ABI = [
+  'function getAmountsOut(address token, address assetToken, uint256 amountIn) view returns (uint256)',
+];
+
+// FPair - per-token bonding pool (found via FFactory.getPair(agentToken, VIRTUAL_TOKEN)).
+// balance() = agent token reserve, assetBalance() = VIRTUAL reserve (confirmed from FPair.sol:
+// tokenA/balance() is the agent token side, tokenB/assetBalance() is the asset side, matching
+// the (tokenAddress, assetToken) argument order Bonding.sol itself uses for getPair).
+const FPAIR_ABI = [
+  'function getReserves() view returns (uint256, uint256)',
+  'function assetBalance() view returns (uint256)',
+  'function balance() view returns (uint256)',
 ];
 
 // AgentFactoryV4 - For creating new agents
@@ -198,9 +218,18 @@ const UNISWAP_V2_FACTORY_ABI = [
 // PROVIDER & WALLET
 // =============================================================================
 
+// Cached (not re-created per call) — this file's read paths now make several concurrent
+// contract calls per operation (bonding proxy, factory, pair, token), and the free default
+// RPC visibly rate-limits bursts of fresh connections; reusing one provider avoids piling on
+// more connections than the calls themselves require. Mirrors multichain.ts's getProvider().
+let baseProviderCache: JsonRpcProvider | null = null;
+
 function getBaseProvider(): JsonRpcProvider {
-  const customRpc = process.env.BASE_RPC_URL;
-  return new JsonRpcProvider(customRpc || BASE_RPC_DEFAULT, BASE_CHAIN_ID);
+  if (!baseProviderCache) {
+    const customRpc = process.env.BASE_RPC_URL;
+    baseProviderCache = new JsonRpcProvider(customRpc || BASE_RPC_DEFAULT, BASE_CHAIN_ID);
+  }
+  return baseProviderCache;
 }
 
 function getBaseWallet(): Wallet {
@@ -222,15 +251,10 @@ export async function isAgentGraduated(tokenAddress: string): Promise<boolean> {
   const provider = getBaseProvider();
 
   try {
-    // Try to check graduated() on bonding contract
-    const bonding = new Contract(tokenAddress, BONDING_ABI, provider);
-    const graduated = await bonding.graduated().catch(() => null);
-
-    if (graduated !== null) {
-      return graduated;
-    }
-
-    // Fallback: check if Uniswap pair exists and has liquidity
+    // Bonding has no per-token graduated() getter (there is no per-token bonding contract —
+    // see BONDING_PROXY_ABI). Graduation is detected the same way the protocol's own
+    // _openTradingOnUniswap does it in effect: once graduated, a real Uniswap pair with
+    // liquidity exists for (tokenAddress, VIRTUAL_TOKEN).
     const factory = new Contract(UNISWAP_V2_FACTORY, UNISWAP_V2_FACTORY_ABI, provider);
     const pair = await factory.getPair(tokenAddress, VIRTUAL_TOKEN).catch(() => ZeroAddress);
 
@@ -253,9 +277,15 @@ export async function getGraduationProgress(tokenAddress: string): Promise<numbe
   const provider = getBaseProvider();
 
   try {
-    const bonding = new Contract(tokenAddress, BONDING_ABI, provider);
+    const bonding = new Contract(VIRTUALS_CONTRACTS.bondingProxy, BONDING_PROXY_ABI, provider);
+    const factoryAddr = await bonding.factory();
+    const factory = new Contract(factoryAddr, FFACTORY_ABI, provider);
+    const pairAddress = await factory.getPair(tokenAddress, VIRTUAL_TOKEN);
+    if (pairAddress === ZeroAddress) return 0;
+    const pair = new Contract(pairAddress, FPAIR_ABI, provider);
+
     const [assetBalance, threshold] = await Promise.all([
-      bonding.assetBalance().catch(() => 0n),
+      pair.assetBalance().catch(() => 0n),
       bonding.gradThreshold().catch(() => GRADUATION_THRESHOLD),
     ]);
 
@@ -291,14 +321,14 @@ export async function getAgentStatus(tokenAddress: string): Promise<AgentStatus>
 export async function getAgentTokenInfo(tokenAddress: string): Promise<AgentTokenInfo> {
   const provider = getBaseProvider();
   const token = new Contract(tokenAddress, ERC20_ABI, provider);
-  const bonding = new Contract(tokenAddress, BONDING_ABI, provider);
+  const bonding = new Contract(VIRTUALS_CONTRACTS.bondingProxy, BONDING_PROXY_ABI, provider);
 
   const [name, symbol, decimals, totalSupply, graduated] = await Promise.all([
     token.name().catch(() => 'Unknown'),
     token.symbol().catch(() => 'UNKNOWN'),
     token.decimals().catch(() => 18),
     token.totalSupply().catch(() => 0n),
-    bonding.graduated().catch(() => false),
+    isAgentGraduated(tokenAddress),
   ]);
 
   const tokenDecimals = Number(decimals);
@@ -313,10 +343,15 @@ export async function getAgentTokenInfo(tokenAddress: string): Promise<AgentToke
   };
 
   if (!graduated) {
-    // Get bonding curve info
+    // Get bonding curve info from the token's FPair, not the token contract itself
+    const factoryAddr = await bonding.factory();
+    const factory = new Contract(factoryAddr, FFACTORY_ABI, provider);
+    const pairAddress = await factory.getPair(tokenAddress, VIRTUAL_TOKEN);
+    const pair = new Contract(pairAddress, FPAIR_ABI, provider);
+
     const [assetBalance, tokenBalance, threshold] = await Promise.all([
-      bonding.assetBalance().catch(() => 0n),
-      bonding.tokenBalance().catch(() => 0n),
+      pairAddress === ZeroAddress ? 0n : pair.assetBalance().catch(() => 0n),
+      pairAddress === ZeroAddress ? 0n : pair.balance().catch(() => 0n),
       bonding.gradThreshold().catch(() => GRADUATION_THRESHOLD),
     ]);
 
@@ -358,13 +393,12 @@ export async function getVirtualsQuote(params: VirtualsQuoteParams): Promise<Vir
 
   const provider = getBaseProvider();
   const token = new Contract(agentToken, ERC20_ABI, provider);
-  const bonding = new Contract(agentToken, BONDING_ABI, provider);
 
   // Get token info and graduation status
   const [symbol, decimals, graduated] = await Promise.all([
     token.symbol(),
     token.decimals(),
-    bonding.graduated().catch(() => false),
+    isAgentGraduated(agentToken),
   ]);
 
   const tokenDecimals = Number(decimals);
@@ -387,12 +421,24 @@ async function getBondingCurveQuote(
   slippageBps: number
 ): Promise<VirtualsQuote> {
   const provider = getBaseProvider();
-  const bonding = new Contract(agentToken, BONDING_ABI, provider);
+  const bonding = new Contract(VIRTUALS_CONTRACTS.bondingProxy, BONDING_PROXY_ABI, provider);
+  const factoryAddr: string = await bonding.factory();
+  const factory = new Contract(factoryAddr, FFACTORY_ABI, provider);
+  const routerAddr: string = await bonding.router();
+  const router = new Contract(routerAddr, FROUTER_QUOTE_ABI, provider);
 
-  // Get reserves
-  const [assetBalance, tokenBalance] = await Promise.all([
-    bonding.assetBalance(),
-    bonding.tokenBalance(),
+  const pairAddress: string = await factory.getPair(agentToken, VIRTUAL_TOKEN);
+  if (pairAddress === ZeroAddress) {
+    throw new Error(`No bonding curve pair found for ${agentToken}`);
+  }
+  const pair = new Contract(pairAddress, FPAIR_ABI, provider);
+
+  // Get reserves (balance() = agent token reserve, assetBalance() = VIRTUAL reserve)
+  const [tokenBalance, assetBalance, buyTax, sellTax] = await Promise.all([
+    pair.balance(),
+    pair.assetBalance(),
+    factory.buyTax(),
+    factory.sellTax(),
   ]);
 
   const vReserve = BigInt(assetBalance);
@@ -408,21 +454,16 @@ async function getBondingCurveQuote(
   let outputAmount: bigint;
   let newPrice: number;
 
+  // Mirrors FRouter.buy/sell exactly (see FROUTER_QUOTE_ABI comment): buy taxes amountIn
+  // before quoting against the VIRTUAL reserve; sell quotes the raw amountIn against the
+  // token reserve (passing ZeroAddress, matching the real sell() call) then taxes amountOut.
   if (side === 'buy') {
     inputAmount = parseUnits(amount, 18); // VIRTUAL
+    const txFee = (inputAmount * BigInt(buyTax)) / 100n;
+    const netIn = inputAmount - txFee;
+    outputAmount = await router.getAmountsOut(agentToken, VIRTUAL_TOKEN, netIn);
 
-    // Try to use contract's getAmountOut if available
-    try {
-      outputAmount = await bonding.getAmountOut(inputAmount, true);
-    } catch {
-      // Fallback: constant product formula
-      const k = vReserve * tReserve;
-      const newVirtualReserve = vReserve + inputAmount;
-      const newTokenReserve = k / newVirtualReserve;
-      outputAmount = tReserve - newTokenReserve;
-    }
-
-    const newVReserve = vReserve + inputAmount;
+    const newVReserve = vReserve + netIn;
     const newTReserve = tReserve - outputAmount;
     const newTReserveFloat = Number(formatUnits(newTReserve, tokenDecimals));
     newPrice = newTReserveFloat > 0
@@ -430,17 +471,11 @@ async function getBondingCurveQuote(
       : currentPrice;
   } else {
     inputAmount = parseUnits(amount, tokenDecimals);
+    const rawOut: bigint = await router.getAmountsOut(agentToken, ZeroAddress, inputAmount);
+    const txFee = (rawOut * BigInt(sellTax)) / 100n;
+    outputAmount = rawOut - txFee;
 
-    try {
-      outputAmount = await bonding.getAmountOut(inputAmount, false);
-    } catch {
-      const k = vReserve * tReserve;
-      const newTokenReserve = tReserve + inputAmount;
-      const newVirtualReserve = k / newTokenReserve;
-      outputAmount = vReserve - newVirtualReserve;
-    }
-
-    const newVReserve = vReserve - outputAmount;
+    const newVReserve = vReserve - rawOut;
     const newTReserve = tReserve + inputAmount;
     const newTReserveFloat = Number(formatUnits(newTReserve, tokenDecimals));
     newPrice = newTReserveFloat > 0
@@ -533,20 +568,25 @@ export async function buyAgentToken(params: VirtualsSwapParams): Promise<Virtual
     const recipient = params.recipient || wallet.address;
     const quote = await getVirtualsQuote({ agentToken, amount, side: 'buy', slippageBps });
 
-    // Approve VIRTUAL spend
-    const virtualToken = new Contract(VIRTUAL_TOKEN, ERC20_ABI, wallet);
-    const inputAmount = parseUnits(amount, 18);
-    const spender = quote.isGraduated ? UNISWAP_V2_ROUTER : agentToken;
-    const allowance = await virtualToken.allowance(wallet.address, spender);
-
-    if (allowance < inputAmount) {
-      logger.info({ spender }, 'Approving VIRTUAL spend');
-      const approveTx = await virtualToken.approve(spender, inputAmount);
-      await approveTx.wait();
+    if (!quote.isGraduated && params.recipient && params.recipient !== wallet.address) {
+      throw new Error(
+        'Bonding-curve buys always credit the caller (Bonding.buy has no recipient param) — a custom recipient is only supported after graduation.'
+      );
     }
+
+    const inputAmount = parseUnits(amount, 18);
+    const virtualToken = new Contract(VIRTUAL_TOKEN, ERC20_ABI, wallet);
 
     let tx;
     if (quote.isGraduated) {
+      const spender = UNISWAP_V2_ROUTER;
+      const allowance = await virtualToken.allowance(wallet.address, spender);
+      if (allowance < inputAmount) {
+        logger.info({ spender }, 'Approving VIRTUAL spend');
+        const approveTx = await virtualToken.approve(spender, inputAmount);
+        await approveTx.wait();
+      }
+
       // Uniswap swap
       const router = new Contract(UNISWAP_V2_ROUTER, UNISWAP_V2_ROUTER_ABI, wallet);
       const minOut = parseUnits(quote.outputAmountMin, quote.agentToken.decimals);
@@ -561,12 +601,29 @@ export async function buyAgentToken(params: VirtualsSwapParams): Promise<Virtual
         deadline
       );
     } else {
-      // Bonding curve buy
-      const bonding = new Contract(agentToken, BONDING_ABI, wallet);
+      const bonding = new Contract(VIRTUALS_CONTRACTS.bondingProxy, BONDING_PROXY_ABI, wallet);
+      const spender: string = await bonding.router(); // FRouter pulls the ERC20 itself — see FROUTER_QUOTE_ABI comment
+      const allowance = await virtualToken.allowance(wallet.address, spender);
+      if (allowance < inputAmount) {
+        logger.info({ spender }, 'Approving VIRTUAL spend');
+        const approveTx = await virtualToken.approve(spender, inputAmount);
+        await approveTx.wait();
+      }
+
+      // Bonding.buy(amountIn, tokenAddress) has no minAmountOut param — re-quote immediately
+      // before sending and abort if the price has moved past the user's slippage tolerance,
+      // since there is no atomic on-chain protection to fall back on.
+      const freshQuote = await getBondingCurveQuote(agentToken, quote.agentToken.symbol, quote.agentToken.decimals, amount, 'buy', slippageBps);
+      const freshOut = parseUnits(freshQuote.outputAmount, quote.agentToken.decimals);
       const minOut = parseUnits(quote.outputAmountMin, quote.agentToken.decimals);
+      if (freshOut < minOut) {
+        throw new Error(
+          `Bonding curve price moved beyond slippage tolerance (fresh quote ${freshQuote.outputAmount} < min ${quote.outputAmountMin})`
+        );
+      }
 
       logger.info({ route: 'bonding', agentToken, amount }, 'Executing bonding curve buy');
-      tx = await bonding.buy(inputAmount, minOut);
+      tx = await bonding.buy(inputAmount, agentToken);
     }
 
     const receipt = await tx.wait();
@@ -609,20 +666,25 @@ export async function sellAgentToken(params: VirtualsSwapParams): Promise<Virtua
     const recipient = params.recipient || wallet.address;
     const quote = await getVirtualsQuote({ agentToken, amount, side: 'sell', slippageBps });
 
-    // Approve token spend
+    if (!quote.isGraduated && params.recipient && params.recipient !== wallet.address) {
+      throw new Error(
+        'Bonding-curve sells always credit the caller (Bonding.sell has no recipient param) — a custom recipient is only supported after graduation.'
+      );
+    }
+
     const token = new Contract(agentToken, ERC20_ABI, wallet);
     const inputAmount = parseUnits(amount, quote.agentToken.decimals);
-    const spender = quote.isGraduated ? UNISWAP_V2_ROUTER : agentToken;
-    const allowance = await token.allowance(wallet.address, spender);
-
-    if (allowance < inputAmount) {
-      logger.info({ spender }, 'Approving agent token spend');
-      const approveTx = await token.approve(spender, inputAmount);
-      await approveTx.wait();
-    }
 
     let tx;
     if (quote.isGraduated) {
+      const spender = UNISWAP_V2_ROUTER;
+      const allowance = await token.allowance(wallet.address, spender);
+      if (allowance < inputAmount) {
+        logger.info({ spender }, 'Approving agent token spend');
+        const approveTx = await token.approve(spender, inputAmount);
+        await approveTx.wait();
+      }
+
       // Uniswap swap
       const router = new Contract(UNISWAP_V2_ROUTER, UNISWAP_V2_ROUTER_ABI, wallet);
       const minOut = parseUnits(quote.outputAmountMin, 18);
@@ -637,12 +699,27 @@ export async function sellAgentToken(params: VirtualsSwapParams): Promise<Virtua
         deadline
       );
     } else {
-      // Bonding curve sell
-      const bonding = new Contract(agentToken, BONDING_ABI, wallet);
+      const bonding = new Contract(VIRTUALS_CONTRACTS.bondingProxy, BONDING_PROXY_ABI, wallet);
+      const spender: string = await bonding.router();
+      const allowance = await token.allowance(wallet.address, spender);
+      if (allowance < inputAmount) {
+        logger.info({ spender }, 'Approving agent token spend');
+        const approveTx = await token.approve(spender, inputAmount);
+        await approveTx.wait();
+      }
+
+      // See buyAgentToken: Bonding.sell(amountIn, tokenAddress) has no minAmountOut param either.
+      const freshQuote = await getBondingCurveQuote(agentToken, quote.agentToken.symbol, quote.agentToken.decimals, amount, 'sell', slippageBps);
+      const freshOut = parseUnits(freshQuote.outputAmount, 18);
       const minOut = parseUnits(quote.outputAmountMin, 18);
+      if (freshOut < minOut) {
+        throw new Error(
+          `Bonding curve price moved beyond slippage tolerance (fresh quote ${freshQuote.outputAmount} < min ${quote.outputAmountMin})`
+        );
+      }
 
       logger.info({ route: 'bonding', agentToken, amount }, 'Executing bonding curve sell');
-      tx = await bonding.sell(inputAmount, minOut);
+      tx = await bonding.sell(inputAmount, agentToken);
     }
 
     const receipt = await tx.wait();
