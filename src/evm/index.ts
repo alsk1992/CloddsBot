@@ -10,6 +10,7 @@
  * - Generic smart contract interactions
  * - DEX trading (Uniswap, 1inch)
  * - Virtuals Protocol (Base chain AI agents)
+ * - Pons Family launchpad (Robinhood Chain)
  */
 
 // Wallet generation and management
@@ -36,3 +37,6 @@ export * from './pancakeswap';
 
 // Virtuals Protocol
 export * from './virtuals';
+
+// Pons Family launchpad (Robinhood Chain)
+export * from './pons';
