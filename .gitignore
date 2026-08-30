@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 rust/**/target/
+scripts/lighter-bridge/.vendor/
+__pycache__/
+*.pyc
 
 # Environment
 .env
