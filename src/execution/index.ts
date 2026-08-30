@@ -20,7 +20,11 @@ import {
 import {
   buildSignedOrder,
   buildSignedOrders,
+  buildSignedOrderV2,
+  buildSignedOrdersV2,
+  getCurrentPolymarketOrderVersion,
   type PostOrderBody,
+  type PostOrderBodyV2,
   type SignerConfig,
 } from '../utils/polymarket-order-signer';
 import {
@@ -287,12 +291,19 @@ const POLY_CLOB_URL = process.env.POLY_CLOB_URL || 'https://clob.polymarket.com'
 // Mainnet (default):
 //   CTF: 0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E
 //   NEG_RISK: 0xC5d563A36AE78145C45a50134d48A1215220f80a
+//   CTF_V2: 0xE111180000d2663C0091e4f400237545B87B996B
+//   NEG_RISK_V2: 0xe2222d279d744050d28e00520010520000310F59
 // Amoy Testnet:
 //   POLY_CLOB_URL=https://clob.polymarket.com (same)
 //   POLY_CTF_EXCHANGE=0xdFE02Eb6733538f8Ea35D585af8DE5958AD99E40
 //   POLY_NEG_RISK_CTF_EXCHANGE=0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296
 const POLY_CTF_EXCHANGE = process.env.POLY_CTF_EXCHANGE || '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
 const POLY_NEG_RISK_CTF_EXCHANGE = process.env.POLY_NEG_RISK_CTF_EXCHANGE || '0xC5d563A36AE78145C45a50134d48A1215220f80a';
+// V1 and V2 exchanges are both live on-chain simultaneously (verified) — GET /version on
+// the live CLOB currently returns 2, meaning V2 is the exchange-wide default order
+// format right now. See polymarket-order-signer.ts's file header for the full story.
+const POLY_CTF_EXCHANGE_V2 = process.env.POLY_CTF_EXCHANGE_V2 || '0xE111180000d2663C0091e4f400237545B87B996B';
+const POLY_NEG_RISK_CTF_EXCHANGE_V2 = process.env.POLY_NEG_RISK_CTF_EXCHANGE_V2 || '0xe2222d279d744050d28e00520010520000310F59';
 
 /**
  * Retry helper with exponential backoff for Polymarket REST API calls
@@ -1178,15 +1189,16 @@ async function placeSignedPolymarketOrder(
     signatureType: auth.signatureType,
   };
 
-  const postOrder = buildSignedOrder({
-    tokenId,
-    price,
-    size,
-    side: side === 'buy' ? 'buy' : 'sell',
-    negRisk,
-    feeRateBps,
-    nonce: getNextNonce(),
-  }, signerCfg);
+  // The live exchange currently defaults to V2 (GET /version), but isn't required to
+  // stay that way — resolve per-order (cached 5 min) rather than hardcoding a version.
+  const version = await getCurrentPolymarketOrderVersion(POLY_CLOB_URL);
+  const postOrder: PostOrderBody | PostOrderBodyV2 = version === 1
+    ? buildSignedOrder({
+        tokenId, price, size, side: side === 'buy' ? 'buy' : 'sell', negRisk, feeRateBps, nonce: getNextNonce(),
+      }, signerCfg)
+    : buildSignedOrderV2({
+        tokenId, price, size, side: side === 'buy' ? 'buy' : 'sell', negRisk,
+      }, signerCfg); // feeRateBps has no V2 equivalent — fees are exchange-computed, not client-specified
 
   // Set owner to API key (required by Polymarket CLOB)
   postOrder.owner = auth.apiKey;
@@ -1213,7 +1225,7 @@ async function placeSignedPolymarketOrder(
     }
 
     const orderId = data.orderID || data.order_id;
-    logger.info({ orderId, tokenId, side, price, size, feeRateBps }, 'Polymarket signed order placed');
+    logger.info({ orderId, tokenId, side, price, size, feeRateBps, version }, 'Polymarket signed order placed');
     return { success: true, orderId, status: 'open', transactionHash: data.transactionsHashes?.[0] };
   } catch (error) {
     logger.error({ error }, 'Error placing Polymarket signed order after retries');
@@ -1321,16 +1333,17 @@ async function placePolymarketOrdersBatch(
     signatureType: auth.signatureType,
   };
 
-  const postOrders: PostOrderBody[] = buildSignedOrders(
-    orders.map(o => ({
-      tokenId: o.tokenId,
-      price: o.price,
-      size: o.size,
-      side: o.side === 'buy' ? 'buy' as const : 'sell' as const,
-      negRisk: o.negRisk,
-    })),
-    signerCfg,
-  );
+  const version = await getCurrentPolymarketOrderVersion(POLY_CLOB_URL);
+  const orderParamsList = orders.map(o => ({
+    tokenId: o.tokenId,
+    price: o.price,
+    size: o.size,
+    side: o.side === 'buy' ? 'buy' as const : 'sell' as const,
+    negRisk: o.negRisk,
+  }));
+  const postOrders: Array<PostOrderBody | PostOrderBodyV2> = version === 1
+    ? buildSignedOrders(orderParamsList, signerCfg)
+    : buildSignedOrdersV2(orderParamsList, signerCfg);
 
   // Set owner to API key on all orders (required by Polymarket CLOB)
   for (const po of postOrders) {
@@ -3614,9 +3627,19 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
           error: 'Polymarket private key not configured',
         };
       }
-      // Approve for both CTF exchanges
-      const spender = POLY_CTF_EXCHANGE;
-      return approvePolymarketUSDC(config.polymarket.privateKey, spender, amount);
+      // Approve every exchange a signed order might target (V1 + V2, standard + negRisk)
+      // so trading isn't blocked by an allowance gap on whichever version/market the
+      // order actually lands on.
+      const spenders = [POLY_CTF_EXCHANGE, POLY_NEG_RISK_CTF_EXCHANGE, POLY_CTF_EXCHANGE_V2, POLY_NEG_RISK_CTF_EXCHANGE_V2];
+      const results = await Promise.all(
+        spenders.map(spender => approvePolymarketUSDC(config.polymarket!.privateKey!, spender, amount))
+      );
+      const failed = results.find(r => !r.success);
+      return {
+        success: !failed,
+        txHash: results.map(r => r.txHash).filter(Boolean).join(','),
+        error: failed?.error,
+      };
     },
 
     async getUSDCAllowance() {
@@ -3624,7 +3647,11 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         return 0;
       }
       const owner = config.polymarket.funderAddress || config.polymarket.address;
-      return getPolymarketUSDCAllowance(owner, POLY_CTF_EXCHANGE);
+      // Report the binding constraint — the lowest allowance across every exchange a
+      // signed order might target.
+      const spenders = [POLY_CTF_EXCHANGE, POLY_NEG_RISK_CTF_EXCHANGE, POLY_CTF_EXCHANGE_V2, POLY_NEG_RISK_CTF_EXCHANGE_V2];
+      const allowances = await Promise.all(spenders.map(spender => getPolymarketUSDCAllowance(owner, spender)));
+      return Math.min(...allowances);
     },
 
     // =========================================================================
@@ -3691,6 +3718,8 @@ export type { PolymarketApiKeyAuth, KalshiApiKeyAuth, OpinionApiAuth };
 export const POLYMARKET_EXCHANGES = {
   CTF: POLY_CTF_EXCHANGE,
   NEG_RISK_CTF: POLY_NEG_RISK_CTF_EXCHANGE,
+  CTF_V2: POLY_CTF_EXCHANGE_V2,
+  NEG_RISK_CTF_V2: POLY_NEG_RISK_CTF_EXCHANGE_V2,
 };
 
 // Re-export sub-modules

@@ -24,12 +24,16 @@ const CLOB_URL = 'https://clob.polymarket.com';
 export const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 /** Conditional Tokens Framework (ERC-1155) */
 export const CTF_ADDRESS = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
-/** CTF Exchange (standard binary markets) */
+/** CTF Exchange V1 (standard binary markets) */
 export const CTF_EXCHANGE = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
-/** NegRisk CTF Exchange (multi-outcome / crypto markets) */
+/** NegRisk CTF Exchange V1 (multi-outcome / crypto markets) */
 export const NEG_RISK_EXCHANGE = '0xC5d563A36AE78145C45a50134d48A1215220f80a';
 /** NegRisk Adapter */
 export const NEG_RISK_ADAPTER = '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296';
+/** CTF Exchange V2 — verified live on Polygon; see polymarket-order-signer.ts's file header */
+export const CTF_EXCHANGE_V2 = '0xE111180000d2663C0091e4f400237545B87B996B';
+/** NegRisk CTF Exchange V2 — verified live on Polygon */
+export const NEG_RISK_EXCHANGE_V2 = '0xe2222d279d744050d28e00520010520000310F59';
 
 // =============================================================================
 // API KEY DERIVATION (L1 Auth → L2 Credentials)
@@ -223,7 +227,10 @@ export interface ApprovalTx {
 /**
  * Generate the list of approval transactions needed for trading.
  *
- * Standard markets need 3 approvals, negRisk markets need 4 more (7 total).
+ * Standard V1 markets need 3 approvals, V1 negRisk adds 4 more. V1 and V2 exchanges
+ * are both live simultaneously (see polymarket-order-signer.ts's file header), so this
+ * also approves the V2 exchanges (2 more standard, 2 more negRisk) — up to 11 total —
+ * so trading isn't blocked by an allowance gap on whichever version a market lands on.
  * These must be sent from the funder address (proxy wallet for types 1/2, EOA for type 0).
  *
  * Returns raw transaction data — caller handles signing and sending via RPC.
@@ -239,12 +246,23 @@ export function getRequiredApprovals(options?: { includeNegRisk?: boolean }): Ap
     {
       to: USDC_ADDRESS,
       data: `0x${ERC20_APPROVE_SELECTOR}${encodeAddress(CTF_EXCHANGE)}${MAX_UINT256}`,
-      description: 'Approve USDC → CTF Exchange',
+      description: 'Approve USDC → CTF Exchange (V1)',
     },
     {
       to: CTF_ADDRESS,
       data: `0x${ERC1155_SET_APPROVAL_SELECTOR}${encodeAddress(CTF_EXCHANGE)}${'0'.repeat(63)}1`,
-      description: 'Approve CTF tokens → CTF Exchange (setApprovalForAll)',
+      description: 'Approve CTF tokens → CTF Exchange (V1, setApprovalForAll)',
+    },
+    // Standard V2 approvals (2)
+    {
+      to: USDC_ADDRESS,
+      data: `0x${ERC20_APPROVE_SELECTOR}${encodeAddress(CTF_EXCHANGE_V2)}${MAX_UINT256}`,
+      description: 'Approve USDC → CTF Exchange (V2)',
+    },
+    {
+      to: CTF_ADDRESS,
+      data: `0x${ERC1155_SET_APPROVAL_SELECTOR}${encodeAddress(CTF_EXCHANGE_V2)}${'0'.repeat(63)}1`,
+      description: 'Approve CTF tokens → CTF Exchange (V2, setApprovalForAll)',
     },
   ];
 
@@ -258,17 +276,27 @@ export function getRequiredApprovals(options?: { includeNegRisk?: boolean }): Ap
       {
         to: USDC_ADDRESS,
         data: `0x${ERC20_APPROVE_SELECTOR}${encodeAddress(NEG_RISK_EXCHANGE)}${MAX_UINT256}`,
-        description: 'Approve USDC → NegRisk Exchange',
+        description: 'Approve USDC → NegRisk Exchange (V1)',
       },
       {
         to: CTF_ADDRESS,
         data: `0x${ERC1155_SET_APPROVAL_SELECTOR}${encodeAddress(NEG_RISK_EXCHANGE)}${'0'.repeat(63)}1`,
-        description: 'Approve CTF tokens → NegRisk Exchange (setApprovalForAll)',
+        description: 'Approve CTF tokens → NegRisk Exchange (V1, setApprovalForAll)',
       },
       {
         to: CTF_ADDRESS,
         data: `0x${ERC1155_SET_APPROVAL_SELECTOR}${encodeAddress(NEG_RISK_ADAPTER)}${'0'.repeat(63)}1`,
         description: 'Approve CTF tokens → NegRisk Adapter (setApprovalForAll)',
+      },
+      {
+        to: USDC_ADDRESS,
+        data: `0x${ERC20_APPROVE_SELECTOR}${encodeAddress(NEG_RISK_EXCHANGE_V2)}${MAX_UINT256}`,
+        description: 'Approve USDC → NegRisk Exchange (V2)',
+      },
+      {
+        to: CTF_ADDRESS,
+        data: `0x${ERC1155_SET_APPROVAL_SELECTOR}${encodeAddress(NEG_RISK_EXCHANGE_V2)}${'0'.repeat(63)}1`,
+        description: 'Approve CTF tokens → NegRisk Exchange (V2, setApprovalForAll)',
       },
     );
   }
@@ -355,24 +383,37 @@ export async function checkAllApprovals(
   results.push({ description: 'USDC → CTF contract', approved: usdcToCtf >= minAllowance });
 
   const usdcToExchange = await checkErc20Allowance(rpcUrl, USDC_ADDRESS, walletAddress, CTF_EXCHANGE);
-  results.push({ description: 'USDC → CTF Exchange', approved: usdcToExchange >= minAllowance });
+  results.push({ description: 'USDC → CTF Exchange (V1)', approved: usdcToExchange >= minAllowance });
 
   // Standard ERC-1155 approval
   const ctfToExchange = await checkErc1155Approval(rpcUrl, CTF_ADDRESS, walletAddress, CTF_EXCHANGE);
-  results.push({ description: 'CTF → CTF Exchange', approved: ctfToExchange });
+  results.push({ description: 'CTF → CTF Exchange (V1)', approved: ctfToExchange });
+
+  // Standard V2 approvals
+  const usdcToExchangeV2 = await checkErc20Allowance(rpcUrl, USDC_ADDRESS, walletAddress, CTF_EXCHANGE_V2);
+  results.push({ description: 'USDC → CTF Exchange (V2)', approved: usdcToExchangeV2 >= minAllowance });
+
+  const ctfToExchangeV2 = await checkErc1155Approval(rpcUrl, CTF_ADDRESS, walletAddress, CTF_EXCHANGE_V2);
+  results.push({ description: 'CTF → CTF Exchange (V2)', approved: ctfToExchangeV2 });
 
   if (options?.includeNegRisk) {
     const usdcToAdapter = await checkErc20Allowance(rpcUrl, USDC_ADDRESS, walletAddress, NEG_RISK_ADAPTER);
     results.push({ description: 'USDC → NegRisk Adapter', approved: usdcToAdapter >= minAllowance });
 
     const usdcToNegExchange = await checkErc20Allowance(rpcUrl, USDC_ADDRESS, walletAddress, NEG_RISK_EXCHANGE);
-    results.push({ description: 'USDC → NegRisk Exchange', approved: usdcToNegExchange >= minAllowance });
+    results.push({ description: 'USDC → NegRisk Exchange (V1)', approved: usdcToNegExchange >= minAllowance });
 
     const ctfToNegExchange = await checkErc1155Approval(rpcUrl, CTF_ADDRESS, walletAddress, NEG_RISK_EXCHANGE);
-    results.push({ description: 'CTF → NegRisk Exchange', approved: ctfToNegExchange });
+    results.push({ description: 'CTF → NegRisk Exchange (V1)', approved: ctfToNegExchange });
 
     const ctfToAdapter = await checkErc1155Approval(rpcUrl, CTF_ADDRESS, walletAddress, NEG_RISK_ADAPTER);
     results.push({ description: 'CTF → NegRisk Adapter', approved: ctfToAdapter });
+
+    const usdcToNegExchangeV2 = await checkErc20Allowance(rpcUrl, USDC_ADDRESS, walletAddress, NEG_RISK_EXCHANGE_V2);
+    results.push({ description: 'USDC → NegRisk Exchange (V2)', approved: usdcToNegExchangeV2 >= minAllowance });
+
+    const ctfToNegExchangeV2 = await checkErc1155Approval(rpcUrl, CTF_ADDRESS, walletAddress, NEG_RISK_EXCHANGE_V2);
+    results.push({ description: 'CTF → NegRisk Exchange (V2)', approved: ctfToNegExchangeV2 });
   }
 
   return results;

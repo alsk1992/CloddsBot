@@ -1,13 +1,23 @@
 /**
  * Polymarket CLOB Order Signing (EIP-712)
  *
- * Builds and signs orders for the Polymarket CTF Exchange contract.
+ * Builds and signs orders for the Polymarket CTF Exchange contract. Both V1 and V2
+ * exchanges are live simultaneously (verified on-chain) — GET /version on the live
+ * CLOB currently returns 2, meaning V2 is the exchange-wide default order format
+ * right now, but V1 is not dead (repo archival on GitHub reflects where new
+ * development happens, not that the deployed V1 contract stopped working).
  * Uses the same @noble/curves + @noble/hashes primitives as x402/evm.ts.
  *
  * Reference:
- *   - Contract: https://github.com/Polymarket/ctf-exchange
+ *   - V1 contract (archived repo, still live on-chain): https://github.com/Polymarket/ctf-exchange
+ *   - V2 contract: https://github.com/Polymarket/ctf-exchange-v2
  *   - Order utils: https://github.com/Polymarket/clob-order-utils
- *   - EIP-712 domain: { name: "Polymarket CTF Exchange", version: "1", chainId: 137, verifyingContract: <exchange> }
+ *   - V1 EIP-712 domain: { name: "Polymarket CTF Exchange", version: "1", chainId: 137, verifyingContract: <exchange> }
+ *   - V2 EIP-712 domain: { name: "Polymarket CTF Exchange", version: "2", chainId: 137, verifyingContract: <exchangeV2> }
+ *   - V2 has no taker/expiration(struct)/nonce/feeRateBps fields — replaced by
+ *     timestamp (unix ms) + metadata (bytes32) + builder (bytes32), all verified
+ *     against ctf-exchange-v2's Structs.sol/Hashing.sol and clob-client-v2's
+ *     exchangeOrderBuilderV2.ts (both agree byte-for-byte on the type string).
  */
 
 import { keccak_256 } from '@noble/hashes/sha3';
@@ -20,28 +30,45 @@ import { secp256k1 } from '@noble/curves/secp256k1';
 
 const PROTOCOL_NAME = 'Polymarket CTF Exchange';
 const PROTOCOL_VERSION = '1';
+const PROTOCOL_VERSION_V2 = '2';
 const CHAIN_ID = 137; // Polygon
 
-/** CTF Exchange (standard binary markets) */
+/** CTF Exchange V1 (standard binary markets) */
 export const CTF_EXCHANGE = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
-/** Neg Risk CTF Exchange (multi-outcome / crypto markets) */
+/** Neg Risk CTF Exchange V1 (multi-outcome / crypto markets) */
 export const NEG_RISK_CTF_EXCHANGE = '0xC5d563A36AE78145C45a50134d48A1215220f80a';
+/** CTF Exchange V2 — verified live on Polygon (real bytecode), matches clob-client-v2's config.ts */
+export const CTF_EXCHANGE_V2 = '0xE111180000d2663C0091e4f400237545B87B996B';
+/** Neg Risk CTF Exchange V2 — verified live on Polygon */
+export const NEG_RISK_CTF_EXCHANGE_V2 = '0xe2222d279d744050d28e00520010520000310F59';
 
-/** Operator/taker address (Polymarket's operator) */
+/** Operator/taker address (Polymarket's operator) — V1 only, V2 has no taker field */
 const OPERATOR_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+/** 32 zero bytes — V2's default metadata/builder value when the caller doesn't set one */
+const BYTES32_ZERO = '0x' + '0'.repeat(64);
 
 /** USDC has 6 decimals on Polygon */
 const USDC_DECIMALS = 6;
 
-// EIP-712 type string for Order struct
+// EIP-712 type string for the V1 Order struct
 const ORDER_TYPE_STRING =
   'Order(uint256 salt,address maker,address signer,address taker,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint256 expiration,uint256 nonce,uint256 feeRateBps,uint8 side,uint8 signatureType)';
 
-// Signature types
+// EIP-712 type string for the V2 Order struct — no taker/nonce/feeRateBps, adds
+// timestamp/metadata/builder. Verified identical in both ctf-exchange-v2's
+// Structs.sol comment and clob-client-v2's exchangeOrderBuilderV2.ts.
+const ORDER_TYPE_STRING_V2 =
+  'Order(uint256 salt,address maker,address signer,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,uint256 timestamp,bytes32 metadata,bytes32 builder)';
+
+// Signature types (V1 supports EOA/POLY_PROXY/POLY_GNOSIS_SAFE; V2 adds POLY_1271 for
+// smart-contract wallets, which needs a different nested-signature scheme entirely and
+// is intentionally not implemented here — buildSignedOrderV2 throws if it's requested)
 export enum SignatureType {
   EOA = 0,
   POLY_PROXY = 1,
   POLY_GNOSIS_SAFE = 2,
+  POLY_1271 = 3,
 }
 
 // Side enum matching contract
@@ -110,6 +137,52 @@ export interface OrderParams {
   nonce?: string;
   expiration?: number;
   negRisk?: boolean;
+  /** V2 only — bytes32 hex string, defaults to 32 zero bytes if omitted */
+  metadata?: string;
+  /** V2 only — bytes32 hex string, defaults to 32 zero bytes if omitted */
+  builderCode?: string;
+}
+
+export interface PolymarketOrderV2 {
+  salt: string;
+  maker: string;
+  signer: string;
+  tokenId: string;
+  makerAmount: string;
+  takerAmount: string;
+  side: string;
+  signatureType: number;
+  timestamp: string;
+  metadata: string;
+  builder: string;
+}
+
+/**
+ * JSON body for POST /order under the V2 order format — verified against
+ * clob-client-v2's ordersV2.ts orderToJsonV2(). No `nonce`/`feeRateBps` (V1-only);
+ * adds `timestamp`/`metadata`/`builder`. `expiration` here is API/off-chain
+ * bookkeeping for the CLOB matching engine, not part of the signed EIP-712 struct.
+ */
+export interface PostOrderBodyV2 {
+  order: {
+    salt: number;
+    maker: string;
+    signer: string;
+    tokenId: string;
+    makerAmount: string;
+    takerAmount: string;
+    side: 'BUY' | 'SELL';
+    signatureType: number;
+    timestamp: string;
+    expiration: string;
+    metadata: string;
+    builder: string;
+    signature: string;
+  };
+  owner: string;
+  orderType: 'GTC' | 'GTD' | 'FOK';
+  deferExec: boolean;
+  postOnly?: boolean;
 }
 
 // =============================================================================
@@ -307,6 +380,71 @@ function createTypedDataHash(contractAddress: string, order: PolymarketOrder): s
   return '0x' + keccak256(encoded);
 }
 
+// V2 domain — same 4-field EIP712Domain shape as V1, just a different version string
+// ("2"), so it gets its own hash rather than parametrizing hashDomain (keeps the
+// already-verified V1 path untouched).
+function hashDomainV2(contractAddress: string): string {
+  const typeHash = Buffer.from(keccak256(
+    Buffer.from('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'),
+  ), 'hex');
+
+  const nameHash = Buffer.from(keccak256(Buffer.from(PROTOCOL_NAME)), 'hex');
+  const versionHash = Buffer.from(keccak256(Buffer.from(PROTOCOL_VERSION_V2)), 'hex');
+  const chainIdHex = CHAIN_ID.toString(16).padStart(64, '0');
+  const contractHex = contractAddress.slice(2).toLowerCase().padStart(64, '0');
+
+  const encoded = Buffer.concat([
+    typeHash,
+    nameHash,
+    versionHash,
+    Buffer.from(chainIdHex, 'hex'),
+    Buffer.from(contractHex, 'hex'),
+  ]);
+
+  return '0x' + keccak256(encoded);
+}
+
+function encodeBytes32(value: string): string {
+  const hex = value.startsWith('0x') ? value.slice(2) : value;
+  return hex.toLowerCase().padStart(64, '0');
+}
+
+// Field order here must exactly match ORDER_TYPE_STRING_V2's declared order — EIP-712
+// struct hashing is positional (by type-string field order), not by object key order.
+function hashOrderV2(order: PolymarketOrderV2): string {
+  const typeHash = Buffer.from(keccak256(Buffer.from(ORDER_TYPE_STRING_V2)), 'hex');
+
+  const encoded = Buffer.concat([
+    typeHash,
+    Buffer.from(encodeUint256(order.salt), 'hex'),
+    Buffer.from(encodeAddress(order.maker), 'hex'),
+    Buffer.from(encodeAddress(order.signer), 'hex'),
+    Buffer.from(encodeUint256(order.tokenId), 'hex'),
+    Buffer.from(encodeUint256(order.makerAmount), 'hex'),
+    Buffer.from(encodeUint256(order.takerAmount), 'hex'),
+    Buffer.from(encodeUint256(order.side), 'hex'),
+    Buffer.from(encodeUint256(order.signatureType), 'hex'),
+    Buffer.from(encodeUint256(order.timestamp), 'hex'),
+    Buffer.from(encodeBytes32(order.metadata), 'hex'),
+    Buffer.from(encodeBytes32(order.builder), 'hex'),
+  ]);
+
+  return '0x' + keccak256(encoded);
+}
+
+function createTypedDataHashV2(contractAddress: string, order: PolymarketOrderV2): string {
+  const domainSeparator = hashDomainV2(contractAddress);
+  const structHash = hashOrderV2(order);
+
+  const encoded = Buffer.concat([
+    Buffer.from([0x19, 0x01]),
+    Buffer.from(domainSeparator.slice(2), 'hex'),
+    Buffer.from(structHash.slice(2), 'hex'),
+  ]);
+
+  return '0x' + keccak256(encoded);
+}
+
 // =============================================================================
 // SIGNING
 // =============================================================================
@@ -446,4 +584,122 @@ export function buildSignedOrders(
   signer: SignerConfig,
 ): PostOrderBody[] {
   return paramsList.map((p) => buildSignedOrder(p, signer));
+}
+
+/**
+ * Build and sign a Polymarket CLOB order in the V2 format (see file header for what
+ * changed vs V1). Use getCurrentPolymarketOrderVersion() to decide whether to call
+ * this or buildSignedOrder() — V2 is the live exchange-wide default as of this
+ * writing, but callers that already know their target version can call either
+ * directly.
+ * @throws {OrderValidationError} if order parameters are invalid
+ */
+export function buildSignedOrderV2(
+  params: OrderParams,
+  signer: SignerConfig,
+): PostOrderBodyV2 {
+  validateOrderParams(params);
+
+  const signatureType = signer.signatureType ?? (signer.funderAddress ? SignatureType.POLY_GNOSIS_SAFE : SignatureType.EOA);
+  if (signatureType === SignatureType.POLY_1271) {
+    throw new Error(
+      'POLY_1271 (smart-contract wallet) signing is not implemented — it requires a nested ' +
+      'TypedDataSign wrapper around the order, not a plain EIP-712 signature. Use EOA, ' +
+      'POLY_PROXY, or POLY_GNOSIS_SAFE instead.'
+    );
+  }
+
+  const signerAddress = deriveAddress(signer.privateKey);
+  const maker = signer.funderAddress || signerAddress;
+  const exchange = params.negRisk ? NEG_RISK_CTF_EXCHANGE_V2 : CTF_EXCHANGE_V2;
+
+  const { makerAmount, takerAmount } = getOrderAmounts(params.price, params.size, params.side);
+  const salt = generateSalt();
+  const timestamp = Date.now().toString();
+  const sideNum = params.side === 'buy' ? OrderSide.BUY : OrderSide.SELL;
+  const metadata = params.metadata ? normalizeBytes32(params.metadata) : BYTES32_ZERO;
+  const builder = params.builderCode ? normalizeBytes32(params.builderCode) : BYTES32_ZERO;
+
+  const order: PolymarketOrderV2 = {
+    salt,
+    maker,
+    signer: signerAddress,
+    tokenId: params.tokenId,
+    makerAmount,
+    takerAmount,
+    side: sideNum.toString(),
+    signatureType,
+    timestamp,
+    metadata,
+    builder,
+  };
+
+  const hash = createTypedDataHashV2(exchange, order);
+  const signature = signHash(hash, signer.privateKey);
+
+  return {
+    order: {
+      salt: parseInt(salt, 10),
+      maker,
+      signer: signerAddress,
+      tokenId: params.tokenId,
+      makerAmount,
+      takerAmount,
+      side: params.side === 'buy' ? 'BUY' : 'SELL',
+      signatureType,
+      timestamp,
+      expiration: (params.expiration || 0).toString(),
+      metadata,
+      builder,
+      signature,
+    },
+    owner: '', // Caller MUST set this to the API key
+    orderType: 'GTC',
+    deferExec: false,
+  };
+}
+
+/**
+ * Build multiple V2 signed orders for batch placement.
+ */
+export function buildSignedOrdersV2(
+  paramsList: OrderParams[],
+  signer: SignerConfig,
+): PostOrderBodyV2[] {
+  return paramsList.map((p) => buildSignedOrderV2(p, signer));
+}
+
+function normalizeBytes32(value: string): string {
+  return value.startsWith('0x') ? value : `0x${value}`;
+}
+
+// =============================================================================
+// EXCHANGE VERSION RESOLUTION
+// =============================================================================
+
+let cachedVersion: { version: 1 | 2; fetchedAt: number } | null = null;
+const VERSION_CACHE_MS = 5 * 60 * 1000; // 5 min — exchange-wide version flips are rare, no need to check every order
+
+/**
+ * Ask the live CLOB which order version it currently expects (GET /version).
+ * Falls back to 2 on any failure — matches clob-client-v2's own fallback
+ * (`response?.version ?? 2`); confirmed live that the endpoint currently returns 2.
+ */
+export async function getCurrentPolymarketOrderVersion(
+  clobBaseUrl: string = 'https://clob.polymarket.com',
+): Promise<1 | 2> {
+  if (cachedVersion && Date.now() - cachedVersion.fetchedAt < VERSION_CACHE_MS) {
+    return cachedVersion.version;
+  }
+  try {
+    const res = await fetch(`${clobBaseUrl}/version`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { version?: number };
+    const version: 1 | 2 = data.version === 1 ? 1 : 2;
+    cachedVersion = { version, fetchedAt: Date.now() };
+    return version;
+  } catch {
+    cachedVersion = { version: 2, fetchedAt: Date.now() };
+    return 2;
+  }
 }
