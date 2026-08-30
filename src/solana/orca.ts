@@ -1,5 +1,5 @@
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import { u64 } from '@solana/spl-token';
+import { BN } from '@coral-xyz/anchor';
 import { signAndSendTransaction } from './wallet';
 
 // ============================================
@@ -134,7 +134,7 @@ export async function executeOrcaWhirlpoolSwap(
   const swapQuote = await orca.pool.getSwapQuote({
     poolAddress: params.poolAddress,
     tokenMint: params.inputMint,
-    tokenAmount: new u64(params.amount),
+    tokenAmount: new BN(params.amount),
     isInput: true,
     slippageTolerance: sdk.Percentage.fromFraction(params.slippageBps ?? 50, 10_000),
     refresh: true,
@@ -163,7 +163,7 @@ export async function getOrcaWhirlpoolQuote(params: {
   const swapQuote = await orca.pool.getSwapQuote({
     poolAddress: params.poolAddress,
     tokenMint: params.inputMint,
-    tokenAmount: new u64(params.amount),
+    tokenAmount: new BN(params.amount),
     isInput: true,
     slippageTolerance: sdk.Percentage.fromFraction(params.slippageBps ?? 50, 10_000),
     refresh: true,

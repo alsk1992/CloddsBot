@@ -27,6 +27,22 @@ export type Platform =
   | 'mexc'
   | 'percolator';
 
+/**
+ * Trading venues that can participate in cross-venue routing or arbitrage.
+ * This extends the core market/exchange platform list with concrete DEX and
+ * router venues that already exist elsewhere in the codebase.
+ */
+export type TradeVenue =
+  | Platform
+  | 'jupiter'
+  | 'raydium'
+  | 'orca'
+  | 'meteora'
+  | 'uniswap'
+  | 'oneinch'
+  | 'pancakeswap'
+  | 'lighter';
+
 // =============================================================================
 // MARKETS
 // =============================================================================
@@ -865,8 +881,8 @@ export interface Config {
   venueArbitrage?: {
     /** Enable HFT-style venue arbitrage planner (default: false) */
     enabled?: boolean;
-    /** Platforms allowed for venue arbitrage */
-    platforms?: Platform[];
+    /** Platforms or venues allowed for venue arbitrage */
+    platforms?: TradeVenue[];
     /** Leg execution style (default: 'taker_taker') */
     executionStyle?: 'taker_taker' | 'maker_taker' | 'maker_maker';
     /** Minimum net edge after fees and penalties in bps (default: 15) */

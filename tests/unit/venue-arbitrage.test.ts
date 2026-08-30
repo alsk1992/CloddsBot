@@ -172,7 +172,7 @@ describe('venue arbitrage planner', () => {
         makeQuote({
           platform: 'kalshi',
           marketId: 'kalshi-1',
-          bid: 0.495,
+          bid: 0.499,
           ask: 0.53,
         }),
       ],
@@ -187,8 +187,48 @@ describe('venue arbitrage planner', () => {
     );
 
     assert.equal(plans.length, 1);
-    assert.equal(plans[0].grossSpread, 0.005);
+    assert.ok(Math.abs(plans[0].grossSpread - 0.009) < 1e-9);
     assert.equal(plans[0].legs[0].price, 0.49);
-    assert.equal(plans[0].legs[1].price, 0.495);
+    assert.equal(plans[0].legs[1].price, 0.499);
+  });
+
+  it('accepts Solana and EVM venue identifiers in the planner', () => {
+    const plans = findVenueArbitragePlans(
+      [
+        makeQuote({
+          instrumentId: 'sol-usdc',
+          platform: 'raydium',
+          marketId: 'ray-sol-usdc',
+          outcome: 'SPOT',
+          bid: 149.9,
+          ask: 150,
+          bidSize: 25,
+          askSize: 25,
+        }),
+        makeQuote({
+          instrumentId: 'sol-usdc',
+          platform: 'lighter',
+          marketId: 'lighter-sol-usd',
+          outcome: 'SPOT',
+          bid: 150.9,
+          ask: 151,
+          bidSize: 25,
+          askSize: 25,
+        }),
+      ],
+      {
+        enabled: true,
+        platforms: ['raydium', 'lighter'],
+        minNetEdgeBps: 20,
+        minTargetProfitUsd: 1,
+        maxNotionalUsd: 1_000,
+      },
+      NOW
+    );
+
+    assert.equal(plans.length, 1);
+    assert.equal(plans[0].buyPlatform, 'raydium');
+    assert.equal(plans[0].sellPlatform, 'lighter');
+    assert.ok(plans[0].expectedNetUsd > 0);
   });
 });

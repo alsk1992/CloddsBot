@@ -13,8 +13,10 @@ This branch starts a clean v2 line from the current `main` tip with a narrower e
 
 - A pure venue arbitrage planner in `src/trading/venue-arbitrage.ts`
 - A multi-hop path planner in `src/trading/multi-hop-arbitrage.ts`
+- An opportunity-level HFT planning service in `src/opportunity/hft.ts`
 - Config defaults under `venueArbitrage`
-- Unit tests that cover net-edge filtering, staleness rejection, latency ranking, maker/taker leg sequencing, multi-hop cycles, Solana atomic bundles, and EVM exact-in execution hints
+- Opportunity API endpoints for direct HFT planning on active opportunities, linked market groups, and explicit multi-hop graphs
+- Unit tests that cover net-edge filtering, staleness rejection, latency ranking, maker/taker leg sequencing, multi-hop cycles, Solana atomic bundles, EVM exact-in execution hints, and live opportunity/linked-market quote translation
 
 ## Execution Model
 
@@ -32,6 +34,12 @@ The path planner accepts directed hop quotes (`fromAsset -> toAsset`) and search
 3. Detect profitable cycles back to the start asset
 4. Annotate execution strategy for Solana bundles or EVM exact-in entry
 
+The opportunity HFT service now connects those planners to live product surfaces:
+
+1. `POST /api/opportunities/:id/hft-plan` converts an active opportunity into a size-capped execution plan
+2. `POST /api/opportunities/hft/linked-plan` pulls a linked market identity, fetches live books, and runs venue planning
+3. `POST /api/opportunities/hft/multi-hop/plan` runs 3-4 hop pathfinding against an explicit directed graph payload
+
 Supported execution styles:
 
 - `taker_taker`: cross both legs immediately, default for speed
@@ -42,6 +50,10 @@ Additional execution semantics:
 
 - `solana_atomic_bundle`: all hops can be submitted as one atomic bundle
 - `evm_exact_in`: every hop uses deterministic exact-in sizing for controlled entry
+
+Current limitation:
+
+- Those are planner outputs and execution hints, not a Jito bundle sender or EVM calldata executor yet
 
 ## Why This Shape
 

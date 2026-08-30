@@ -1,4 +1,4 @@
-import type { Platform } from '../types';
+import type { TradeVenue } from '../types';
 
 export type VenueArbitrageExecutionStyle =
   | 'taker_taker'
@@ -8,7 +8,7 @@ export type VenueArbitrageExecutionStyle =
 export interface VenueQuote {
   /** Cross-venue normalized key for the same contract/outcome. */
   instrumentId: string;
-  platform: Platform;
+  platform: TradeVenue;
   marketId: string;
   outcome: string;
   bid: number;
@@ -30,7 +30,7 @@ export interface VenueQuote {
 
 export interface VenueArbitragePlannerConfig {
   enabled?: boolean;
-  platforms?: Platform[];
+  platforms?: TradeVenue[];
   executionStyle?: VenueArbitrageExecutionStyle;
   minNetEdgeBps?: number;
   minTargetProfitUsd?: number;
@@ -48,7 +48,7 @@ export interface VenueArbitragePlannerConfig {
 
 export interface VenueArbitrageLeg {
   order: number;
-  platform: Platform;
+  platform: TradeVenue;
   marketId: string;
   outcome: string;
   side: 'buy' | 'sell';
@@ -63,8 +63,8 @@ export interface VenueArbitrageLeg {
 
 export interface VenueArbitragePlan {
   instrumentId: string;
-  buyPlatform: Platform;
-  sellPlatform: Platform;
+  buyPlatform: TradeVenue;
+  sellPlatform: TradeVenue;
   buyMarketId: string;
   sellMarketId: string;
   outcome: string;
@@ -91,7 +91,7 @@ export interface VenueArbitragePlanner {
   rankPlans(plans: VenueArbitragePlan[]): VenueArbitragePlan[];
 }
 
-const DEFAULT_TAKER_FEE_BPS: Partial<Record<Platform, number>> = {
+const DEFAULT_TAKER_FEE_BPS: Partial<Record<TradeVenue, number>> = {
   polymarket: 0,
   kalshi: 120,
   manifold: 0,
@@ -106,9 +106,17 @@ const DEFAULT_TAKER_FEE_BPS: Partial<Record<Platform, number>> = {
   binance: 10,
   bybit: 10,
   mexc: 20,
+  jupiter: 30,
+  raydium: 25,
+  orca: 25,
+  meteora: 20,
+  uniswap: 30,
+  oneinch: 35,
+  pancakeswap: 25,
+  lighter: 6,
 };
 
-const DEFAULT_MAKER_FEE_BPS: Partial<Record<Platform, number>> = {
+const DEFAULT_MAKER_FEE_BPS: Partial<Record<TradeVenue, number>> = {
   polymarket: 0,
   kalshi: 17,
   manifold: 0,
@@ -123,9 +131,17 @@ const DEFAULT_MAKER_FEE_BPS: Partial<Record<Platform, number>> = {
   binance: 2,
   bybit: 1,
   mexc: 0,
+  jupiter: 0,
+  raydium: 0,
+  orca: 0,
+  meteora: 0,
+  uniswap: 0,
+  oneinch: 0,
+  pancakeswap: 0,
+  lighter: 0,
 };
 
-const DEFAULT_EXECUTION_LATENCY_MS: Partial<Record<Platform, number>> = {
+const DEFAULT_EXECUTION_LATENCY_MS: Partial<Record<TradeVenue, number>> = {
   polymarket: 500,
   kalshi: 800,
   manifold: 300,
@@ -140,6 +156,14 @@ const DEFAULT_EXECUTION_LATENCY_MS: Partial<Record<Platform, number>> = {
   binance: 120,
   bybit: 140,
   mexc: 160,
+  jupiter: 180,
+  raydium: 120,
+  orca: 120,
+  meteora: 140,
+  uniswap: 220,
+  oneinch: 260,
+  pancakeswap: 240,
+  lighter: 90,
 };
 
 const DEFAULT_CONFIG: Required<VenueArbitragePlannerConfig> = {
@@ -170,7 +194,7 @@ function mergeConfig(
     [keyof VenueArbitragePlannerConfig, VenueArbitragePlannerConfig[keyof VenueArbitragePlannerConfig]]
   >) {
     if (value !== undefined) {
-      (merged as VenueArbitragePlannerConfig)[key] = Array.isArray(value) ? [...value] : value;
+      (merged as Record<string, unknown>)[key] = Array.isArray(value) ? [...value] : value;
     }
   }
 

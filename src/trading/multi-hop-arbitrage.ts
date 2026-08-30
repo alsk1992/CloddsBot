@@ -92,7 +92,7 @@ function mergeConfig(
     [keyof MultiHopArbitragePlannerConfig, MultiHopArbitragePlannerConfig[keyof MultiHopArbitragePlannerConfig]]
   >) {
     if (value !== undefined) {
-      (merged as MultiHopArbitragePlannerConfig)[key] = value;
+      (merged as Record<string, unknown>)[key] = value;
     }
   }
 
@@ -333,11 +333,12 @@ export function findMultiHopArbitragePlans(
 
       if (hop.toAsset === startAsset && nextPath.length >= 2) {
         const plan = buildPlan(nextPath, nextStartInputCap, nextOutputPerUnit, cfg, nowMs);
-        if (plan) {
-          const existing = results.get(plan.cycleId);
-          if (!existing || plan.netEdgeBps > existing.netEdgeBps) {
-            results.set(plan.cycleId, plan);
-          }
+        if (plan && !results.has(plan.cycleId)) {
+          // Every rotation of the same physical cycle shares one cycleId and the same
+          // economic value (up to floating-point noise from multiplication order), so
+          // keep whichever rotation is discovered first instead of comparing noisy
+          // netEdgeBps floats — that comparison made the winning rotation arbitrary.
+          results.set(plan.cycleId, plan);
         }
         continue;
       }

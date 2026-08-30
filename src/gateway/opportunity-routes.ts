@@ -8,15 +8,19 @@
 import { Router, type Request, type Response } from 'express';
 import { logger } from '../utils/logger.js';
 import type { OpportunityFinder } from '../opportunity/index.js';
+import { planLinkedVenueArbitrage, planMultiHopHft, planOpportunityHft } from '../opportunity/hft.js';
+import type { NormalizedOutcome } from '../opportunity/outcomes.js';
+import type { FeedManager } from '../feeds/index.js';
 import type { Platform } from '../types.js';
 
 export interface OpportunityRouterDeps {
   finder: OpportunityFinder;
+  feeds?: Pick<FeedManager, 'getMarket' | 'getOrderbook'> | null;
 }
 
 export function createOpportunityRouter(deps: OpportunityRouterDeps): Router {
   const router = Router();
-  const { finder } = deps;
+  const { finder, feeds } = deps;
 
   // ── POST /api/opportunities/scan ──────────────────────────────────────────
   // Scan for opportunities with optional filters
@@ -66,22 +70,6 @@ export function createOpportunityRouter(deps: OpportunityRouterDeps): Router {
       res.json({ ok: true, data: { pairs, count: pairs.length } });
     } catch (err) {
       logger.warn({ err }, 'Opportunity API: Platform pairs failed');
-      res.status(500).json({ ok: false, error: 'Internal error' });
-    }
-  });
-
-  // ── GET /api/opportunities/:id ────────────────────────────────────────────
-  // Get a specific opportunity by ID
-  router.get('/:id', (req: Request, res: Response) => {
-    try {
-      const opportunity = finder.get(req.params.id);
-      if (!opportunity) {
-        res.status(404).json({ ok: false, error: `Opportunity ${req.params.id} not found` });
-        return;
-      }
-      res.json({ ok: true, data: opportunity });
-    } catch (err) {
-      logger.warn({ err }, 'Opportunity API: Failed to get opportunity');
       res.status(500).json({ ok: false, error: 'Internal error' });
     }
   });
@@ -235,6 +223,81 @@ export function createOpportunityRouter(deps: OpportunityRouterDeps): Router {
       res.json({ ok: true, data: { unlinked: true, marketA, marketB } });
     } catch (err) {
       logger.warn({ err }, 'Opportunity API: Unlink markets failed');
+      res.status(500).json({ ok: false, error: 'Internal error' });
+    }
+  });
+
+  // ── POST /api/opportunities/hft/multi-hop/plan ───────────────────────────
+  router.post('/hft/multi-hop/plan', (req: Request, res: Response) => {
+    try {
+      const { hops, ...config } = req.body as Record<string, any>;
+      if (!Array.isArray(hops) || hops.length < 2) {
+        res.status(400).json({ ok: false, error: 'Required: hops[] with at least 2 entries' });
+        return;
+      }
+      const plans = planMultiHopHft(hops, config);
+      res.json({ ok: true, data: { plans, count: plans.length } });
+    } catch (err) {
+      logger.warn({ err }, 'Opportunity API: Multi-hop HFT plan failed');
+      res.status(500).json({ ok: false, error: 'Internal error' });
+    }
+  });
+
+  // ── POST /api/opportunities/hft/linked-plan ──────────────────────────────
+  router.post('/hft/linked-plan', async (req: Request, res: Response) => {
+    try {
+      if (!feeds) {
+        res.status(503).json({ ok: false, error: 'Feed manager unavailable for linked-market planning' });
+        return;
+      }
+
+      const { marketKey, normalizedOutcome, ...config } = req.body as Record<string, any>;
+      if (!marketKey || typeof marketKey !== 'string') {
+        res.status(400).json({ ok: false, error: 'Required: marketKey' });
+        return;
+      }
+
+      const result = await planLinkedVenueArbitrage(finder, feeds, {
+        marketKey,
+        normalizedOutcome: normalizedOutcome as NormalizedOutcome | undefined,
+        ...config,
+      });
+      res.json({ ok: true, data: result });
+    } catch (err) {
+      logger.warn({ err }, 'Opportunity API: Linked HFT plan failed');
+      res.status(500).json({ ok: false, error: 'Internal error' });
+    }
+  });
+
+  // ── POST /api/opportunities/:id/hft-plan ─────────────────────────────────
+  router.post('/:id/hft-plan', async (req: Request, res: Response) => {
+    try {
+      const opportunity = finder.get(req.params.id);
+      if (!opportunity) {
+        res.status(404).json({ ok: false, error: `Opportunity ${req.params.id} not found` });
+        return;
+      }
+
+      const result = await planOpportunityHft(opportunity, req.body as Record<string, any>, feeds ?? undefined);
+      res.json({ ok: true, data: result });
+    } catch (err) {
+      logger.warn({ err }, 'Opportunity API: HFT plan failed');
+      res.status(500).json({ ok: false, error: 'Internal error' });
+    }
+  });
+
+  // ── GET /api/opportunities/:id ────────────────────────────────────────────
+  // Get a specific opportunity by ID
+  router.get('/:id', (req: Request, res: Response) => {
+    try {
+      const opportunity = finder.get(req.params.id);
+      if (!opportunity) {
+        res.status(404).json({ ok: false, error: `Opportunity ${req.params.id} not found` });
+        return;
+      }
+      res.json({ ok: true, data: opportunity });
+    } catch (err) {
+      logger.warn({ err }, 'Opportunity API: Failed to get opportunity');
       res.status(500).json({ ok: false, error: 'Internal error' });
     }
   });

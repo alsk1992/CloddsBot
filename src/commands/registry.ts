@@ -11,6 +11,7 @@ import type { FeedManager } from '../feeds/index';
 import type { Database } from '../db/index';
 import type { MemoryService } from '../memory/index';
 import type { OpportunityFinder } from '../opportunity/index';
+import { planLinkedVenueArbitrage, planOpportunityHft } from '../opportunity/hft';
 import { logger } from '../utils/logger';
 import { execApprovals } from '../permissions';
 import * as virtuals from '../evm/virtuals';
@@ -2593,7 +2594,7 @@ export function createDefaultCommands(): CommandDefinition[] {
     {
       name: 'opportunity',
       description: 'Find arbitrage and edge opportunities across platforms',
-      usage: '/opportunity [scan|active|link|stats|pairs] [args]',
+      usage: '/opportunity [scan|active|hft|linked|link|stats|pairs] [args]',
       aliases: ['opp', 'arb', 'find'],
       handler: async (args, ctx) => {
         const finder = ctx.opportunityFinder;
@@ -2813,6 +2814,193 @@ export function createDefaultCommands(): CommandDefinition[] {
             return lines.join('\n');
           }
 
+          case 'hft': {
+            const oppId = rest[0];
+            if (!oppId) {
+              return [
+                'Usage: /opportunity hft <opportunity-id> [size=50] [style=taker_taker] [refresh=true]',
+                '',
+                'Examples:',
+                '  /opportunity hft cross_polymarket_kalshi_123',
+                '  /opportunity hft cross_polymarket_kalshi_123 size=20 style=maker_taker',
+              ].join('\n');
+            }
+
+            const opportunity = finder.get(oppId);
+            if (!opportunity) {
+              return `Opportunity ${oppId} not found or expired.`;
+            }
+
+            let size: number | undefined;
+            let refreshQuotes: boolean | undefined;
+            let executionStyle: 'taker_taker' | 'maker_taker' | 'maker_maker' | undefined;
+            let minNetEdgeBps: number | undefined;
+            let maxNotionalUsd: number | undefined;
+            let requireCrossedMarket: boolean | undefined;
+
+            for (const part of rest.slice(1)) {
+              const [rawKey, rawValue] = part.split('=', 2);
+              const key = rawKey?.toLowerCase();
+              const value = rawValue?.trim();
+              if (!key || value === undefined) continue;
+
+              if (key === 'size') {
+                const parsed = parseFloat(value);
+                if (Number.isFinite(parsed) && parsed > 0) size = parsed;
+              } else if (key === 'refresh') {
+                refreshQuotes = value.toLowerCase() !== 'false';
+              } else if (key === 'style') {
+                if (value === 'taker_taker' || value === 'maker_taker' || value === 'maker_maker') {
+                  executionStyle = value;
+                }
+              } else if (key === 'minnetedgebps') {
+                const parsed = parseFloat(value);
+                if (Number.isFinite(parsed)) minNetEdgeBps = parsed;
+              } else if (key === 'maxnotionalusd') {
+                const parsed = parseFloat(value);
+                if (Number.isFinite(parsed) && parsed > 0) maxNotionalUsd = parsed;
+              } else if (key === 'crossed') {
+                requireCrossedMarket = value.toLowerCase() !== 'false';
+              }
+            }
+
+            const result = await planOpportunityHft(opportunity, {
+              size,
+              refreshQuotes,
+              executionStyle,
+              minNetEdgeBps,
+              maxNotionalUsd,
+              requireCrossedMarket,
+            }, ctx.feeds);
+
+            const lines = [
+              `HFT Plan: ${opportunity.id}`,
+              `Type: ${opportunity.type} | Snapshot edge: ${opportunity.edgePct.toFixed(2)}%`,
+              `Target size: ${result.execution.targetSize.toFixed(2)}`,
+              `Entry cost: $${result.execution.entryCost.toFixed(2)} | Entry credit: $${result.execution.entryCredit.toFixed(2)}`,
+              `Projected edge: $${result.execution.projectedEdgeUsd.toFixed(2)}`,
+              '',
+              'Execution:',
+            ];
+
+            for (const step of result.execution.steps) {
+              const source = step.source === 'feed_orderbook' ? 'live' : 'snapshot';
+              lines.push(
+                `  ${step.order}. ${step.action.toUpperCase()} ${step.outcome} @ ${(step.price * 100).toFixed(1)}c on ${step.platform} (${source}, size ${step.size.toFixed(2)})`
+              );
+            }
+
+            if (result.venuePlans.length > 0) {
+              const topPlan = result.venuePlans[0];
+              lines.push('');
+              lines.push(`Top venue route: ${topPlan.buyPlatform} -> ${topPlan.sellPlatform}`);
+              lines.push(
+                `  Net edge: ${topPlan.netEdgeBps.toFixed(1)}bps | Gross spread: ${(topPlan.grossSpread * 100).toFixed(2)}c | Expected: $${topPlan.expectedNetUsd.toFixed(2)}`
+              );
+              lines.push(`  Style: ${topPlan.executionStyle} | Size: ${topPlan.size.toFixed(2)}`);
+            }
+
+            if (result.warnings.length > 0) {
+              lines.push('');
+              lines.push('Warnings:');
+              for (const warning of result.warnings) {
+                lines.push(`  - ${warning}`);
+              }
+            }
+
+            return lines.join('\n');
+          }
+
+          case 'linked': {
+            const marketKey = rest[0];
+            if (!marketKey) {
+              return [
+                'Usage: /opportunity linked <marketKey> [outcome=YES] [style=taker_taker] [minNetEdgeBps=15]',
+                '',
+                'Example:',
+                '  /opportunity linked polymarket:0x123 outcome=YES style=maker_taker',
+              ].join('\n');
+            }
+
+            let normalizedOutcome: 'YES' | 'NO' | 'OTHER' = 'YES';
+            let executionStyle: 'taker_taker' | 'maker_taker' | 'maker_maker' | undefined;
+            let minNetEdgeBps: number | undefined;
+            let maxNotionalUsd: number | undefined;
+            let requireCrossedMarket: boolean | undefined;
+
+            for (const part of rest.slice(1)) {
+              const [rawKey, rawValue] = part.split('=', 2);
+              const key = rawKey?.toLowerCase();
+              const value = rawValue?.trim();
+              if (!key || value === undefined) continue;
+
+              if (key === 'outcome' && (value === 'YES' || value === 'NO' || value === 'OTHER')) {
+                normalizedOutcome = value;
+              } else if (key === 'style') {
+                if (value === 'taker_taker' || value === 'maker_taker' || value === 'maker_maker') {
+                  executionStyle = value;
+                }
+              } else if (key === 'minnetedgebps') {
+                const parsed = parseFloat(value);
+                if (Number.isFinite(parsed)) minNetEdgeBps = parsed;
+              } else if (key === 'maxnotionalusd') {
+                const parsed = parseFloat(value);
+                if (Number.isFinite(parsed) && parsed > 0) maxNotionalUsd = parsed;
+              } else if (key === 'crossed') {
+                requireCrossedMarket = value.toLowerCase() !== 'false';
+              }
+            }
+
+            const result = await planLinkedVenueArbitrage(finder, ctx.feeds, {
+              marketKey,
+              normalizedOutcome,
+              executionStyle,
+              minNetEdgeBps,
+              maxNotionalUsd,
+              requireCrossedMarket,
+            });
+
+            const lines = [
+              `Linked HFT Plan: ${marketKey}`,
+              `Outcome: ${normalizedOutcome}`,
+              `Linked venues: ${result.identity?.markets.length ?? 0}`,
+              `Live quotes: ${result.quotes.length} | Plans: ${result.plans.length}`,
+            ];
+
+            for (const quote of result.quotes) {
+              lines.push(
+                `  ${quote.platform}: bid ${(quote.bid * 100).toFixed(1)}c / ask ${(quote.ask * 100).toFixed(1)}c`
+              );
+            }
+
+            if (result.plans.length > 0) {
+              const topPlan = result.plans[0];
+              lines.push('');
+              lines.push(`Top route: ${topPlan.buyPlatform} -> ${topPlan.sellPlatform}`);
+              lines.push(
+                `  Net edge: ${topPlan.netEdgeBps.toFixed(1)}bps | Expected: $${topPlan.expectedNetUsd.toFixed(2)} | Style: ${topPlan.executionStyle}`
+              );
+            }
+
+            if (result.skipped.length > 0) {
+              lines.push('');
+              lines.push('Skipped:');
+              for (const skipped of result.skipped.slice(0, 5)) {
+                lines.push(`  - ${skipped.platform}:${skipped.marketId} (${skipped.reason})`);
+              }
+            }
+
+            if (result.warnings.length > 0) {
+              lines.push('');
+              lines.push('Warnings:');
+              for (const warning of result.warnings) {
+                lines.push(`  - ${warning}`);
+              }
+            }
+
+            return lines.join('\n');
+          }
+
           case 'realtime': {
             const action = rest[0]?.toLowerCase() || 'status';
 
@@ -2945,6 +3133,8 @@ export function createDefaultCommands(): CommandDefinition[] {
               'Commands:',
               '  scan [query] [minEdge=0.5] [limit=20]  - Find opportunities',
               '  active                                  - Show active opportunities',
+              '  hft <id> [size=50] [style=...]          - Build HFT plan for active opportunity',
+              '  linked <marketKey> [outcome=YES]        - Build live venue plan from linked markets',
               '  combinatorial [minEdge=0.5]            - Scan for combinatorial arbitrage',
               '  link <a> <b> [confidence]              - Link equivalent markets',
               '  unlink <a> <b>                         - Remove market link',

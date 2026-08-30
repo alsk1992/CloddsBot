@@ -1,5 +1,5 @@
 /**
- * Skill Executor - Central registry for all 119 bundled CLI skill handlers.
+ * Skill Executor - Central registry for bundled CLI skill handlers.
  *
  * ARCHITECTURE:
  * - Each skill lives in src/skills/bundled/<name>/index.ts
@@ -118,6 +118,7 @@ const SKILL_MANIFEST: string[] = [
   'risk',
   'router',
   'routing',
+  'rust-hft-arbitrage',
   'sandbox',
   'search-config',
   'sessions',
@@ -268,6 +269,7 @@ const SKILL_CATEGORIES: Record<string, SkillCategory> = {
   'features': 'AI & Strategy',
   'trading-system': 'AI & Strategy',
   'percolator': 'AI & Strategy',
+  'rust-hft-arbitrage': 'AI & Strategy',
 
   // Infrastructure
   'credentials': 'Infrastructure',
@@ -480,6 +482,7 @@ const SKILL_RELATIONS: Record<string, string[]> = {
   'positions': ['portfolio', 'bags', 'risk', 'history'],
   'bags': ['portfolio', 'positions', 'trading-solana', 'trading-evm'],
   'arbitrage': ['trading-polymarket', 'betfair', 'feeds', 'signals'],
+  'rust-hft-arbitrage': ['crypto-hft', 'trading-solana', 'trading-evm', 'lighter', 'mev', 'risk'],
   'bridge': ['trading-evm', 'pancakeswap', 'bags'],
   'credentials': ['setup', 'doctor'],
   'doctor': ['setup', 'credentials', 'monitoring'],
