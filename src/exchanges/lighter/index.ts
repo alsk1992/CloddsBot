@@ -12,6 +12,8 @@
  */
 
 import { WebSocket } from 'ws';
+import { spawn } from 'child_process';
+import path from 'path';
 import { logger } from '../../utils/logger';
 
 // =============================================================================
@@ -29,9 +31,19 @@ const WS_RECONNECT_DELAY_MS = 2_000;
 // =============================================================================
 
 export interface LighterConfig {
-  apiKey?: string;
+  /** L1 identity — informational only; not sufficient on its own to trade (see below). */
   walletAddress: string;
   privateKey: string;
+  /**
+   * L2 trading credentials. Lighter is a zk-rollup: every order/cancel is an L2
+   * transaction signed with a Lighter-native keypair (api_private_key), which is a
+   * *different* key from the L1 wallet above — it's registered on-chain once via a
+   * one-time setup flow (not implemented here; see scripts/lighter-bridge/bridge.py's
+   * header). All three are required to place or cancel an order.
+   */
+  accountIndex?: number;
+  apiKeyIndex?: number;
+  apiPrivateKey?: string;
   dryRun?: boolean;
 }
 
@@ -61,14 +73,17 @@ export interface LighterOrderbook {
 }
 
 export interface LighterOrder {
+  /** client_order_index — pass this back into cancelOrder/modify, not order_id. */
   orderId: string;
   market: string;
   side: 'BUY' | 'SELL';
+  type: 'LIMIT' | 'MARKET';
+  status: string;
   price: string;
   size: string;
   filled: string;
-  status: string;
-  timestamp: number;
+  remaining: string;
+  reduceOnly: boolean;
 }
 
 export interface LighterPosition {
@@ -76,10 +91,10 @@ export interface LighterPosition {
   side: 'LONG' | 'SHORT';
   size: string;
   entryPrice: string;
-  markPrice: string;
   unrealizedPnl: string;
-  leverage: string;
+  realizedPnl: string;
   liquidationPrice: string;
+  marginMode: 'cross' | 'isolated';
 }
 
 export interface LighterBalance {
@@ -101,7 +116,10 @@ export interface LighterOrderParams {
 
 export interface LighterOrderResult {
   success: boolean;
+  /** client_order_index — pass this to cancelOrder to reference this order later. */
   orderId?: string;
+  /** L2 transaction hash, for block-explorer reference. Not usable as a cancel target. */
+  txHash?: string;
   error?: string;
 }
 
@@ -114,16 +132,11 @@ async function httpRequest<T>(
   options?: {
     method?: string;
     body?: unknown;
-    apiKey?: string;
   }
 ): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-
-  if (options?.apiKey) {
-    headers['X-API-Key'] = options.apiKey;
-  }
 
   const response = await fetch(`${API_URL}${path}`, {
     method: options?.method || (options?.body ? 'POST' : 'GET'),
@@ -441,66 +454,276 @@ export function subscribeOrderbook(
 }
 
 // =============================================================================
+// PYTHON BRIDGE (L2 transaction signing)
+// =============================================================================
+
+/**
+ * Lighter's L2 transactions are signed by a native binary the official SDK loads via
+ * ctypes (compiled from github.com/elliottech/lighter-go) — there's no published spec
+ * to reimplement in TypeScript, and Lighter's own official AI-agent kit
+ * (elliottech/lighter-agent-kit, pushed the same day this was written) works the exact
+ * same way: shell out to Python running the real SDK, not a reimplementation. This
+ * mirrors src/evm/fast-broadcast.ts's Rust-subprocess pattern — same "call out to a
+ * real, verified implementation" shape, different language because Python (not Rust)
+ * is what the official signer binary is actually distributed for.
+ */
+function resolveBridgeScript(): string {
+  return process.env.LIGHTER_BRIDGE_SCRIPT
+    || path.join(__dirname, '..', '..', '..', 'scripts', 'lighter-bridge', 'bridge.py');
+}
+
+function resolvePythonBin(): string {
+  return process.env.LIGHTER_PYTHON_BIN || 'python3';
+}
+
+interface LighterBridgeError {
+  error: string;
+}
+
+async function callLighterBridge<T>(
+  config: LighterConfig,
+  action: string,
+  params: Record<string, unknown> = {}
+): Promise<T> {
+  if (config.accountIndex == null || config.apiKeyIndex == null || !config.apiPrivateKey) {
+    throw new Error(
+      'Lighter: accountIndex, apiKeyIndex, and apiPrivateKey are required for trading calls ' +
+      '(these are L2 credentials, separate from the L1 wallet — see LighterConfig)'
+    );
+  }
+
+  const request = {
+    action,
+    url: API_URL,
+    account_index: config.accountIndex,
+    api_key_index: config.apiKeyIndex,
+    api_private_key: config.apiPrivateKey,
+    ...params,
+  };
+
+  return new Promise<T>((resolve, reject) => {
+    const child = spawn(resolvePythonBin(), [resolveBridgeScript()], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => (stdout += chunk.toString()));
+    child.stderr.on('data', (chunk) => (stderr += chunk.toString()));
+
+    child.on('error', (err) => {
+      reject(new Error(`Lighter bridge failed to start (${resolvePythonBin()} ${resolveBridgeScript()}): ${err.message}`));
+    });
+
+    child.on('close', () => {
+      let parsed: T | LighterBridgeError;
+      try {
+        parsed = JSON.parse(stdout.trim());
+      } catch {
+        reject(new Error(`Lighter bridge produced no valid JSON. stderr: ${stderr.trim() || '(empty)'}`));
+        return;
+      }
+
+      if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+        reject(new Error((parsed as LighterBridgeError).error));
+        return;
+      }
+
+      resolve(parsed as T);
+    });
+
+    child.stdin.write(JSON.stringify(request));
+    child.stdin.end();
+  });
+}
+
+let clientOrderIndexCounter = 0;
+let lastClientOrderIndexMs = 0;
+
+/** Monotonic per-process order index — same timestamp+counter shape as
+ * polymarket-order-signer.ts's generateNonce(), for the same reason (uniqueness even
+ * when multiple orders are placed within the same millisecond). */
+function generateClientOrderIndex(): number {
+  const now = Date.now();
+  if (now === lastClientOrderIndexMs) {
+    clientOrderIndexCounter++;
+  } else {
+    clientOrderIndexCounter = 0;
+    lastClientOrderIndexMs = now;
+  }
+  return now * 1000 + clientOrderIndexCounter;
+}
+
+function toScaledAmount(humanValue: number, decimals: number): number {
+  return Math.round(humanValue * Math.pow(10, decimals));
+}
+
+// =============================================================================
 // PUBLIC API — ACCOUNT (Auth Required)
 // =============================================================================
 
+interface RawLighterAsset {
+  symbol: string;
+  balance: string;
+  locked_balance: string;
+}
+
+interface RawLighterPosition {
+  market_id: number;
+  symbol: string;
+  sign: number; // 1 = long, -1 = short
+  position: string;
+  avg_entry_price: string;
+  unrealized_pnl: string;
+  realized_pnl: string;
+  liquidation_price: string;
+  margin_mode: number; // 0 = cross, 1 = isolated
+}
+
+interface RawLighterAccount {
+  index: number;
+  positions?: RawLighterPosition[];
+  assets?: RawLighterAsset[];
+}
+
 export async function getBalance(config: LighterConfig): Promise<LighterBalance[]> {
-  const data = await httpRequest<{ balances: LighterBalance[] }>(
-    `/api/v1/account/${config.walletAddress}/balances`,
-    { apiKey: config.apiKey }
+  const data = await callLighterBridge<{ success: true; accounts: RawLighterAccount[] }>(
+    config,
+    'get_account'
   );
-  return data.balances || [];
+  const assets = data.accounts[0]?.assets || [];
+  return assets.map((a): LighterBalance => {
+    const total = parseFloat(a.balance) || 0;
+    const locked = parseFloat(a.locked_balance) || 0;
+    return {
+      token: a.symbol,
+      total: a.balance,
+      available: (total - locked).toString(),
+      inOrders: a.locked_balance,
+    };
+  });
 }
 
 export async function getPositions(config: LighterConfig): Promise<LighterPosition[]> {
-  const data = await httpRequest<{ positions: LighterPosition[] }>(
-    `/api/v1/account/${config.walletAddress}/positions`,
-    { apiKey: config.apiKey }
+  const data = await callLighterBridge<{ success: true; accounts: RawLighterAccount[] }>(
+    config,
+    'get_account'
   );
-  return data.positions || [];
+  const positions = data.accounts[0]?.positions || [];
+  return positions
+    .filter((p) => parseFloat(p.position) !== 0)
+    .map((p): LighterPosition => ({
+      market: p.symbol,
+      side: p.sign >= 0 ? 'LONG' : 'SHORT',
+      size: p.position,
+      entryPrice: p.avg_entry_price,
+      unrealizedPnl: p.unrealized_pnl,
+      realizedPnl: p.realized_pnl,
+      liquidationPrice: p.liquidation_price,
+      marginMode: p.margin_mode === 1 ? 'isolated' : 'cross',
+    }));
+}
+
+interface RawLighterOrder {
+  client_order_index: number;
+  market_index: number;
+  is_ask: boolean;
+  type: string;
+  status: string;
+  initial_base_amount: string;
+  remaining_base_amount: string;
+  filled_base_amount: string;
+  price: string;
+  reduce_only: boolean;
 }
 
 export async function getOpenOrders(config: LighterConfig, market?: string): Promise<LighterOrder[]> {
-  const path = market
-    ? `/api/v1/account/${config.walletAddress}/orders?market=${encodeURIComponent(market)}&status=open`
-    : `/api/v1/account/${config.walletAddress}/orders?status=open`;
-  const data = await httpRequest<{ orders: LighterOrder[] }>(path, { apiKey: config.apiKey });
-  return data.orders || [];
+  const marketIndex = market !== undefined ? await resolveMarketIndex(market) : undefined;
+  const data = await callLighterBridge<{ success: true; orders: RawLighterOrder[] }>(
+    config,
+    'get_open_orders',
+    marketIndex !== undefined ? { market_index: marketIndex } : {}
+  );
+  const markets = await getMarkets();
+  return data.orders.map((o): LighterOrder => {
+    const m = markets.find((mkt) => Number(mkt.id) === o.market_index);
+    return {
+      orderId: String(o.client_order_index),
+      market: m?.name ?? String(o.market_index),
+      side: o.is_ask ? 'SELL' : 'BUY',
+      type: o.type === 'market' ? 'MARKET' : 'LIMIT',
+      status: o.status,
+      price: o.price,
+      size: o.initial_base_amount,
+      filled: o.filled_base_amount,
+      remaining: o.remaining_base_amount,
+      reduceOnly: o.reduce_only,
+    };
+  });
 }
 
 // =============================================================================
 // PUBLIC API — TRADING (Auth Required)
 // =============================================================================
 
+interface BridgeOrderResult {
+  success: boolean;
+  txHash?: string;
+  error?: string;
+}
+
 export async function placeOrder(
   config: LighterConfig,
   params: LighterOrderParams
 ): Promise<LighterOrderResult> {
+  const clientOrderIndex = generateClientOrderIndex();
+
   if (config.dryRun) {
     logger.info({ params }, '[DRY RUN] Would place Lighter order');
-    return { success: true, orderId: `dry-${Date.now()}` };
+    return { success: true, orderId: String(clientOrderIndex) };
   }
 
   try {
-    const data = await httpRequest<{ orderId: string }>(
-      '/api/v1/order',
-      {
-        method: 'POST',
-        apiKey: config.apiKey,
-        body: {
-          wallet: config.walletAddress,
-          market: params.market,
-          side: params.side,
-          type: params.type || (params.price ? 'LIMIT' : 'MARKET'),
-          price: params.price?.toString(),
-          size: params.size.toString(),
-          reduceOnly: params.reduceOnly ?? false,
-          postOnly: params.postOnly ?? false,
-        },
-      }
-    );
+    const marketIndex = await resolveMarketIndex(params.market);
+    const markets = await getMarkets();
+    const market = markets.find((m) => Number(m.id) === marketIndex);
+    if (!market) throw new Error(`Lighter: unknown market "${params.market}"`);
 
-    return { success: true, orderId: data.orderId };
+    const isAsk = params.side === 'SELL';
+    const baseAmount = toScaledAmount(params.size, market.basePrecision);
+    const orderType = params.type || (params.price !== undefined ? 'LIMIT' : 'MARKET');
+
+    if (params.price === undefined) {
+      throw new Error(
+        orderType === 'MARKET'
+          ? 'Lighter: market orders require `price` as the worst acceptable execution price (slippage bound) — the SDK has no unbounded market order'
+          : 'Lighter: limit orders require `price`'
+      );
+    }
+
+    let result: BridgeOrderResult;
+    if (orderType === 'MARKET') {
+      result = await callLighterBridge<BridgeOrderResult>(config, 'place_market_order', {
+        market_index: marketIndex,
+        client_order_index: clientOrderIndex,
+        base_amount: baseAmount,
+        avg_execution_price: toScaledAmount(params.price, market.quotePrecision),
+        is_ask: isAsk,
+      });
+    } else {
+      result = await callLighterBridge<BridgeOrderResult>(config, 'place_limit_order', {
+        market_index: marketIndex,
+        client_order_index: clientOrderIndex,
+        base_amount: baseAmount,
+        price: toScaledAmount(params.price, market.quotePrecision),
+        is_ask: isAsk,
+        reduce_only: params.reduceOnly ?? false,
+        post_only: params.postOnly ?? false,
+      });
+    }
+
+    if (!result.success) {
+      return { success: false, error: result.error || 'Lighter order failed' };
+    }
+    return { success: true, orderId: String(clientOrderIndex), txHash: result.txHash };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error({ error: message, params }, 'Lighter order failed');
@@ -508,6 +731,12 @@ export async function placeOrder(
   }
 }
 
+/**
+ * Cancelling needs the order's market as well as its index — the CLI/skill layer
+ * only takes an orderId (client_order_index) for UX reasons, so this looks the order
+ * up across every market first via getOpenOrders(), same round-trip cost as before
+ * (getOpenOrders was already what cancelAllOrders did per-order).
+ */
 export async function cancelOrder(
   config: LighterConfig,
   orderId: string
@@ -518,10 +747,20 @@ export async function cancelOrder(
   }
 
   try {
-    await httpRequest(`/api/v1/order/${orderId}`, {
-      method: 'DELETE',
-      apiKey: config.apiKey,
+    const openOrders = await getOpenOrders(config);
+    const order = openOrders.find((o) => o.orderId === orderId);
+    if (!order) {
+      return { success: false, error: `Lighter: order ${orderId} not found among open orders` };
+    }
+    const marketIndex = await resolveMarketIndex(order.market);
+
+    const result = await callLighterBridge<BridgeOrderResult>(config, 'cancel_order', {
+      market_index: marketIndex,
+      order_index: Number(orderId),
     });
+    if (!result.success) {
+      return { success: false, error: result.error || 'Lighter cancel failed' };
+    }
     return { success: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -539,9 +778,12 @@ export async function cancelAllOrders(
   }
 
   try {
-    const orders = await getOpenOrders(config, market);
-    for (const order of orders) {
-      await cancelOrder(config, order.orderId);
+    const marketIndex = market !== undefined ? await resolveMarketIndex(market) : undefined;
+    const result = await callLighterBridge<BridgeOrderResult>(config, 'cancel_all_orders',
+      marketIndex !== undefined ? { market_index: marketIndex } : {}
+    );
+    if (!result.success) {
+      return { success: false, error: result.error || 'Lighter cancel-all failed' };
     }
     return { success: true };
   } catch (error) {

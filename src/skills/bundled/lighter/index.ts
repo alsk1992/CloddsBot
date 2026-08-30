@@ -1,7 +1,8 @@
 /**
  * Lighter Skill
  *
- * CLI commands for the Lighter orderbook DEX on Arbitrum.
+ * CLI commands for the Lighter orderbook DEX — a standalone zk-rollup
+ * (mainnet.zklighter.elliot.ai), not an Arbitrum app.
  */
 
 import { Wallet } from 'ethers';
@@ -27,10 +28,21 @@ function getConfig(): lighter.LighterConfig | null {
 
   const wallet = new Wallet(privateKey);
 
+  // accountIndex/apiKeyIndex/apiPrivateKey are the L2 trading credentials — a
+  // Lighter-native keypair registered once via a one-time setup flow (not automated
+  // here; see scripts/lighter-bridge/bridge.py's header), separate from the L1 wallet
+  // above. LIGHTER_API_PRIVATE_KEY matches elliottech/lighter-agent-kit's own env var
+  // naming. Without these, market data still works but trading/account calls will
+  // throw a clear error rather than silently no-op.
+  const accountIndex = process.env.LIGHTER_ACCOUNT_INDEX;
+  const apiKeyIndex = process.env.LIGHTER_API_KEY_INDEX;
+
   return {
     walletAddress: wallet.address,
     privateKey,
-    apiKey: process.env.LIGHTER_API_KEY,
+    accountIndex: accountIndex !== undefined ? Number(accountIndex) : undefined,
+    apiKeyIndex: apiKeyIndex !== undefined ? Number(apiKeyIndex) : undefined,
+    apiPrivateKey: process.env.LIGHTER_API_PRIVATE_KEY,
     dryRun: process.env.DRY_RUN === 'true',
   };
 }
@@ -121,7 +133,7 @@ async function handlePositions(): Promise<string> {
     const pnl = parseFloat(p.unrealizedPnl) || 0;
     const pnlStr = pnl >= 0 ? `+$${formatNumber(pnl)}` : `-$${formatNumber(Math.abs(pnl))}`;
     lines.push(`  ${p.market} ${p.side} ${p.size} @ $${p.entryPrice} (${pnlStr})`);
-    lines.push(`    Mark: $${p.markPrice} | Lev: ${p.leverage}x | Liq: $${p.liquidationPrice}`);
+    lines.push(`    Margin: ${p.marginMode} | Liq: $${p.liquidationPrice}`);
   }
 
   return lines.join('\n');
@@ -297,7 +309,7 @@ async function handleCancelAll(): Promise<string> {
 
 export const skill = {
   name: 'lighter',
-  description: 'Lighter orderbook DEX on Arbitrum',
+  description: 'Lighter zk-rollup orderbook DEX',
   commands: [
     {
       name: 'lighter',
@@ -353,7 +365,7 @@ export const skill = {
           return formatHelp({
             name: 'Lighter',
             emoji: '⚡',
-            description: 'Orderbook DEX on Arbitrum — trade perps with on-chain settlement.',
+            description: 'zk-rollup orderbook DEX — trade perps with on-chain settlement.',
             sections: [
               {
                 title: 'Market Data',
