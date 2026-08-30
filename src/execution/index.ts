@@ -1539,15 +1539,45 @@ async function kalshiRetryWithBackoff<T>(
   throw lastError || new Error('Kalshi API request failed after retries');
 }
 
+// V1 order endpoints (POST/DELETE /portfolio/orders*) were sunset 2026-06-18 and now
+// return 410 deprecated_v1_order_endpoint (verified live). V2 lives under
+// /portfolio/events/orders*, is YES-referenced (side: bid|ask, one price field, no
+// separate yes_price/no_price), uses fixed-point decimal strings for count/price, and
+// returns a flat body with no `order` wrapper and no `status` (synthesized client-side
+// from remaining_count/fill_count — see docs.kalshi.com/api-reference/orders/create-order-v2).
 interface KalshiOrderResponse {
-  order?: {
-    order_id: string;
-    status: string;
-    filled_count?: number;
-    yes_price?: number;
-    no_price?: number;
-  };
-  error?: { message: string };
+  order_id?: string;
+  client_order_id?: string;
+  fill_count?: string;
+  remaining_count?: string;
+  average_fill_price?: string;
+  average_fee_paid?: string;
+  ts_ms?: number;
+  error?: { message: string; code?: string };
+}
+
+/** side==='yes' XNOR action==='buy' → bid; the V2 book is always YES-referenced. */
+function toKalshiV2Side(side: 'yes' | 'no', action: OrderSide): 'bid' | 'ask' {
+  const isBuy = action === 'buy';
+  const isYes = side === 'yes';
+  return isBuy === isYes ? 'bid' : 'ask';
+}
+
+/** Converts a 0-1 YES-fraction price into the YES-referenced price V2 always expects. */
+function toKalshiV2Price(side: 'yes' | 'no', yesOrNoPrice: number): number {
+  return side === 'yes' ? yesOrNoPrice : 1 - yesOrNoPrice;
+}
+
+/** V2 has no `status` field — synthesize the old vocabulary from fill/remaining counts. */
+function synthesizeKalshiStatus(
+  fillCount: number,
+  remainingCount: number,
+  timeInForce: 'fill_or_kill' | 'good_till_canceled' | 'immediate_or_cancel'
+): OrderStatus {
+  if (remainingCount === 0) {
+    return fillCount > 0 ? 'filled' : 'cancelled';
+  }
+  return timeInForce === 'good_till_canceled' ? 'open' : 'cancelled';
 }
 
 interface KalshiOpenOrder {
@@ -1575,7 +1605,7 @@ async function placeKalshiOrder(
   orderType: OrderType = 'GTC',
   maxSlippage?: number
 ): Promise<OrderResult> {
-  const url = `${KALSHI_API_URL}/portfolio/orders`;
+  const url = `${KALSHI_API_URL}/portfolio/events/orders`;
 
   // Slippage protection for market orders
   let effectivePrice = price;
@@ -1628,14 +1658,15 @@ async function placeKalshiOrder(
     orderType = 'FOK';
   }
 
+  const timeInForce: 'fill_or_kill' | 'good_till_canceled' = orderType === 'FOK' ? 'fill_or_kill' : 'good_till_canceled';
+
   const order = {
     ticker,
-    side,
-    action,
-    type: orderType === 'FOK' && maxSlippage !== undefined ? 'limit' : (orderType === 'FOK' ? 'market' : 'limit'),
-    yes_price: side === 'yes' ? Math.round((effectivePrice + Number.EPSILON) * 100) : undefined,
-    no_price: side === 'no' ? Math.round((effectivePrice + Number.EPSILON) * 100) : undefined,
-    count,
+    side: toKalshiV2Side(side, action),
+    count: count.toFixed(2),
+    price: toKalshiV2Price(side, effectivePrice).toFixed(4),
+    time_in_force: timeInForce,
+    self_trade_prevention_type: 'taker_at_cross',
   };
 
   try {
@@ -1662,15 +1693,20 @@ async function placeKalshiOrder(
       };
     }
 
-    logger.info({ orderId: data.order?.order_id, ticker, side, action, price, count }, 'Kalshi order placed');
+    const fillCount = data.fill_count != null ? Number(data.fill_count) : 0;
+    const remainingCount = data.remaining_count != null ? Number(data.remaining_count) : 0;
+    const avgFillPriceYes = data.average_fill_price != null ? Number(data.average_fill_price) : undefined;
+
+    logger.info({ orderId: data.order_id, ticker, side, action, price, count }, 'Kalshi order placed');
 
     return {
       success: true,
-      orderId: data.order?.order_id,
-      status: data.order?.status as OrderStatus || 'open',
-      filledSize: data.order?.filled_count,
-      avgFillPrice: data.order?.yes_price != null ? data.order.yes_price / 100 :
-                    data.order?.no_price != null ? data.order.no_price / 100 : undefined,
+      orderId: data.order_id,
+      status: synthesizeKalshiStatus(fillCount, remainingCount, timeInForce),
+      filledSize: fillCount,
+      // toKalshiV2Price is its own inverse (yes: x, no: 1-x both ways), so reusing it here
+      // converts average_fill_price back from YES-referenced to our native side-price.
+      avgFillPrice: avgFillPriceYes != null ? toKalshiV2Price(side, avgFillPriceYes) : undefined,
     };
   } catch (error) {
     logger.error({ error }, 'Error placing Kalshi order after retries');
@@ -1682,7 +1718,7 @@ async function placeKalshiOrder(
 }
 
 async function cancelKalshiOrder(auth: KalshiApiKeyAuth, orderId: string): Promise<boolean> {
-  const url = `${KALSHI_API_URL}/portfolio/orders/${orderId}`;
+  const url = `${KALSHI_API_URL}/portfolio/events/orders/${orderId}`;
 
   try {
     const { response } = await kalshiRetryWithBackoff(async () => {
@@ -1759,7 +1795,8 @@ async function getKalshiOpenOrders(auth: KalshiApiKeyAuth): Promise<OpenOrder[]>
 
 /**
  * Place multiple Kalshi orders in a single batch request.
- * Kalshi supports up to 20 orders per batch via POST /portfolio/orders/batched.
+ * Kalshi supports up to 20 orders per batch via POST /portfolio/events/orders/batched
+ * (the v1 /portfolio/orders/batched path was sunset alongside the single-order endpoint).
  */
 async function placeKalshiOrdersBatch(
   auth: KalshiApiKeyAuth,
@@ -1779,18 +1816,18 @@ async function placeKalshiOrdersBatch(
   // Chunk into batches of 20 (Kalshi limit)
   for (let i = 0; i < orders.length; i += 20) {
     const chunk = orders.slice(i, i + 20);
-    const url = `${KALSHI_API_URL}/portfolio/orders/batched`;
+    const url = `${KALSHI_API_URL}/portfolio/events/orders/batched`;
     const headers = buildKalshiHeadersForUrl(auth, 'POST', url);
 
+    const chunkTimeInForce = chunk.map(o => (o.orderType === 'FOK' ? 'fill_or_kill' as const : 'good_till_canceled' as const));
     const body = {
-      orders: chunk.map(o => ({
+      orders: chunk.map((o, j) => ({
         ticker: o.ticker,
-        side: o.side,
-        action: o.action,
-        type: o.orderType === 'FOK' ? 'market' : 'limit',
-        yes_price: o.side === 'yes' ? Math.round(o.price * 100) : undefined,
-        no_price: o.side === 'no' ? Math.round(o.price * 100) : undefined,
-        count: o.count,
+        side: toKalshiV2Side(o.side, o.action),
+        count: o.count.toFixed(2),
+        price: toKalshiV2Price(o.side, o.price).toFixed(4),
+        time_in_force: chunkTimeInForce[j],
+        self_trade_prevention_type: 'taker_at_cross',
       })),
     };
 
@@ -1808,20 +1845,26 @@ async function placeKalshiOrdersBatch(
         continue;
       }
 
-      const data = (await response.json()) as { orders?: Array<{ order_id: string; status: string; filled_count?: number }> };
+      const data = (await response.json()) as {
+        orders?: Array<KalshiOrderResponse>;
+      };
       const respOrders = data.orders || [];
 
       for (let j = 0; j < chunk.length; j++) {
         const r = respOrders[j];
-        if (r?.order_id) {
+        if (r?.order_id && !r.error) {
+          const fillCount = r.fill_count != null ? Number(r.fill_count) : 0;
+          const remainingCount = r.remaining_count != null ? Number(r.remaining_count) : 0;
+          const avgFillPriceYes = r.average_fill_price != null ? Number(r.average_fill_price) : undefined;
           results.push({
             success: true,
             orderId: r.order_id,
-            status: r.status as OrderStatus || 'open',
-            filledSize: r.filled_count,
+            status: synthesizeKalshiStatus(fillCount, remainingCount, chunkTimeInForce[j]),
+            filledSize: fillCount,
+            avgFillPrice: avgFillPriceYes != null ? toKalshiV2Price(chunk[j].side, avgFillPriceYes) : undefined,
           });
         } else {
-          results.push({ success: false, error: 'No order_id in response' });
+          results.push({ success: false, error: r?.error?.message || 'No order_id in response' });
         }
       }
 
@@ -1840,7 +1883,8 @@ async function placeKalshiOrdersBatch(
 
 /**
  * Cancel multiple Kalshi orders in a single batch request.
- * Kalshi supports up to 20 cancels per batch via DELETE /portfolio/orders/batched.
+ * Kalshi supports up to 20 cancels per batch via DELETE /portfolio/events/orders/batched
+ * (the v1 /portfolio/orders/batched path was sunset alongside the single-order endpoint).
  */
 async function cancelKalshiOrdersBatch(
   auth: KalshiApiKeyAuth,
@@ -1852,7 +1896,7 @@ async function cancelKalshiOrdersBatch(
 
   for (let i = 0; i < orderIds.length; i += 20) {
     const chunk = orderIds.slice(i, i + 20);
-    const url = `${KALSHI_API_URL}/portfolio/orders/batched`;
+    const url = `${KALSHI_API_URL}/portfolio/events/orders/batched`;
     const headers = buildKalshiHeadersForUrl(auth, 'DELETE', url);
 
     const body = {
@@ -1885,27 +1929,25 @@ async function cancelKalshiOrdersBatch(
 
 /**
  * Amend a Kalshi order (change price and/or count without losing queue position).
- * POST /portfolio/orders/{order_id}/amend
+ * POST /portfolio/events/orders/{order_id}/amend — the v2 replacement for the sunset
+ * v1 amend endpoint. Unlike v1's partial patch, v2 requires the FULL new order state
+ * (ticker, side, price, count) every time — there is no partial-field update.
  */
 async function amendKalshiOrder(
   auth: KalshiApiKeyAuth,
   orderId: string,
-  updates: { price?: number; side?: 'yes' | 'no'; count?: number },
+  ticker: string,
+  updates: { price: number; side: 'yes' | 'no'; count: number },
 ): Promise<OrderResult> {
-  const url = `${KALSHI_API_URL}/portfolio/orders/${orderId}/amend`;
+  const url = `${KALSHI_API_URL}/portfolio/events/orders/${orderId}/amend`;
   const headers = buildKalshiHeadersForUrl(auth, 'POST', url);
 
-  const body: Record<string, unknown> = {};
-  if (updates.price != null && updates.side) {
-    if (updates.side === 'yes') {
-      body.yes_price = Math.round(updates.price * 100);
-    } else {
-      body.no_price = Math.round(updates.price * 100);
-    }
-  }
-  if (updates.count != null) {
-    body.count = updates.count;
-  }
+  const body = {
+    ticker,
+    side: updates.side === 'yes' ? 'bid' : 'ask', // amend has no `action` — side alone must carry buy/sell intent
+    price: toKalshiV2Price(updates.side, updates.price).toFixed(4),
+    count: updates.count.toFixed(2),
+  };
 
   try {
     const response = await fetch(url, {
@@ -1914,18 +1956,22 @@ async function amendKalshiOrder(
       body: JSON.stringify(body),
     });
 
-    const data = (await response.json()) as { order?: { order_id: string; status: string } };
+    const data = (await response.json()) as KalshiOrderResponse;
 
-    if (!response.ok) {
-      logger.error({ status: response.status, orderId }, 'Kalshi order amend failed');
-      return { success: false, error: `HTTP ${response.status}` };
+    if (!response.ok || data.error) {
+      logger.error({ status: response.status, orderId, error: data.error }, 'Kalshi order amend failed');
+      return { success: false, error: data.error?.message || `HTTP ${response.status}` };
     }
 
-    logger.info({ orderId, updates }, 'Kalshi order amended');
+    const fillCount = data.fill_count != null ? Number(data.fill_count) : 0;
+    const remainingCount = data.remaining_count != null ? Number(data.remaining_count) : 0;
+
+    logger.info({ orderId, ticker, updates }, 'Kalshi order amended');
     return {
       success: true,
-      orderId: data.order?.order_id || orderId,
-      status: data.order?.status as OrderStatus || 'open',
+      orderId: data.order_id || orderId,
+      status: synthesizeKalshiStatus(fillCount, remainingCount, 'good_till_canceled'),
+      filledSize: fillCount,
     };
   } catch (error) {
     logger.error({ error, orderId }, 'Error amending Kalshi order');
