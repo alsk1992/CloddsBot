@@ -38,6 +38,7 @@ export type TradeVenue =
   | 'raydium'
   | 'orca'
   | 'meteora'
+  | 'pumpswap'
   | 'uniswap'
   | 'oneinch'
   | 'pancakeswap'

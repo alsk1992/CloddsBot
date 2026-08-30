@@ -70,6 +70,19 @@ describe('scanVenueArbitrage (solana)', () => {
       };
     },
     selectBestPool: async () => null,
+    getPumpSwapQuote: async ({ side, amountIn }: { side: 'buy' | 'sell'; amountIn: string }) => {
+      const amt = Number(amountIn) / 10 ** (side === 'buy' ? 6 : 9);
+      const out = side === 'buy' ? amt / 146 : amt * 145.5; // ask ~146, bid ~145.5 (cheapest venue)
+      return {
+        poolAddress: 'pumpswap-pool-1',
+        side,
+        amountIn,
+        amountOut: String(Math.floor(out * 10 ** (side === 'buy' ? 9 : 6))),
+        amountLimit: '0',
+        poolBaseReserve: '1000000000000',
+        poolQuoteReserve: '50000000000',
+      };
+    },
   };
 
   it('finds a crossed plan between two solana venues and prices it sanely', async () => {
@@ -96,6 +109,29 @@ describe('scanVenueArbitrage (solana)', () => {
     assert.ok(formatted.includes('Sell jupiter'));
     assert.ok(!formatted.includes('NaN'));
     assert.ok(!formatted.includes('undefined'));
+  });
+
+  it('picks pumpswap as the cheapest venue among three solana AMMs', async () => {
+    const result = await scanVenueArbitrage(
+      {
+        family: 'solana',
+        baseToken: 'SOL',
+        quoteToken: 'USDC',
+        quoteSize: 1000,
+        venues: ['jupiter', 'raydium', 'pumpswap'],
+      },
+      solanaOverrides
+    );
+
+    assert.equal(result.quotes.length, 3);
+    assert.equal(result.skipped.length, 0);
+    assert.ok(result.plans.length >= 1);
+    assert.equal(result.plans[0].buyPlatform, 'pumpswap');
+    assert.equal(result.plans[0].sellPlatform, 'jupiter');
+
+    const formatted = formatVenueArbitrageScanResult(result);
+    assert.ok(formatted.includes('pumpswap'));
+    assert.ok(!formatted.includes('NaN'));
   });
 
   it('routes a failing venue into skipped without dropping the rest', async () => {
@@ -146,6 +182,7 @@ describe('scanVenueArbitrage (evm)', () => {
         quotePrecision: 2,
         minOrderSize: '0.001',
         status: 'active',
+        marketType: 'spot',
       },
     ],
     getLighterOrderbook: async (): Promise<LighterOrderbook> => ({

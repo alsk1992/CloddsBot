@@ -279,7 +279,10 @@ export async function getTokenPriceInfo(
 export function calculateBuyQuote(
   state: BondingCurveState,
   solAmount: BN,
-  feeBps: number = 100 // 1% default fee
+  // Pump.fun's current bonding-curve fee is 1.25% total (0.95% protocol +
+  // 0.30% creator), not the 1% this used to default to — verified against
+  // pump.fun's published fee docs.
+  feeBps: number = 125
 ): BuyQuote {
   const fee = solAmount.muln(feeBps).divn(10000);
   const solAfterFee = solAmount.sub(fee);
@@ -316,7 +319,9 @@ export function calculateBuyQuote(
 export function calculateSellQuote(
   state: BondingCurveState,
   tokenAmount: BN,
-  feeBps: number = 100 // 1% default fee
+  // See calculateBuyQuote — pump.fun's current bonding-curve fee is 1.25%,
+  // not 1%.
+  feeBps: number = 125
 ): SellQuote {
   // Constant product formula
   // solOut = virtualSol * tokensIn / (virtualToken + tokensIn)
