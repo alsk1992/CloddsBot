@@ -797,7 +797,7 @@ export async function createGateway(config: Config): Promise<AppGateway> {
   // Wire Opportunity Finder router
   if (opportunityFinder) {
     const { createOpportunityRouter } = await import('./opportunity-routes.js');
-    httpGateway.setOpportunityRouter(createOpportunityRouter({ finder: opportunityFinder }));
+    httpGateway.setOpportunityRouter(createOpportunityRouter({ finder: opportunityFinder, feeds }));
     logger.info('Opportunity Finder API wired');
   }
 

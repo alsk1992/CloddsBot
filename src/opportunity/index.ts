@@ -49,6 +49,7 @@ export * from './combinatorial';
 export * from './executor';
 export * from './risk';
 export * from './correlation';
+export * from './hft';
 
 import { createMarketMatcher, MarketMatcher, MarketMatch } from './matching';
 import { createOpportunityScorer, OpportunityScorer, ScoredOpportunity } from './scoring';
@@ -136,6 +137,8 @@ export interface OpportunityMarket {
   platform: Platform;
   /** Market ID on platform */
   marketId: string;
+  /** Outcome token/contract ID when the venue requires outcome-level orderbook lookup */
+  tokenId?: string;
   /** Market question/title */
   question: string;
   /** Outcome to trade */
@@ -531,6 +534,7 @@ export function createOpportunityFinder(
             {
               platform,
               marketId: market.id,
+              tokenId: yesOutcome.tokenId,
               question: market.question,
               outcome: yesOutcome.name || 'YES',
               normalizedOutcome: 'YES',
@@ -543,6 +547,7 @@ export function createOpportunityFinder(
             {
               platform,
               marketId: market.id,
+              tokenId: noOutcome.tokenId,
               question: market.question,
               outcome: noOutcome.name || 'NO',
               normalizedOutcome: 'NO',
@@ -690,6 +695,7 @@ export function createOpportunityFinder(
           {
             platform: lowest.platform,
             marketId: lowest.market.id,
+            tokenId: lowest.market.outcomes.find(o => o.name.toUpperCase() === 'YES')?.tokenId,
             question: lowest.market.question,
             outcome: 'YES',
             normalizedOutcome: 'YES',
@@ -702,6 +708,11 @@ export function createOpportunityFinder(
           {
             platform: highest.platform,
             marketId: highest.market.id,
+            tokenId: (
+              crossEdge > spreadYes
+                ? highest.market.outcomes.find(o => o.name.toUpperCase() === 'NO')
+                : highest.market.outcomes.find(o => o.name.toUpperCase() === 'YES')
+            )?.tokenId,
             question: highest.market.question,
             outcome: crossEdge > spreadYes ? 'NO' : 'YES',
             normalizedOutcome: crossEdge > spreadYes ? 'NO' : 'YES',
@@ -781,6 +792,7 @@ export function createOpportunityFinder(
             {
               platform,
               marketId: market.id,
+              tokenId: market.outcomes.find(o => o.name.toUpperCase() === outcome)?.tokenId,
               question: market.question,
               outcome,
               normalizedOutcome: outcome as NormalizedOutcome,

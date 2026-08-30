@@ -49,6 +49,8 @@ export * from './builder';
 export * from './accounts';
 export * from './safety';
 export * from './resilience';
+export * from './multi-hop-arbitrage';
+export * from './venue-arbitrage';
 // secrets module loaded dynamically (gitignored, contains credential encryption)
 export {
   createBacktestEngine,
