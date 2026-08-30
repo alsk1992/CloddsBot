@@ -5192,7 +5192,7 @@ function buildTools(): ToolDefinition[] {
         properties: {
           mint: { type: 'string', description: 'Token mint address' },
           sol_amount: { type: 'number', description: 'SOL amount to spend' },
-          fee_bps: { type: 'number', description: 'Fee in basis points (default 100 = 1%)' },
+          fee_bps: { type: 'number', description: 'Fee in basis points (default 125 = 1.25%)' },
         },
         required: ['mint', 'sol_amount'],
       },
@@ -5205,7 +5205,7 @@ function buildTools(): ToolDefinition[] {
         properties: {
           mint: { type: 'string', description: 'Token mint address' },
           token_amount: { type: 'number', description: 'Token amount to sell (in token units, not lamports)' },
-          fee_bps: { type: 'number', description: 'Fee in basis points (default 100 = 1%)' },
+          fee_bps: { type: 'number', description: 'Fee in basis points (default 125 = 1.25%)' },
         },
         required: ['mint', 'token_amount'],
       },

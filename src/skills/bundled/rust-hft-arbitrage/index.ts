@@ -11,7 +11,7 @@ import type { VenueArbitrageExecutionStyle } from '../../../trading/venue-arbitr
 const REPORT_DATE = '2026-08-30';
 
 const EVM_CHAINS: EvmChain[] = ['ethereum', 'arbitrum', 'optimism', 'base', 'polygon'];
-const SOLANA_VENUES: SolanaScanVenue[] = ['jupiter', 'raydium', 'orca', 'meteora'];
+const SOLANA_VENUES: SolanaScanVenue[] = ['jupiter', 'raydium', 'orca', 'meteora', 'pumpswap'];
 const EVM_VENUES: EvmScanVenue[] = ['uniswap', 'oneinch', 'pancakeswap', 'lighter'];
 const EXECUTION_STYLES: VenueArbitrageExecutionStyle[] = ['taker_taker', 'maker_taker', 'maker_maker'];
 

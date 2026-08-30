@@ -1,6 +1,6 @@
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
-import { signAndSendTransaction } from './wallet';
+import { signAndSendTransaction, getSolanaConnection } from './wallet';
 
 // ============================================
 // SWAP INTERFACES
@@ -156,9 +156,16 @@ export async function getOrcaWhirlpoolQuote(params: {
   inputMint: string;
   amount: string;
   slippageBps?: number;
+  connection?: Connection;
 }): Promise<OrcaWhirlpoolQuote> {
   const sdk = await import('@orca-so/whirlpool-sdk') as any;
-  const orca = new sdk.OrcaWhirlpoolClient({ network: sdk.OrcaNetwork.MAINNET });
+  // Without an explicit connection, the SDK's own default for MAINNET is
+  // https://ssc-dao.genesysgo.net — a GenesysGo RPC that has been
+  // discontinued; every call fails there. Always supply a working connection.
+  const orca = new sdk.OrcaWhirlpoolClient({
+    connection: params.connection ?? getSolanaConnection(),
+    network: sdk.OrcaNetwork.MAINNET,
+  });
 
   const swapQuote = await orca.pool.getSwapQuote({
     poolAddress: params.poolAddress,

@@ -13,7 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { JsonRpcProvider, Contract, formatUnits } from 'ethers';
+import { JsonRpcProvider, Contract, formatUnits, ZeroAddress } from 'ethers';
 import { Market, Outcome, PriceUpdate, Platform } from '../../types';
 import { logger } from '../../utils/logger';
 import { getGlobalFreshnessTracker, type FreshnessTracker } from '../freshness';
@@ -29,12 +29,15 @@ const BASE_CHAIN_ID = 8453;
 // VIRTUAL token address on Base
 const VIRTUAL_TOKEN = '0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b';
 
-// Virtuals Protocol contracts on Base
-// Note: Individual agent tokens have their own bonding curves - trades go directly to agent token contracts
-// The Bonding Proxy is the main router for coordinated trades
+// Virtuals Protocol contracts on Base.
+// Bonding is a SINGLETON contract that trades/tracks state for every agent token via
+// tokenAddress-parameterized calls — individual agent tokens are plain ERC20s with no
+// bonding-curve functions of their own (verified against code-423n4/2025-04-virtuals-protocol's
+// Bonding.sol/FRouter.sol/FFactory.sol/FPair.sol; see src/evm/virtuals.ts for the full trace).
 const VIRTUALS_BONDING_PROXY = '0xF66DeA7b3e897cD44A5a231c61B6B4423d613259';
 const VIRTUALS_SELL_EXECUTOR = '0xF8DD39c71A278FE9F4377D009D7627EF140f809e';
 const VIRTUALS_CREATOR_VAULT = '0xdAd686299FB562f89e55DA05F1D96FaBEb2A2E32';
+const UNISWAP_V2_FACTORY = '0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6';
 
 // Rate limiting
 const RATE_LIMIT_DELAY_MS = 100; // 10 req/sec
@@ -119,14 +122,26 @@ const GRADUATION_THRESHOLD = 42000;
 // ABI FRAGMENTS (from Code4rena audit)
 // =============================================================================
 
-// Bonding curve contract (per-agent token)
+// Bonding - singleton bonding-curve manager (VIRTUALS_BONDING_PROXY)
 const BONDING_ABI = [
-  'function assetBalance() view returns (uint256)', // VIRTUAL accumulated
-  'function tokenBalance() view returns (uint256)', // Agent tokens in curve
-  'function graduated() view returns (bool)',
+  'function factory() view returns (address)',
   'function gradThreshold() view returns (uint256)',
-  'function k() view returns (uint256)',
-  'function getAmountOut(uint256 amountIn, bool isBuy) view returns (uint256)',
+];
+
+// FFactory - resolves the per-token bonding pair
+const FFACTORY_ABI = [
+  'function getPair(address tokenA, address tokenB) view returns (address)',
+];
+
+// FPair - per-token bonding pool. balance() = agent token reserve, assetBalance() = VIRTUAL
+// reserve (see src/evm/virtuals.ts's FPAIR_ABI comment for the verified source).
+const FPAIR_ABI = [
+  'function assetBalance() view returns (uint256)',
+  'function balance() view returns (uint256)',
+];
+
+const UNISWAP_V2_FACTORY_ABI = [
+  'function getPair(address tokenA, address tokenB) view returns (address)',
 ];
 
 const ERC20_ABI = [
@@ -307,16 +322,32 @@ export async function createVirtualsFeed(config?: {
     }
   }
 
+  // Resolve the per-token FPair contract via Bonding.factory().getPair(token, VIRTUAL)
+  async function getBondingPair(tokenAddress: string): Promise<Contract | null> {
+    if (!provider) return null;
+    try {
+      const bonding = new Contract(VIRTUALS_BONDING_PROXY, BONDING_ABI, provider);
+      const factoryAddr: string = await bonding.factory();
+      const factory = new Contract(factoryAddr, FFACTORY_ABI, provider);
+      const pairAddress: string = await factory.getPair(tokenAddress, VIRTUAL_TOKEN);
+      if (pairAddress === ZeroAddress) return null;
+      return new Contract(pairAddress, FPAIR_ABI, provider);
+    } catch {
+      return null;
+    }
+  }
+
   // Get price from bonding curve contract
   async function getBondingCurvePrice(tokenAddress: string): Promise<number | null> {
     if (!provider) return null;
 
     try {
-      const contract = new Contract(tokenAddress, BONDING_ABI, provider);
+      const pair = await getBondingPair(tokenAddress);
+      if (!pair) return null;
       const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
       const [assetBalance, tokenBalance, decimals] = await Promise.all([
-        contract.assetBalance(),
-        contract.tokenBalance(),
+        pair.assetBalance(),
+        pair.balance(),
         tokenContract.decimals().catch(() => 18),
       ]);
 
@@ -332,13 +363,19 @@ export async function createVirtualsFeed(config?: {
     }
   }
 
-  // Check if agent has graduated to Uniswap
+  // Check if agent has graduated to Uniswap. There is no per-token graduated() getter
+  // (see BONDING_ABI comment) — graduation is detected the same way the current price feed
+  // effectively needs it: a real Uniswap pair with liquidity exists for (token, VIRTUAL).
   async function isAgentGraduated(tokenAddress: string): Promise<boolean> {
     if (!provider) return false;
 
     try {
-      const contract = new Contract(tokenAddress, BONDING_ABI, provider);
-      return await contract.graduated();
+      const factory = new Contract(UNISWAP_V2_FACTORY, UNISWAP_V2_FACTORY_ABI, provider);
+      const pairAddress: string = await factory.getPair(tokenAddress, VIRTUAL_TOKEN);
+      if (pairAddress === ZeroAddress) return false;
+      const pairContract = new Contract(pairAddress, ERC20_ABI, provider);
+      const liquidity: bigint = await pairContract.totalSupply().catch(() => 0n);
+      return liquidity > 0n;
     } catch {
       return false;
     }
@@ -349,10 +386,12 @@ export async function createVirtualsFeed(config?: {
     if (!provider) return 0;
 
     try {
-      const contract = new Contract(tokenAddress, BONDING_ABI, provider);
+      const pair = await getBondingPair(tokenAddress);
+      if (!pair) return 0;
+      const bonding = new Contract(VIRTUALS_BONDING_PROXY, BONDING_ABI, provider);
       const [assetBalance, threshold] = await Promise.all([
-        contract.assetBalance(),
-        contract.gradThreshold().catch(() => BigInt(GRADUATION_THRESHOLD) * BigInt(10 ** 18)),
+        pair.assetBalance(),
+        bonding.gradThreshold().catch(() => BigInt(GRADUATION_THRESHOLD) * BigInt(10 ** 18)),
       ]);
 
       if (threshold === 0n) return 100;

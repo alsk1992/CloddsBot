@@ -21,6 +21,10 @@ import {
   type RaydiumQuote,
 } from '../solana/raydium';
 import {
+  getPumpSwapQuote,
+  type PumpSwapQuote,
+} from '../solana/pumpswap';
+import {
   getTokenList,
   type TokenListEntry,
 } from '../solana/tokenlist';
@@ -56,11 +60,11 @@ import {
 } from './venue-arbitrage';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
-const DEFAULT_SOLANA_SCAN_VENUES: SolanaScanVenue[] = ['jupiter', 'raydium', 'orca', 'meteora'];
+const DEFAULT_SOLANA_SCAN_VENUES: SolanaScanVenue[] = ['jupiter', 'raydium', 'orca', 'meteora', 'pumpswap'];
 const DEFAULT_EVM_SCAN_VENUES: EvmScanVenue[] = ['uniswap', 'oneinch', 'pancakeswap', 'lighter'];
 const STABLE_QUOTES = new Set(['USD', 'USDC', 'USDT', 'DAI']);
 
-export type SolanaScanVenue = 'jupiter' | 'raydium' | 'orca' | 'meteora';
+export type SolanaScanVenue = 'jupiter' | 'raydium' | 'orca' | 'meteora' | 'pumpswap';
 export type EvmScanVenue = 'uniswap' | 'oneinch' | 'pancakeswap' | 'lighter';
 
 export interface VenueArbitrageScanRequestBase {
@@ -160,6 +164,7 @@ interface ScannerDeps {
   selectBestPool: typeof selectBestPool;
   getOrcaWhirlpoolQuote: typeof getOrcaWhirlpoolQuote;
   getMeteoraDlmmQuote: typeof getMeteoraDlmmQuote;
+  getPumpSwapQuote: typeof getPumpSwapQuote;
   getUniswapQuote: typeof getUniswapQuote;
   getOneInchQuote: typeof getOneInchQuote;
   pancakeQuote: typeof pancakeQuote;
@@ -175,6 +180,7 @@ const defaultDeps: ScannerDeps = {
   selectBestPool,
   getOrcaWhirlpoolQuote,
   getMeteoraDlmmQuote,
+  getPumpSwapQuote,
   getUniswapQuote,
   getOneInchQuote,
   pancakeQuote,
@@ -625,6 +631,7 @@ async function quoteOrcaVenue(
       inputMint: ctx.quote.mint,
       amount: ctx.quoteSizeRaw,
       slippageBps: ctx.request.slippageBps,
+      connection: ctx.connection,
     })
   );
 
@@ -637,6 +644,7 @@ async function quoteOrcaVenue(
     inputMint: ctx.base.mint,
     amount: baseAmountRaw,
     slippageBps: ctx.request.slippageBps,
+    connection: ctx.connection,
   });
   const quoteRecovered = fromRawAmount(sellQuote.amountOut || sellQuote.outAmount || '', ctx.quote.decimals);
 
@@ -705,6 +713,51 @@ async function quoteMeteoraVenue(
   });
 }
 
+async function quotePumpSwapVenue(
+  ctx: SolanaScanContext,
+  deps: ScannerDeps
+): Promise<ScannedVenueQuote> {
+  const { value: buyQuote, latencyMs } = await timeQuote(() =>
+    deps.getPumpSwapQuote({
+      connection: ctx.connection,
+      mint: ctx.base.mint,
+      quoteMint: ctx.quote.mint,
+      side: 'buy',
+      amountIn: ctx.quoteSizeRaw,
+      slippageBps: ctx.request.slippageBps,
+    })
+  );
+
+  const baseAmount = fromRawAmount(buyQuote.amountOut, ctx.base.decimals);
+  if (baseAmount <= 0) throw new Error('PumpSwap returned zero base amount');
+
+  const sellQuote = await deps.getPumpSwapQuote({
+    connection: ctx.connection,
+    mint: ctx.base.mint,
+    quoteMint: ctx.quote.mint,
+    side: 'sell',
+    amountIn: buyQuote.amountOut,
+    slippageBps: ctx.request.slippageBps,
+  });
+  const quoteRecovered = fromRawAmount(sellQuote.amountOut, ctx.quote.decimals);
+
+  return buildScannedQuote({
+    family: 'solana',
+    chain: 'solana',
+    platform: 'pumpswap',
+    instrumentId: ctx.instrumentId,
+    marketId: `pumpswap:${buyQuote.poolAddress}`,
+    outcome: ctx.instrumentId,
+    ask: ctx.request.quoteSize / baseAmount,
+    bid: quoteRecovered / baseAmount,
+    askSize: baseAmount,
+    bidSize: baseAmount,
+    latencyMs,
+    poolAddress: buyQuote.poolAddress,
+    description: `pool quote reserve ${numberString(fromRawAmount(buyQuote.poolQuoteReserve, ctx.quote.decimals), 2)}`,
+  });
+}
+
 async function collectSolanaQuotes(
   request: SolanaVenueArbitrageScanRequest,
   deps: ScannerDeps
@@ -738,6 +791,8 @@ async function collectSolanaQuotes(
         return quoteOrcaVenue(ctx, deps);
       case 'meteora':
         return quoteMeteoraVenue(ctx, deps);
+      case 'pumpswap':
+        return quotePumpSwapVenue(ctx, deps);
       default:
         throw new Error(`Unsupported Solana venue: ${venue}`);
     }

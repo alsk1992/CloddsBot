@@ -1285,15 +1285,23 @@ export async function getDbcPoolConfigsByOwner(
 /**
  * Get all DBC pools.
  */
+/**
+ * Fetches EVERY DBC pool ever created — there is no pagination/filter option
+ * in the underlying SDK's client.state.getPools(). Verified live: the RPC
+ * response is large enough to exceed V8's max string length
+ * (0x1fffffe8 chars), so this crashes the whole process with an opaque
+ * "Cannot create a string longer than..." error, not a catchable app-level
+ * failure. Guarded here so callers get a clear message pointing at the
+ * filtered alternatives instead. Use getDbcPoolsByConfig, getDbcPoolsByCreator,
+ * or (for a single known token) the SDK's own client.state.getPoolByBaseMint.
+ */
 export async function getDbcPools(
-  connection: Connection
+  _connection: Connection
 ): Promise<Array<{ address: string; pool: any }>> {
-  const client = await getDbcClient(connection);
-  const pools = await client.state.getPools();
-  return pools.map((p: any) => ({
-    address: p.publicKey.toBase58(),
-    pool: p.account,
-  }));
+  throw new Error(
+    'getDbcPools() is unfiltered and will crash the process on live mainnet (RPC response exceeds V8\'s max string length). ' +
+    'Use getDbcPoolsByConfig(connection, configAddress) or getDbcPoolsByCreator(connection, creatorAddress) instead.'
+  );
 }
 
 /**

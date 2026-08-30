@@ -350,7 +350,7 @@ async function handleQuote(args: string[]): Promise<string> {
 
       if (actionUpper === 'BUY') {
         const solLamports = new BN(Math.floor(amount * 1e9));
-        const quote = pumpapi.calculateBuyQuote(state, solLamports, 100);
+        const quote = pumpapi.calculateBuyQuote(state, solLamports, 125);
         const tokensOut = quote.tokensOut.toNumber() / 1e6;
         const feeSOL = quote.fee.toNumber() / 1e9;
 
@@ -361,14 +361,14 @@ Action: BUY
 
 **Input:** ${amount} SOL
 **Output:** ${tokensOut.toLocaleString(undefined, { maximumFractionDigits: 2 })} tokens
-**Fee (1%):** ${feeSOL.toFixed(6)} SOL
+**Fee (1.25%):** ${feeSOL.toFixed(6)} SOL
 **Price Impact:** ${quote.priceImpact.toFixed(2)}%
 **Price After:** ${formatPrice(quote.newPrice)} SOL
 
 Current Price: ${formatPrice(currentPrice)} SOL`;
       } else {
         const tokenLamports = new BN(Math.floor(amount * 1e6));
-        const quote = pumpapi.calculateSellQuote(state, tokenLamports, 100);
+        const quote = pumpapi.calculateSellQuote(state, tokenLamports, 125);
         const solOut = quote.solOut.toNumber() / 1e9;
         const feeSOL = quote.fee.toNumber() / 1e9;
 
@@ -379,7 +379,7 @@ Action: SELL
 
 **Input:** ${amount.toLocaleString()} tokens
 **Output:** ${solOut.toFixed(6)} SOL
-**Fee (1%):** ${feeSOL.toFixed(6)} SOL
+**Fee (1.25%):** ${feeSOL.toFixed(6)} SOL
 **Price Impact:** ${quote.priceImpact.toFixed(2)}%
 **Price After:** ${formatPrice(quote.newPrice)} SOL
 

@@ -143,7 +143,10 @@ export async function executeRaydiumSwap(
   const computeUrl = new URL(`${baseUrl}/compute/swap-base-${swapMode === 'BaseOut' ? 'out' : 'in'}`);
   computeUrl.searchParams.set('inputMint', params.inputMint);
   computeUrl.searchParams.set('outputMint', params.outputMint);
-  computeUrl.searchParams.set(swapMode === 'BaseOut' ? 'outputAmount' : 'inputAmount', params.amount);
+  // Verified against a live call: the API expects the amount under the single
+  // name "amount" for both swap-base-in and swap-base-out — "inputAmount"/
+  // "outputAmount" both return {success:false, msg:"REQ_AMOUNT_ERROR"}.
+  computeUrl.searchParams.set('amount', params.amount);
   computeUrl.searchParams.set('slippageBps', slippageBps.toString());
   computeUrl.searchParams.set('txVersion', txVersion);
   if (params.computeUnitPriceMicroLamports !== undefined) {
@@ -202,7 +205,10 @@ export async function getRaydiumQuote(params: {
   const computeUrl = new URL(`${baseUrl}/compute/swap-base-${swapMode === 'BaseOut' ? 'out' : 'in'}`);
   computeUrl.searchParams.set('inputMint', params.inputMint);
   computeUrl.searchParams.set('outputMint', params.outputMint);
-  computeUrl.searchParams.set(swapMode === 'BaseOut' ? 'outputAmount' : 'inputAmount', params.amount);
+  // Verified against a live call: the API expects the amount under the single
+  // name "amount" for both swap-base-in and swap-base-out — "inputAmount"/
+  // "outputAmount" both return {success:false, msg:"REQ_AMOUNT_ERROR"}.
+  computeUrl.searchParams.set('amount', params.amount);
   computeUrl.searchParams.set('slippageBps', slippageBps.toString());
   computeUrl.searchParams.set('txVersion', 'V0');
 
@@ -212,12 +218,19 @@ export async function getRaydiumQuote(params: {
   }
 
   const data = await response.json() as any;
+  if (data?.success === false) {
+    throw new Error(`Raydium compute error: ${data?.msg ?? 'unknown error'}`);
+  }
   const summary = data?.data ?? data;
 
+  // Verified against a live call to transaction-v1.raydium.io/compute/swap-base-in:
+  // the response uses outputAmount/otherAmountThreshold/priceImpactPct, not the
+  // outAmount/minOutAmount/priceImpact names this used to read (which were always
+  // undefined, silently zeroing every Raydium quote).
   return {
-    outAmount: summary?.outAmount?.toString?.() ?? summary?.outAmount,
-    minOutAmount: summary?.minOutAmount?.toString?.() ?? summary?.minOutAmount,
-    priceImpact: summary?.priceImpact ? Number(summary.priceImpact) : undefined,
+    outAmount: summary?.outputAmount?.toString?.() ?? summary?.outputAmount,
+    minOutAmount: summary?.otherAmountThreshold?.toString?.() ?? summary?.otherAmountThreshold,
+    priceImpact: summary?.priceImpactPct !== undefined ? Number(summary.priceImpactPct) : undefined,
     raw: summary,
   };
 }
@@ -226,54 +239,68 @@ export async function listRaydiumPools(filters?: {
   tokenMints?: string[];
   limit?: number;
 }): Promise<RaydiumPoolInfo[]> {
-  const baseUrl = process.env.RAYDIUM_POOL_LIST_URL || 'https://api.raydium.io/v2/sdk/liquidity/mainnet.json';
-  const response = await fetch(baseUrl);
+  // The old endpoint (api.raydium.io/v2/sdk/liquidity/mainnet.json) is a
+  // multi-hundred-megabyte bulk dump of every pool ever created — a live call
+  // to it throws "Cannot create a string longer than 0x1fffffe8 characters"
+  // (V8's max string length) before it even reaches JSON.parse. Replaced with
+  // the current, paginated api-v3.raydium.io API, verified against a live call.
+  const baseUrl = process.env.RAYDIUM_POOL_LIST_URL || 'https://api-v3.raydium.io/pools/info';
+  const tokenMints = filters?.tokenMints || [];
+  const limit = filters?.limit && filters.limit > 0 ? filters.limit : 50;
+  const pageSize = Math.min(Math.max(limit, 1), 1000);
+
+  // /pools/info/mint requires at least one mint; with none given, list the
+  // highest-liquidity pools overall via /pools/info/list instead.
+  const url = tokenMints.length > 0
+    ? new URL(`${baseUrl}/mint`)
+    : new URL(`${baseUrl}/list`);
+  if (tokenMints[0]) url.searchParams.set('mint1', tokenMints[0]);
+  if (tokenMints[1]) url.searchParams.set('mint2', tokenMints[1]);
+  url.searchParams.set('poolType', 'all');
+  url.searchParams.set('poolSortField', 'liquidity');
+  url.searchParams.set('sortType', 'desc');
+  url.searchParams.set('pageSize', String(pageSize));
+  url.searchParams.set('page', '1');
+
+  const response = await fetch(url.toString());
   if (!response.ok) {
     throw new Error(`Raydium pool list error: ${response.status}`);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = await response.json() as Record<string, any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pools: Array<Record<string, any>> = [];
-
-  if (Array.isArray(data)) {
-    pools.push(...data);
-  } else if (data?.official || data?.unOfficial) {
-    if (Array.isArray(data.official)) pools.push(...data.official);
-    if (Array.isArray(data.unOfficial)) pools.push(...data.unOfficial);
-  } else if (data?.data?.pools) {
-    pools.push(...data.data.pools);
-  } else if (data?.data?.poolList) {
-    pools.push(...data.data.poolList);
+  if (data?.success === false) {
+    throw new Error(`Raydium pool list error: ${data?.msg ?? 'unknown error'}`);
   }
 
-  const tokenMints = (filters?.tokenMints || []).map((m) => m.toLowerCase());
-  const limit = filters?.limit && filters.limit > 0 ? filters.limit : 50;
-  const results: RaydiumPoolInfo[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pools: Array<Record<string, any>> = data?.data?.data ?? [];
+  const tokenMintsLower = tokenMints.map((m) => m.toLowerCase());
 
+  const results: RaydiumPoolInfo[] = [];
   for (const pool of pools) {
-    const baseMint = pool.baseMint || pool.baseMintAddress || pool.baseMintId || pool.baseMintMint || pool.mintA;
-    const quoteMint = pool.quoteMint || pool.quoteMintAddress || pool.quoteMintId || pool.mintB;
+    const baseMint = pool.mintA?.address;
+    const quoteMint = pool.mintB?.address;
     if (!baseMint || !quoteMint) continue;
 
-    if (tokenMints.length > 0) {
-      const matches = tokenMints.every((mint) =>
+    if (tokenMintsLower.length > 0) {
+      const matches = tokenMintsLower.every((mint) =>
         [String(baseMint).toLowerCase(), String(quoteMint).toLowerCase()].includes(mint)
       );
       if (!matches) continue;
     }
 
     results.push({
-      id: pool.id || pool.ammId || pool.poolId,
-      name: pool.name || pool.symbol,
+      id: pool.id,
+      address: pool.id,
+      name: pool.mintA?.symbol && pool.mintB?.symbol ? `${pool.mintA.symbol}-${pool.mintB.symbol}` : undefined,
       baseMint: String(baseMint),
       quoteMint: String(quoteMint),
-      lpMint: pool.lpMint || pool.lpMintAddress,
-      marketId: pool.marketId || pool.market,
-      type: pool.version ? `v${pool.version}` : pool.type,
-      liquidity: (() => { const v = Number(pool.liquidity ?? pool.tvl ?? pool.reserve); return isNaN(v) ? undefined : v; })(),
-      volume24h: (() => { const v = Number(pool.volume24h ?? pool.volume ?? pool.day?.volume); return isNaN(v) ? undefined : v; })(),
+      lpMint: pool.lpMint?.address,
+      marketId: pool.marketId,
+      type: pool.type,
+      liquidity: typeof pool.tvl === 'number' ? pool.tvl : undefined,
+      volume24h: typeof pool.day?.volume === 'number' ? pool.day.volume : undefined,
     });
 
     if (results.length >= limit) break;
