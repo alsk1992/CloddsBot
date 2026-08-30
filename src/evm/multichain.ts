@@ -102,6 +102,15 @@ export const CHAINS: Record<string, ChainConfig> = {
     explorer: 'https://optimistic.etherscan.io',
     multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
   },
+  robinhood: {
+    name: 'Robinhood Chain',
+    chainId: 4663,
+    rpc: process.env.ROBINHOOD_RPC_URL || 'https://rpc.mainnet.chain.robinhood.com',
+    rpcFallbacks: envRpcFallbacks('ROBINHOOD_RPC_FALLBACKS'),
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    explorer: 'https://robinscan.io',
+    multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
+  },
   avalanche: {
     name: 'Avalanche',
     chainId: 43114,

@@ -6411,6 +6411,35 @@ function buildTools(): ToolDefinition[] {
       },
     },
     {
+      name: 'pons_quote',
+      description:
+        'Quote a buy or sell on Pons Family (pons.family), the token launchpad on Robinhood Chain. Auto-detects whether the token is a V1 launch (Uniswap V3 pool) or V2 launch (bonding curve, pre-graduation) and quotes accordingly.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          token_address: { type: 'string', description: 'Launched token contract address on Robinhood Chain' },
+          amount: { type: 'string', description: 'Amount of the input side to quote (paired token/ETH for buy, launched token for sell)' },
+          side: { type: 'string', description: 'Trade direction', enum: ['buy', 'sell'] },
+        },
+        required: ['token_address', 'amount', 'side'],
+      },
+    },
+    {
+      name: 'pons_trade',
+      description:
+        'Execute a buy or sell on Pons Family (pons.family) on Robinhood Chain. Auto-detects V1 (Uniswap V3) vs V2 (bonding curve) and routes accordingly. Requires EVM_PRIVATE_KEY to be set.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          token_address: { type: 'string', description: 'Launched token contract address on Robinhood Chain' },
+          amount: { type: 'string', description: 'Amount of the input side to trade (paired token/ETH for buy, launched token for sell)' },
+          side: { type: 'string', description: 'Trade direction', enum: ['buy', 'sell'] },
+          slippage_bps: { type: 'number', description: 'Slippage tolerance in basis points (default 50 = 0.5%)' },
+        },
+        required: ['token_address', 'amount', 'side'],
+      },
+    },
+    {
       name: 'evm_balance',
       description: 'Get token balances on an EVM chain.',
       input_schema: {
@@ -15339,6 +15368,62 @@ async function executeTool(
           return JSON.stringify(comparison);
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'pons_quote': {
+        const tokenAddress = toolInput.token_address as string;
+        const amount = toolInput.amount as string;
+        const side = toolInput.side as 'buy' | 'sell';
+
+        try {
+          const { getPonsV1LaunchedToken, getPonsV2LaunchedToken, getPonsV1Quote, getPonsV2Quote } = await import('../evm');
+          const [v1, v2] = await Promise.all([
+            getPonsV1LaunchedToken(tokenAddress),
+            getPonsV2LaunchedToken(tokenAddress),
+          ]);
+
+          if (v2) {
+            const quote = await getPonsV2Quote(tokenAddress, amount, side);
+            return JSON.stringify(quote);
+          } else if (v1) {
+            const quote = await getPonsV1Quote(tokenAddress, amount, side);
+            return JSON.stringify(quote);
+          }
+          return JSON.stringify({ error: `${tokenAddress} is not a Pons launch (checked both V1 and V2 factories on Robinhood Chain)` });
+        } catch (err: unknown) {
+          return JSON.stringify({ error: (err as Error).message });
+        }
+      }
+
+      case 'pons_trade': {
+        const tokenAddress = toolInput.token_address as string;
+        const amount = toolInput.amount as string;
+        const side = toolInput.side as 'buy' | 'sell';
+        const slippageBps = (toolInput.slippage_bps as number) || 50;
+
+        try {
+          const { getPonsV1LaunchedToken, getPonsV2LaunchedToken, executePonsV1Swap, executePonsV2Buy, executePonsV2Sell } = await import('../evm');
+          const [v1, v2] = await Promise.all([
+            getPonsV1LaunchedToken(tokenAddress),
+            getPonsV2LaunchedToken(tokenAddress),
+          ]);
+
+          if (v2) {
+            const result = side === 'buy'
+              ? await executePonsV2Buy(tokenAddress, amount, slippageBps)
+              : await executePonsV2Sell(tokenAddress, amount, slippageBps);
+            return JSON.stringify({ ...result, generation: 'v2' });
+          } else if (v1) {
+            const result = await executePonsV1Swap(tokenAddress, amount, side, slippageBps);
+            return JSON.stringify({ ...result, generation: 'v1' });
+          }
+          return JSON.stringify({ error: `${tokenAddress} is not a Pons launch (checked both V1 and V2 factories on Robinhood Chain)` });
+        } catch (err: unknown) {
+          return JSON.stringify({
+            error: (err as Error).message,
+            hint: 'Set EVM_PRIVATE_KEY and optionally ROBINHOOD_RPC_URL',
+          });
         }
       }
 
