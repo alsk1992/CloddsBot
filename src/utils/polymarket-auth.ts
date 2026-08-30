@@ -20,7 +20,14 @@ export function buildPolymarketHmacSignature(
 ): string {
   const key = Buffer.from(secret, 'base64');
   const payload = `${timestamp}${method.toUpperCase()}${pathWithQuery}${body ?? ''}`;
-  return createHmac('sha256', key).update(payload).digest('base64');
+  // Must be URL-safe base64 (+ -> -, / -> _) — verified against Polymarket's own
+  // clob-client(-v2) signing/hmac.ts, which has always done this conversion; a plain
+  // base64 digest mismatches whenever it contains '+' or '/' (most of the time).
+  return createHmac('sha256', key)
+    .update(payload)
+    .digest('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
 }
 
 export function buildPolymarketHeadersForUrl(
@@ -46,11 +53,14 @@ export function buildPolymarketHeadersForUrl(
     bodyString
   );
 
+  // Header names are underscored, not hyphenated — confirmed against docs.polymarket.com's
+  // CLOB authentication reference and both clob-client and clob-client-v2's headers/index.ts,
+  // which pass these keys straight to axios with no name transformation.
   return {
-    'POLY-ADDRESS': auth.address,
-    'POLY-API-KEY': auth.apiKey,
-    'POLY-PASSPHRASE': auth.apiPassphrase,
-    'POLY-TIMESTAMP': timestamp,
-    'POLY-SIGNATURE': signature,
+    'POLY_ADDRESS': auth.address,
+    'POLY_API_KEY': auth.apiKey,
+    'POLY_PASSPHRASE': auth.apiPassphrase,
+    'POLY_TIMESTAMP': timestamp,
+    'POLY_SIGNATURE': signature,
   };
 }

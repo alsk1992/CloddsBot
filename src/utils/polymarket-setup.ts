@@ -132,11 +132,12 @@ function buildL1AuthHeaders(
 
   return {
     address,
+    // Underscored, not hyphenated — see polymarket-auth.ts for the same fix and citations.
     headers: {
-      'POLY-ADDRESS': address,
-      'POLY-SIGNATURE': signature,
-      'POLY-TIMESTAMP': timestamp,
-      'POLY-NONCE': nonce.toString(),
+      'POLY_ADDRESS': address,
+      'POLY_SIGNATURE': signature,
+      'POLY_TIMESTAMP': timestamp,
+      'POLY_NONCE': nonce.toString(),
     },
   };
 }
