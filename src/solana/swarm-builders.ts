@@ -12,7 +12,10 @@ import {
   Connection,
   VersionedTransaction,
   Keypair,
+  ComputeBudgetProgram,
+  TransactionMessage,
 } from '@solana/web3.js';
+import { buildPumpFunTradeInstructions } from './pumpapi';
 
 // ============================================================================
 // Types
@@ -75,175 +78,100 @@ export interface SwarmTransactionBuilder {
 // Constants
 // ============================================================================
 
-const PUMPPORTAL_API = 'https://pumpportal.fun/api';
 const BAGS_API = 'https://public-api-v2.bags.fm/api/v1';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 // ============================================================================
-// PumpFun Builder (PumpPortal API)
+// PumpFun Builder (official @pump-fun/pump-sdk — built and signed locally,
+// no PumpPortal round-trip. See buildPumpFunTradeInstructions in
+// pumpapi.ts, which this shares with the single-wallet trading path.)
 // ============================================================================
 
 export class PumpFunBuilder implements SwarmTransactionBuilder {
   name = 'pumpfun';
-  supportedPools = ['pump', 'raydium', 'pump-amm', 'launchlab', 'raydium-cpmm', 'bonk', 'auto'];
+  supportedPools = ['pump', 'auto'];
+
+  private async buildTransaction(
+    connection: Connection,
+    wallet: SwarmWallet,
+    mint: string,
+    amount: number,
+    action: 'buy' | 'sell',
+    denominatedInSol: boolean,
+    options: BuilderOptions
+  ): Promise<VersionedTransaction> {
+    const { instructions } = await buildPumpFunTradeInstructions(connection, wallet.keypair.publicKey, {
+      mint,
+      action,
+      amount,
+      denominatedInSol,
+      slippagePercent: options.slippageBps / 100,
+    });
+
+    const allInstructions = [...instructions];
+    if (options.priorityFeeLamports) {
+      const computeUnitLimit = 200_000;
+      const microLamports = Math.max(1, Math.floor((options.priorityFeeLamports * 1_000_000) / computeUnitLimit));
+      allInstructions.unshift(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
+      );
+    }
+
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    const message = new TransactionMessage({
+      payerKey: wallet.keypair.publicKey,
+      recentBlockhash: blockhash,
+      instructions: allInstructions,
+    }).compileToV0Message();
+
+    return new VersionedTransaction(message);
+  }
 
   async buildBuyTransaction(
-    _connection: Connection,
+    connection: Connection,
     wallet: SwarmWallet,
     mint: string,
     amountSol: number,
     options: BuilderOptions
   ): Promise<VersionedTransaction> {
-    const apiKey = process.env.PUMPPORTAL_API_KEY;
-    const url = apiKey
-      ? `${PUMPPORTAL_API}/trade-local?api-key=${apiKey}`
-      : `${PUMPPORTAL_API}/trade-local`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        publicKey: wallet.publicKey,
-        action: 'buy',
-        mint,
-        amount: amountSol,
-        denominatedInSol: 'true',
-        slippage: options.slippageBps / 100,
-        priorityFee: (options.priorityFeeLamports ?? 10000) / 1_000_000_000,
-        pool: options.pool ?? 'auto',
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`PumpPortal ${response.status}: ${text.slice(0, 100)}`);
-    }
-
-    const txData = await response.arrayBuffer();
-    return VersionedTransaction.deserialize(new Uint8Array(txData));
+    return this.buildTransaction(connection, wallet, mint, amountSol, 'buy', true, options);
   }
 
   async buildSellTransaction(
-    _connection: Connection,
+    connection: Connection,
     wallet: SwarmWallet,
     mint: string,
     tokenAmount: number,
     options: BuilderOptions
   ): Promise<VersionedTransaction> {
-    const apiKey = process.env.PUMPPORTAL_API_KEY;
-    const url = apiKey
-      ? `${PUMPPORTAL_API}/trade-local?api-key=${apiKey}`
-      : `${PUMPPORTAL_API}/trade-local`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        publicKey: wallet.publicKey,
-        action: 'sell',
-        mint,
-        amount: tokenAmount,
-        denominatedInSol: 'false',
-        slippage: options.slippageBps / 100,
-        priorityFee: (options.priorityFeeLamports ?? 10000) / 1_000_000_000,
-        pool: options.pool ?? 'auto',
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`PumpPortal ${response.status}: ${text.slice(0, 100)}`);
-    }
-
-    const txData = await response.arrayBuffer();
-    return VersionedTransaction.deserialize(new Uint8Array(txData));
+    return this.buildTransaction(connection, wallet, mint, tokenAmount, 'sell', false, options);
   }
 
   async getQuote(
-    _connection: Connection,
+    connection: Connection,
     mint: string,
     amount: number,
     isBuy: boolean,
     _options?: Partial<BuilderOptions>
   ): Promise<SwarmQuote> {
-    // PumpPortal has no /quote endpoint — compute estimate from token price data
-    const headers: Record<string, string> = {
-      'Accept': 'application/json',
-      'Origin': 'https://pump.fun',
-    };
-    const jwt = process.env.PUMPFUN_JWT;
-    if (jwt) {
-      headers['Authorization'] = `Bearer ${jwt}`;
-    }
+    const { getPumpPortalQuote } = await import('./pumpapi');
+    const quote = await getPumpPortalQuote({
+      mint,
+      action: isBuy ? 'buy' : 'sell',
+      amount: amount.toString(), // human-readable units (SOL for buy, tokens for sell) — getPumpPortalQuote scales internally
+      connection,
+    });
 
-    const response = await fetch(`https://frontend-api-v3.pump.fun/coins/${mint}`, { headers });
-    if (!response.ok) {
-      throw new Error(`Pump.fun token lookup failed: ${response.status}`);
-    }
-
-    const data = await response.json() as {
-      market_cap?: number;
-      virtual_sol_reserves?: number;
-      virtual_token_reserves?: number;
-    };
-
-    const solReserves = data.virtual_sol_reserves ?? 0;
-    const tokenReserves = data.virtual_token_reserves ?? 0;
-
-    if (solReserves <= 0 || tokenReserves <= 0) {
+    if (!quote) {
       return { inputAmount: amount, outputAmount: 0, route: 'pumpfun' };
     }
 
-    // Constant product AMM estimate: outputAmount = (inputAmount * outputReserve) / (inputReserve + inputAmount)
-    if (isBuy) {
-      // SOL → Token
-      const inputLamports = amount * 1e9;
+    const outputAmount = isBuy
+      ? Number(quote.outputAmount) / 1e6 // tokens, 6dp
+      : Number(quote.outputAmount) / 1e9; // lamports -> SOL
 
-      // Guard against precision loss on large reserve calculations
-      if (inputLamports * tokenReserves > Number.MAX_SAFE_INTEGER) {
-        // Use BigInt for precise calculation
-        const inputBig = BigInt(Math.floor(inputLamports));
-        const tokenBig = BigInt(Math.floor(tokenReserves));
-        const solBig = BigInt(Math.floor(solReserves));
-        const outputBig = (inputBig * tokenBig) / (solBig + inputBig);
-        return {
-          inputAmount: amount,
-          outputAmount: Number(outputBig) / 1e6, // tokens have 6 decimals
-          route: 'pumpfun',
-        };
-      }
-
-      const outputTokens = (inputLamports * tokenReserves) / (solReserves + inputLamports);
-      return {
-        inputAmount: amount,
-        outputAmount: outputTokens / 1e6, // tokens have 6 decimals
-        route: 'pumpfun',
-      };
-    } else {
-      // Token → SOL
-      const inputTokens = amount * 1e6;
-
-      // Guard against precision loss on large reserve calculations
-      if (inputTokens * solReserves > Number.MAX_SAFE_INTEGER) {
-        // Use BigInt for precise calculation
-        const inputBig = BigInt(Math.floor(inputTokens));
-        const tokenBig = BigInt(Math.floor(tokenReserves));
-        const solBig = BigInt(Math.floor(solReserves));
-        const outputBig = (inputBig * solBig) / (tokenBig + inputBig);
-        return {
-          inputAmount: amount,
-          outputAmount: Number(outputBig) / 1e9,
-          route: 'pumpfun',
-        };
-      }
-
-      const outputLamports = (inputTokens * solReserves) / (tokenReserves + inputTokens);
-      return {
-        inputAmount: amount,
-        outputAmount: outputLamports / 1e9,
-        route: 'pumpfun',
-      };
-    }
+    return { inputAmount: amount, outputAmount, route: 'pumpfun' };
   }
 }
 

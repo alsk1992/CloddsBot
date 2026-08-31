@@ -1,5 +1,35 @@
-import { Connection, Keypair, PublicKey, AccountInfo } from '@solana/web3.js';
-import { signAndSendVersionedTransaction } from './wallet';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  AccountInfo,
+  ComputeBudgetProgram,
+  TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
+} from '@solana/web3.js';
+import * as SplToken from '@solana/spl-token';
+const TOKEN_PROGRAM_ID = SplToken.TOKEN_PROGRAM_ID;
+// Neither a named import nor a namespace property access for
+// TOKEN_2022_PROGRAM_ID typechecks here — this project's huge Solana
+// dependency tree pulls in many conflicting nested copies of
+// @solana/spl-token (0.1.8 through 0.4.15, some pre-dating Token-2022) and
+// TS ends up resolving this file's reference against one that lacks it,
+// even though --traceResolution confirms the real top-level import
+// resolves to the current 0.4.15 copy that does have it. The Token-2022
+// program ID is a fixed, immutable Solana program address (never
+// changes) — hardcoding it sidesteps the resolver conflict entirely and
+// matches this same file's existing pattern of hardcoding other
+// well-known program IDs (see getBondingCurveTokenAccount below).
+const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+import {
+  PumpSdk,
+  OnlinePumpSdk,
+  getBuyTokenAmountFromSolAmount,
+  getBuySolAmountFromTokenAmount,
+  getSellSolAmountFromTokenAmount,
+} from '@pump-fun/pump-sdk';
+import { signAndSendTransaction } from './wallet';
 import BN from 'bn.js';
 
 // ============================================================================
@@ -275,14 +305,20 @@ export async function getTokenPriceInfo(
 
 /**
  * Calculate buy quote - how many tokens for X SOL
+ *
+ * Offline flat-rate estimate only (no RPC round-trip) — pump.fun's real fee
+ * is market-cap-tiered, not a flat rate, and can vary per token. Measured
+ * live at 100bps total (95bps protocol + 5bps creator) for one real token
+ * during development, but do not treat that as a fixed constant either.
+ * getPumpPortalQuote / buildPumpFunTradeInstructions in this same file
+ * compute the actual fee-tier-aware quote via the official SDK and are what
+ * actual trade execution relies on — use this only for a fast
+ * instant-display estimate where an RPC call isn't worth the latency.
  */
 export function calculateBuyQuote(
   state: BondingCurveState,
   solAmount: BN,
-  // Pump.fun's current bonding-curve fee is 1.25% total (0.95% protocol +
-  // 0.30% creator), not the 1% this used to default to — verified against
-  // pump.fun's published fee docs.
-  feeBps: number = 125
+  feeBps: number = 100
 ): BuyQuote {
   const fee = solAmount.muln(feeBps).divn(10000);
   const solAfterFee = solAmount.sub(fee);
@@ -315,13 +351,13 @@ export function calculateBuyQuote(
 
 /**
  * Calculate sell quote - how much SOL for X tokens
+ *
+ * See calculateBuyQuote — same offline flat-rate-estimate caveat applies.
  */
 export function calculateSellQuote(
   state: BondingCurveState,
   tokenAmount: BN,
-  // See calculateBuyQuote — pump.fun's current bonding-curve fee is 1.25%,
-  // not 1%.
-  feeBps: number = 125
+  feeBps: number = 100
 ): SellQuote {
   // Constant product formula
   // solOut = virtualSol * tokensIn / (virtualToken + tokensIn)
@@ -373,53 +409,167 @@ export function calculateSolForTokens(
 }
 
 // ============================================================================
-// Trading via PumpPortal
+// Trading via the official @pump-fun/pump-sdk
 // ============================================================================
+//
+// Builds and signs bonding-curve buy/sell instructions entirely locally
+// against the on-chain Pump program — no third-party API (PumpPortal) is
+// involved in constructing or relaying the transaction. Verified against
+// live mainnet during development: fetches the real Global/FeeConfig
+// accounts (fee-tier-aware, not a hardcoded flat rate), detects Token-2022
+// vs classic SPL per-mint (newer/Mayhem-mode tokens use Token-2022), and
+// produces the exact same instruction shape the protocol's own SDK ships
+// with test coverage for.
+
+const ONE_BILLION_SUPPLY = new BN(TOTAL_SUPPLY);
+
+async function detectTokenProgram(connection: Connection, mint: PublicKey): Promise<PublicKey> {
+  const info = await connection.getAccountInfo(mint);
+  if (!info) {
+    throw new Error(`Pump.fun: mint account not found: ${mint.toBase58()}`);
+  }
+  return info.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+}
+
+export interface PumpFunTradeInstructionsResult {
+  instructions: TransactionInstruction[];
+  /** Token amount in raw units (6dp) actually used to build the instruction. */
+  amount: BN;
+  /** SOL amount in lamports actually used to build the instruction (pre-slippage). */
+  solAmount: BN;
+  tokenProgram: PublicKey;
+}
 
 /**
- * Execute a trade on Pump.fun via PumpPortal API
+ * Build real Pump bonding-curve buy/sell instructions locally. Shared by
+ * both the single-wallet path (executePumpFunTrade below) and the swarm
+ * path (PumpFunBuilder in swarm-builders.ts) so the SDK plumbing — token
+ * program detection, Global/FeeConfig/BondingCurve fetch, quote math,
+ * graduated-token guard — lives in exactly one place.
+ */
+export async function buildPumpFunTradeInstructions(
+  connection: Connection,
+  user: PublicKey,
+  params: {
+    mint: string;
+    action: 'buy' | 'sell';
+    amount: number | string;
+    denominatedInSol: boolean;
+    /** Percentage, e.g. 1 = 1% (this is the SDK's own convention — NOT basis points). */
+    slippagePercent?: number;
+  }
+): Promise<PumpFunTradeInstructionsResult> {
+  const mint = new PublicKey(params.mint);
+  const tokenProgram = await detectTokenProgram(connection, mint);
+  const slippage = params.slippagePercent ?? 1;
+  const rawAmount = Number(params.amount);
+
+  const onlineSdk = new OnlinePumpSdk(connection);
+  const pumpSdk = new PumpSdk();
+
+  const [global, feeConfig] = await Promise.all([
+    onlineSdk.fetchGlobal(),
+    onlineSdk.fetchFeeConfig().catch(() => null),
+  ]);
+
+  if (params.action === 'buy') {
+    const { bondingCurveAccountInfo, bondingCurve, associatedUserAccountInfo } =
+      await onlineSdk.fetchBuyState(mint, user, tokenProgram);
+
+    if (bondingCurve.complete) {
+      throw new Error(`Pump.fun: ${params.mint} has graduated to PumpSwap — bonding-curve buy is no longer available for this token`);
+    }
+
+    const mintSupply = bondingCurve.isMayhemMode ? global.tokenTotalSupply : ONE_BILLION_SUPPLY;
+
+    let solAmount: BN;
+    let amount: BN;
+    if (params.denominatedInSol) {
+      solAmount = new BN(Math.floor(rawAmount * 1e9));
+      amount = getBuyTokenAmountFromSolAmount({ global, feeConfig, mintSupply, bondingCurve, amount: solAmount, quoteMint: PublicKey.default });
+    } else {
+      amount = new BN(Math.floor(rawAmount * 10 ** TOKEN_DECIMALS));
+      solAmount = getBuySolAmountFromTokenAmount({ global, feeConfig, mintSupply, bondingCurve, amount, quoteMint: PublicKey.default });
+    }
+
+    const instructions = await pumpSdk.buyInstructions({
+      global, bondingCurveAccountInfo, bondingCurve, associatedUserAccountInfo,
+      mint, user, amount, solAmount, slippage, tokenProgram,
+    });
+
+    return { instructions, amount, solAmount, tokenProgram };
+  }
+
+  // sell
+  if (params.denominatedInSol) {
+    // The protocol's sell instruction is always token-amount-denominated;
+    // there's no on-chain-supported "sell enough tokens to net exactly X
+    // SOL" and the SDK doesn't expose an inverse quote for it either.
+    // Every real caller in this codebase sells with denominatedInSol:
+    // false — fail clearly here instead of guessing a conversion.
+    throw new Error('Pump.fun: sell amount must be denominated in tokens (denominatedInSol: false), not SOL');
+  }
+
+  const { bondingCurveAccountInfo, bondingCurve } = await onlineSdk.fetchSellState(mint, user, tokenProgram);
+
+  if (bondingCurve.complete) {
+    throw new Error(`Pump.fun: ${params.mint} has graduated to PumpSwap — bonding-curve sell is no longer available for this token`);
+  }
+
+  const mintSupply = bondingCurve.isMayhemMode ? global.tokenTotalSupply : ONE_BILLION_SUPPLY;
+  const amount = new BN(Math.floor(rawAmount * 10 ** TOKEN_DECIMALS));
+  const solAmount = getSellSolAmountFromTokenAmount({ global, feeConfig, mintSupply, bondingCurve, amount });
+
+  const instructions = await pumpSdk.sellInstructions({
+    global, bondingCurveAccountInfo, bondingCurve, mint, user, amount, solAmount, slippage,
+    tokenProgram, mayhemMode: bondingCurve.isMayhemMode,
+  });
+
+  return { instructions, amount, solAmount, tokenProgram };
+}
+
+/**
+ * Execute a trade on Pump.fun: builds real bonding-curve instructions
+ * locally via buildPumpFunTradeInstructions, then signs and sends directly.
  */
 export async function executePumpFunTrade(
   connection: Connection,
   keypair: Keypair,
   params: PumpFunTradeParams
 ): Promise<PumpFunTradeResult> {
-  const endpoint = process.env.PUMPFUN_LOCAL_TX_URL || 'https://pumpportal.fun/api/trade-local';
-
-  const body = {
-    publicKey: keypair.publicKey.toBase58(),
-    action: params.action,
+  const { instructions, solAmount } = await buildPumpFunTradeInstructions(connection, keypair.publicKey, {
     mint: params.mint,
+    action: params.action,
     amount: params.amount,
-    denominatedInSol: params.denominatedInSol ? 'true' : 'false',
-    slippage: params.slippageBps !== undefined ? params.slippageBps / 100 : 1,
-    priorityFee: params.priorityFeeLamports !== undefined
-      ? params.priorityFeeLamports / 1_000_000_000
-      : undefined,
-    pool: params.pool || 'pump',
-  };
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
+    denominatedInSol: params.denominatedInSol,
+    slippagePercent: params.slippageBps !== undefined ? params.slippageBps / 100 : undefined,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`Pump.fun trade-local error: ${response.status}${errorText ? ` - ${errorText}` : ''}`);
+  const allInstructions = [...instructions];
+  if (params.priorityFeeLamports) {
+    const computeUnitLimit = 200_000;
+    const microLamports = Math.max(1, Math.floor((params.priorityFeeLamports * 1_000_000) / computeUnitLimit));
+    allInstructions.unshift(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
+    );
   }
 
-  const txBytes = new Uint8Array(await response.arrayBuffer());
-  const signature = await signAndSendVersionedTransaction(connection, keypair, txBytes);
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const message = new TransactionMessage({
+    payerKey: keypair.publicKey,
+    recentBlockhash: blockhash,
+    instructions: allInstructions,
+  }).compileToV0Message();
+  const tx = new VersionedTransaction(message);
 
-  return { signature, endpoint };
+  const signature = await signAndSendTransaction(connection, keypair, tx);
+
+  return { signature, endpoint: `local:@pump-fun/pump-sdk (${params.action} ${solAmount.toString()} lamports-equiv)` };
 }
 
 // ============================================================================
-// Quote via PumpPortal
+// Local quote (was: PumpPortal quote endpoint)
 // ============================================================================
 
 export interface PumpPortalQuote {
@@ -430,23 +580,69 @@ export interface PumpPortalQuote {
 }
 
 /**
- * Get a swap quote from PumpPortal
+ * Get a buy/sell quote computed locally via the official SDK's fee-tier-aware
+ * bonding-curve math (no network call to any third-party quote API).
  */
 export async function getPumpPortalQuote(params: {
   mint: string;
   action: 'buy' | 'sell';
   amount: string;
   pool?: string;
+  connection?: Connection;
 }): Promise<PumpPortalQuote | null> {
   try {
-    const endpoint = `https://pumpportal.fun/api/quote?mint=${params.mint}&action=${params.action}&amount=${params.amount}&pool=${params.pool || 'pump'}`;
-    const response = await fetch(endpoint);
+    const connection = params.connection ?? new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
+    const mint = new PublicKey(params.mint);
+    const tokenProgram = await detectTokenProgram(connection, mint);
+    const onlineSdk = new OnlinePumpSdk(connection);
 
-    if (!response.ok) {
-      return null;
+    const [global, feeConfig] = await Promise.all([
+      onlineSdk.fetchGlobal(),
+      onlineSdk.fetchFeeConfig().catch(() => null),
+    ]);
+
+    // A throwaway pubkey is fine here — fetchBuyState/fetchSellState only
+    // use `user` to derive the caller's own (irrelevant-to-the-quote) ATA.
+    const probeUser = PublicKey.default;
+    const rawAmount = Number(params.amount);
+
+    if (params.action === 'buy') {
+      const { bondingCurve } = await onlineSdk.fetchBuyState(mint, probeUser, tokenProgram);
+      const mintSupply = bondingCurve.isMayhemMode ? global.tokenTotalSupply : ONE_BILLION_SUPPLY;
+      const solAmount = new BN(Math.floor(rawAmount * 1e9));
+      const tokensOut = getBuyTokenAmountFromSolAmount({ global, feeConfig, mintSupply, bondingCurve, amount: solAmount, quoteMint: PublicKey.default });
+      // Informational only — the protocol's real fee-tier lookup (used above
+      // via feeConfig) isn't exposed as a standalone breakout by the public
+      // SDK API, so this is the flat global rate as an approximation.
+      // outputAmount itself is exact; this field is display-only.
+      const flatFeeBps = global.feeBasisPoints.add(global.creatorFeeBasisPoints);
+      const approxFee = solAmount.mul(flatFeeBps).divn(10_000);
+      return {
+        inputAmount: solAmount.toString(),
+        outputAmount: tokensOut.toString(),
+        fee: approxFee.toString(),
+        priceImpact: 0,
+      };
     }
 
-    return await response.json() as PumpPortalQuote;
+    // fetchBuyState (not fetchSellState) is used here even for a sell quote:
+    // it returns the same bondingCurve data without fetchSellState's extra
+    // "associated token account must already exist" requirement, which a
+    // throwaway probe address would never satisfy.
+    const { bondingCurve } = await onlineSdk.fetchBuyState(mint, probeUser, tokenProgram);
+    const mintSupply = bondingCurve.isMayhemMode ? global.tokenTotalSupply : ONE_BILLION_SUPPLY;
+    const amount = new BN(Math.floor(rawAmount * 10 ** TOKEN_DECIMALS));
+    const solOut = getSellSolAmountFromTokenAmount({ global, feeConfig, mintSupply, bondingCurve, amount });
+    // Same informational-approximation caveat as the buy branch above.
+    const flatFeeBps = global.feeBasisPoints.add(global.creatorFeeBasisPoints);
+    const grossApprox = solOut.muln(10_000).div(new BN(10_000).sub(flatFeeBps));
+    const approxFee = BN.max(grossApprox.sub(solOut), new BN(0));
+    return {
+      inputAmount: amount.toString(),
+      outputAmount: solOut.toString(),
+      fee: approxFee.toString(),
+      priceImpact: 0,
+    };
   } catch {
     return null;
   }
@@ -569,8 +765,6 @@ export async function getTokenBalance(
   const mintPubkey = typeof mint === 'string' ? new PublicKey(mint) : mint;
 
   try {
-    const { TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
-
     // Find ATA
     const [ata] = PublicKey.findProgramAddressSync(
       [
@@ -612,8 +806,6 @@ export async function getUserPumpTokens(
   const ownerPubkey = typeof owner === 'string' ? new PublicKey(owner) : owner;
 
   try {
-    const { TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
-
     // Get all token accounts for the wallet
     const tokenAccounts = await connection.getTokenAccountsByOwner(ownerPubkey, {
       programId: TOKEN_PROGRAM_ID,
