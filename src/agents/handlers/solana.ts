@@ -372,6 +372,46 @@ async function pumpfunChartHandler(toolInput: ToolInput): Promise<HandlerResult>
 }
 
 /**
+ * The on-chain create instruction just stores metadata_uri as an opaque
+ * string — it doesn't fetch or validate it, so a bad URI doesn't fail the
+ * transaction. It fails silently instead: a real, permanent, indexed token
+ * gets minted (at real cost — rent, plus any initial_buy_sol) with metadata
+ * that never loads anywhere. Catch that here, before spending anything,
+ * rather than after.
+ */
+async function validateMetadataUri(uri: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    throw new Error(`metadata_uri is not a valid URL: "${uri}"`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`metadata_uri must be an http(s) URL (got "${parsed.protocol}"). Use an HTTPS gateway URL for IPFS/Arweave content (e.g. https://ipfs.io/ipfs/...), not a raw ipfs:// or ar:// URI.`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(uri, { signal: AbortSignal.timeout(10_000) });
+  } catch (error) {
+    throw new Error(`metadata_uri is unreachable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!response.ok) {
+    throw new Error(`metadata_uri returned HTTP ${response.status} — fix the URL before spending real SOL creating this token.`);
+  }
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    throw new Error('metadata_uri did not return valid JSON.');
+  }
+  if (typeof json !== 'object' || json === null || !('name' in json) || !('symbol' in json)) {
+    throw new Error('metadata_uri JSON is missing the required "name"/"symbol" fields pump.fun expects.');
+  }
+}
+
+/**
  * Builds and submits a real create (and optional initial-buy) transaction
  * locally via the official @pump-fun/pump-sdk — no third-party relay.
  *
@@ -391,6 +431,8 @@ async function pumpfunCreateHandler(toolInput: ToolInput): Promise<HandlerResult
   const initialBuySol = toolInput.initial_buy_sol as number | undefined;
 
   return safeHandler(async () => {
+    await validateMetadataUri(metadataUri);
+
     const { wallet } = await getSolanaModules();
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
@@ -403,19 +445,31 @@ async function pumpfunCreateHandler(toolInput: ToolInput): Promise<HandlerResult
     const onlineSdk = new OnlinePumpSdk(connection);
     const global = await onlineSdk.fetchGlobal();
 
+    // createInstruction/createAndBuyInstructions are @deprecated in the SDK
+    // in favor of the V2 variants below — using the current, actively
+    // maintained path rather than one pump.fun could retire independently
+    // of the pinned SDK version, with no compile-time warning if they do.
+    // Note createV2Instruction/createV2AndBuyInstructions always mint under
+    // Token-2022 (TOKEN_2022_PROGRAM_ID), unconditionally, regardless of
+    // mayhemMode — that flag only toggles Mayhem-mode game mechanics, not
+    // the token program. mayhemMode: false here is a normal (non-Mayhem)
+    // Token-2022 launch, matching what pump.fun's own V2 creation flow
+    // produces today.
     let instructions;
     if (initialBuySol && initialBuySol > 0) {
       const solAmount = new BN(Math.floor(initialBuySol * 1e9));
       const amount = getBuyTokenAmountFromSolAmount({
         global, feeConfig: null, mintSupply: null, bondingCurve: null, amount: solAmount, quoteMint: PublicKey.default,
       });
-      instructions = await pumpSdk.createAndBuyInstructions({
+      instructions = await pumpSdk.createV2AndBuyInstructions({
         global, mint: mintKeypair.publicKey, name, symbol, uri: metadataUri,
         creator: keypair.publicKey, user: keypair.publicKey, amount, solAmount,
+        mayhemMode: false, cashback: false,
       });
     } else {
-      instructions = [await pumpSdk.createInstruction({
+      instructions = [await pumpSdk.createV2Instruction({
         mint: mintKeypair.publicKey, name, symbol, uri: metadataUri, creator: keypair.publicKey, user: keypair.publicKey,
+        mayhemMode: false, cashback: false,
       })];
     }
 

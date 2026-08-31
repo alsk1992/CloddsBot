@@ -74,15 +74,23 @@ export async function signAndSendVersionedTransaction(
 export async function signAndSendTransaction(
   connection: Connection,
   keypair: Keypair,
-  transaction: Transaction | VersionedTransaction
+  transaction: Transaction | VersionedTransaction,
+  /**
+   * The lastValidBlockHeight that actually corresponds to the blockhash
+   * already baked into transaction's message — pass this when the caller
+   * fetched that blockhash itself before building the message (every
+   * pump.fun call site does, since blockhash-fetch is parallelized with
+   * instruction-building). Without it, this falls back to fetching a NEW
+   * blockhash's height purely to have *a* number to confirm against — which
+   * doesn't correspond to the height this specific already-signed
+   * transaction actually expires at, and can make confirmTransaction poll
+   * longer than necessary before detecting a genuine expiry. Fail-safe
+   * either way (never reports false success/failure), just a latency
+   * difference in the already-rare true-expiry case.
+   */
+  lastValidBlockHeight?: number
 ): Promise<string> {
   if (transaction instanceof VersionedTransaction) {
-    // Fetch a fresh blockhash for confirmation rather than reusing whatever
-    // was baked into the transaction's own message: the tx's own blockhash
-    // may have been fetched a while ago (e.g. concurrently with instruction
-    // building), and confirming against an already-stale lastValidBlockHeight
-    // would make confirmTransaction think the tx is still within its window
-    // after it has actually already expired.
     transaction.sign([keypair]);
     const raw = transaction.serialize();
     const signature = await connection.sendRawTransaction(raw, {
@@ -91,15 +99,21 @@ export async function signAndSendTransaction(
     });
 
     // Confirm to detect on-chain failures
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-    const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    const blockhash = transaction.message.recentBlockhash;
+    const height = lastValidBlockHeight ?? (await connection.getLatestBlockhash('confirmed')).lastValidBlockHeight;
+    const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight: height }, 'confirmed');
     assertConfirmedOk(signature, result);
 
     return signature;
   }
 
+  // Legacy Transaction always gets a freshly-fetched blockhash right here
+  // (unlike VersionedTransaction above, it isn't pre-built by the caller
+  // with its own blockhash already baked in), so this height genuinely
+  // does correspond to what's being signed — no staleness concern, and the
+  // lastValidBlockHeight parameter isn't relevant to this branch.
   transaction.feePayer = keypair.publicKey;
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+  const { blockhash, lastValidBlockHeight: legacyLastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
   transaction.recentBlockhash = blockhash;
   transaction.sign(keypair);
   const signature = await connection.sendRawTransaction(transaction.serialize(), {
@@ -108,7 +122,7 @@ export async function signAndSendTransaction(
   });
 
   // Confirm to detect on-chain failures
-  const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+  const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight: legacyLastValidBlockHeight }, 'confirmed');
   assertConfirmedOk(signature, result);
 
   return signature;

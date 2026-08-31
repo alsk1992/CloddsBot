@@ -231,7 +231,13 @@ export class PumpSwapBuilder implements SwarmTransactionBuilder {
 
     const allInstructions = [...instructions];
     if (options.priorityFeeLamports) {
-      const computeUnitLimit = 200_000;
+      // See executePumpSwapTrade in pumpswap.ts for the full rationale —
+      // PumpSwap's worst-case instruction bundle (extendAccount + ATA +
+      // WSOL wrap/close + boost accounts) can exceed a plain 200k CU
+      // budget; raising this doesn't change actual lamports spent on
+      // priority fee, since microLamports is derived from
+      // priorityFeeLamports/computeUnitLimit below.
+      const computeUnitLimit = 400_000;
       const microLamports = Math.max(1, Math.floor((options.priorityFeeLamports * 1_000_000) / computeUnitLimit));
       allInstructions.unshift(
         ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),

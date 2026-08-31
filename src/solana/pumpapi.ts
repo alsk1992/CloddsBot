@@ -446,6 +446,29 @@ function getOnlinePumpSdk(connection: Connection): OnlinePumpSdk {
   return sdk;
 }
 
+/**
+ * fetchFeeConfig() legitimately has no account to find for a launch with no
+ * market-cap-tiered fee schedule configured — Anchor's account fetcher
+ * throws a plain Error whose message starts with "Account does not exist"
+ * for exactly that case (verified against
+ * node_modules/@coral-xyz/anchor/dist/cjs/program/namespace/account.js).
+ * That's the only case worth silently falling back to flat-rate fees for.
+ * Any OTHER failure — RPC timeout, connection reset, decode error — must
+ * not be treated the same way: silently substituting the flat rate for a
+ * transient failure would feed a wrong fee straight into real
+ * buy/sell-instruction math with no distinction from the legitimate case.
+ */
+async function fetchFeeConfigOrNull(onlineSdk: OnlinePumpSdk): Promise<Awaited<ReturnType<OnlinePumpSdk['fetchFeeConfig']>> | null> {
+  try {
+    return await onlineSdk.fetchFeeConfig();
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Account does not exist')) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 async function detectTokenProgram(connection: Connection, mint: PublicKey): Promise<PublicKey> {
   const info = await connection.getAccountInfo(mint);
   if (!info) {
@@ -531,7 +554,7 @@ export async function buildPumpFunTradeInstructions(
 
   if (params.action === 'buy') {
     const [[global, feeConfig], { bondingCurveAccountInfo, bondingCurve, associatedUserAccountInfo }] = await Promise.all([
-      Promise.all([onlineSdk.fetchGlobal(), onlineSdk.fetchFeeConfig().catch(() => null)]),
+      Promise.all([onlineSdk.fetchGlobal(), fetchFeeConfigOrNull(onlineSdk)]),
       onlineSdk.fetchBuyState(mint, user, tokenProgram),
     ]);
 
@@ -561,7 +584,7 @@ export async function buildPumpFunTradeInstructions(
 
   // sell
   const [[global, feeConfig], { bondingCurveAccountInfo, bondingCurve }] = await Promise.all([
-    Promise.all([onlineSdk.fetchGlobal(), onlineSdk.fetchFeeConfig().catch(() => null)]),
+    Promise.all([onlineSdk.fetchGlobal(), fetchFeeConfigOrNull(onlineSdk)]),
     onlineSdk.fetchSellState(mint, user, tokenProgram),
   ]);
 
@@ -597,7 +620,7 @@ export async function executePumpFunTrade(
   // this RPC round-trip only after instruction-building finishes. Blockhash
   // validity is ~60-90s; shaving tens of ms off time-to-submission by
   // fetching it earlier is a clear net win, not a meaningful expiry risk.
-  const [{ instructions, solAmount }, { blockhash }] = await Promise.all([
+  const [{ instructions, solAmount }, { blockhash, lastValidBlockHeight }] = await Promise.all([
     buildPumpFunTradeInstructions(connection, keypair.publicKey, {
       mint: params.mint,
       action: params.action,
@@ -625,7 +648,7 @@ export async function executePumpFunTrade(
   }).compileToV0Message();
   const tx = new VersionedTransaction(message);
 
-  const signature = await signAndSendTransaction(connection, keypair, tx);
+  const signature = await signAndSendTransaction(connection, keypair, tx, lastValidBlockHeight);
 
   return { signature, endpoint: `local:@pump-fun/pump-sdk (${params.action} ${solAmount.toString()} lamports-equiv)` };
 }
@@ -668,7 +691,7 @@ export async function getPumpFunQuote(params: {
     // bonding-curve fetch below (or each other) — fire all three together.
     const [global, feeConfig, { bondingCurve }] = await Promise.all([
       onlineSdk.fetchGlobal(),
-      onlineSdk.fetchFeeConfig().catch(() => null),
+      fetchFeeConfigOrNull(onlineSdk),
       onlineSdk.fetchBuyState(mint, probeUser, tokenProgram),
     ]);
 
