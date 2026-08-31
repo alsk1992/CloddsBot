@@ -15,7 +15,7 @@ import {
   ComputeBudgetProgram,
   TransactionMessage,
 } from '@solana/web3.js';
-import { buildPumpFunTradeInstructions } from './pumpapi';
+import { buildPumpFunTradeInstructions, assertSupportedPumpPool } from './pumpapi';
 import { findBestPumpSwapState } from './pumpswap';
 import { PUMP_AMM_SDK } from '@pump-fun/pump-swap-sdk';
 
@@ -85,7 +85,7 @@ const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 // ============================================================================
 // PumpFun Builder (official @pump-fun/pump-sdk — built and signed locally,
-// no PumpPortal round-trip. See buildPumpFunTradeInstructions in
+// no third-party relay round-trip. See buildPumpFunTradeInstructions in
 // pumpapi.ts, which this shares with the single-wallet trading path.)
 // ============================================================================
 
@@ -102,6 +102,8 @@ export class PumpFunBuilder implements SwarmTransactionBuilder {
     denominatedInSol: boolean,
     options: BuilderOptions
   ): Promise<VersionedTransaction> {
+    assertSupportedPumpPool(options.pool);
+
     const { instructions } = await buildPumpFunTradeInstructions(connection, wallet.keypair.publicKey, {
       mint,
       action,
@@ -157,11 +159,11 @@ export class PumpFunBuilder implements SwarmTransactionBuilder {
     isBuy: boolean,
     _options?: Partial<BuilderOptions>
   ): Promise<SwarmQuote> {
-    const { getPumpPortalQuote } = await import('./pumpapi');
-    const quote = await getPumpPortalQuote({
+    const { getPumpFunQuote } = await import('./pumpapi');
+    const quote = await getPumpFunQuote({
       mint,
       action: isBuy ? 'buy' : 'sell',
-      amount: amount.toString(), // human-readable units (SOL for buy, tokens for sell) — getPumpPortalQuote scales internally
+      amount: amount.toString(), // human-readable units (SOL for buy, tokens for sell) — getPumpFunQuote scales internally
       connection,
     });
 

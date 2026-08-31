@@ -23,7 +23,6 @@ export SOLANA_SWARM_KEY_2="third-wallet-key"         # wallet_2
 
 # Optional
 export SOLANA_RPC_URL="https://your-rpc.com"
-export PUMPPORTAL_API_KEY="your-api-key"
 ```
 
 ## Commands
@@ -137,7 +136,7 @@ export PUMPPORTAL_API_KEY="your-api-key"
 ### Buy Flow
 1. Refreshes SOL balances from chain
 2. Filters wallets with sufficient balance (≥0.01 SOL + amount)
-3. Builds transaction for each wallet via PumpPortal API
+3. Builds transaction for each wallet locally via the official @pump-fun/pump-sdk (or @pump-fun/pump-swap-sdk for graduated tokens)
 4. Signs all transactions locally
 5. Submits via selected execution mode
 6. Reports results per wallet
@@ -166,7 +165,6 @@ export PUMPPORTAL_API_KEY="your-api-key"
 | `SOLANA_PRIVATE_KEY` | Main wallet (wallet_0) |
 | `SOLANA_SWARM_KEY_1..20` | Additional swarm wallets |
 | `SOLANA_RPC_URL` | Custom RPC endpoint (faster = better) |
-| `PUMPPORTAL_API_KEY` | PumpPortal API key (optional, for pumpfun) |
 | `BAGS_API_KEY` | Bags.fm API key (required for bags DEX) |
 
 ## Multi-DEX Support
@@ -175,7 +173,8 @@ The swarm system supports trading across multiple DEXes:
 
 | DEX | Flag | Best For | Requires |
 |-----|------|----------|----------|
-| Pump.fun | `--dex pumpfun` (default) | Memecoins, new launches | `PUMPPORTAL_API_KEY` (optional) |
+| Pump.fun (bonding curve) | `--dex pumpfun` (default) | Memecoins, new launches | - |
+| Pump.fun (PumpSwap, graduated) | `--dex pumpswap` | Tokens that migrated off the bonding curve | - |
 | Bags.fm | `--dex bags` | Bags-launched tokens | `BAGS_API_KEY` |
 | Meteora | `--dex meteora` | DLMM pools, concentrated liquidity | - |
 

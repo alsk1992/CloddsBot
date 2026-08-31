@@ -65,18 +65,28 @@ Pump.fun is the leading Solana memecoin launchpad with bonding curve trading.
 ## Creator Tools
 
 ```
-/pump user-coins <address>              Tokens created by wallet
-/pump create <name> <symbol> <desc>     Launch new token
-/pump claim <mint>                      Claim creator fees
-/pump ipfs-upload <name> <symbol> <desc>  Upload metadata to IPFS
+/pump user-coins <address>                    Tokens created by wallet
+/pump create <name> <symbol> <metadata-uri>   Launch new token
+/pump claim                                   Claim all accumulated creator fees
+/pump ipfs-upload <name> <symbol> <desc>      Upload metadata to IPFS (may 403 server-side — see note below)
 ```
 
+`create` builds and signs the transaction locally via the official SDK.
+`metadata-uri` must already point to hosted JSON metadata — this command
+does not upload it for you (pump.fun's own upload API blocks server-side/
+bot requests, same as their trading frontend API, so there's no reliable
+official endpoint to depend on for that step; pin it via IPFS/Arweave/etc
+yourself first). `ipfs-upload` above attempts the same blocked endpoint
+directly and may fail in a headless environment — it's kept for interactive/
+browser-adjacent use, not relied upon by `create`.
+
 **Create Options:**
-- `--image <url>` - Token image URL
-- `--twitter <url>` - Twitter link
-- `--telegram <url>` - Telegram link
-- `--website <url>` - Website link
 - `--initial <SOL>` - Initial buy amount
+
+`claim` claims ALL of the wallet's accumulated creator fees across every
+token it created (bonding-curve and PumpSwap combined) in one transaction —
+the on-chain vault is keyed by creator address, not by mint, so no mint
+argument is needed or accepted.
 
 ## Platform Data
 
@@ -85,40 +95,36 @@ Pump.fun is the leading Solana memecoin launchpad with bonding curve trading.
 /pump sol-price                         Current SOL price
 ```
 
-## Monitoring (WebSocket)
+## Monitoring
 
 ```
-/pump watch <mint>           Watch token for real-time trades
-/pump snipe <symbol>         Wait for token with symbol to launch
+/pump watch <mint> [--seconds N]   Watch for real trades on-chain (bounded window, default 20s, max 60s)
+/pump snipe                        Not an auto-trading command — see pump-swarm skill / copytrade.ts
 ```
 
 ## Configuration
 
 ```bash
 export SOLANA_PRIVATE_KEY="your-private-key"
-export PUMPPORTAL_API_KEY="your-api-key"     # Optional, for trading API
 export SOLANA_RPC_URL="your-rpc-url"         # Optional, custom RPC
 ```
 
 ## Pool Options
 
-| Pool | Description |
-|------|-------------|
-| `pump` | Pump.fun bonding curve (default) |
-| `pumpswap` | PumpSwap AMM (graduated tokens) |
-| `pump-amm` | Pump.fun native AMM |
-| `launchlab` | LaunchLab pools |
-| `raydium-cpmm` | Raydium CPMM pools |
-| `bonk` | Bonk pools |
-| `auto` | Automatic best route |
+`/pump buy`/`/pump sell`'s `--pool` flag only accepts `pump` (default) or
+`auto` — trades go directly against the Pump bonding curve program via the
+official SDK. For a token that has already graduated off the bonding curve,
+use the separate PumpSwap path (src/solana/pumpswap.ts, or `--dex pumpswap`
+in the pump-swarm skill) — there is no multi-DEX `--pool` routing to
+raydium/launchlab/bonk/etc. here.
 
 ## API Sources
 
-- **Trading:** PumpPortal (pumpportal.fun) - 0.5% fee
+- **Trading:** official @pump-fun/pump-sdk and @pump-fun/pump-swap-sdk — instructions built and signed locally, no third-party relay
 - **Data:** Pump.fun Frontend API v3 (frontend-api-v3.pump.fun)
 - **Analytics:** Advanced API v2 (advanced-api-v2.pump.fun)
 - **Volatility:** Volatility API v2 (volatility-api-v2.pump.fun)
-- **WebSocket:** wss://pumpportal.fun/api/data
+- **Watch:** on-chain via connection.onLogs (bounded-window, see `/pump watch`)
 
 ## Complete Tool List (32 Tools)
 
