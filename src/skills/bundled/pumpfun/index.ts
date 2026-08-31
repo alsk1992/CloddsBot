@@ -1407,6 +1407,45 @@ Price: $${result.priceUsd?.toFixed(2) || result.price?.toFixed(2) || 'N/A'}`;
 // Creation Handlers
 // ============================================================================
 
+/**
+ * The on-chain create instruction just stores metadata_uri as an opaque
+ * string — a bad URI doesn't fail the transaction, it fails silently: a
+ * real, permanent, indexed token gets minted (at real cost) with metadata
+ * that never loads. Same validation as agents/handlers/solana.ts's
+ * pumpfunCreateHandler — catch it here before spending anything.
+ */
+async function validateMetadataUri(uri: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    throw new Error(`metadata-uri is not a valid URL: "${uri}"`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`metadata-uri must be an http(s) URL (got "${parsed.protocol}"). Use an HTTPS gateway URL for IPFS/Arweave content, not a raw ipfs:// or ar:// URI.`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(uri, { signal: AbortSignal.timeout(10_000) });
+  } catch (error) {
+    throw new Error(`metadata-uri is unreachable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!response.ok) {
+    throw new Error(`metadata-uri returned HTTP ${response.status} — fix the URL before spending real SOL creating this token.`);
+  }
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    throw new Error('metadata-uri did not return valid JSON.');
+  }
+  if (typeof json !== 'object' || json === null || !('name' in json) || !('symbol' in json)) {
+    throw new Error('metadata-uri JSON is missing the required "name"/"symbol" fields pump.fun expects.');
+  }
+}
+
 async function handleCreate(args: string[]): Promise<string> {
   if (!isConfigured()) {
     return 'Pump.fun not configured. Set SOLANA_PRIVATE_KEY.';
@@ -1440,6 +1479,8 @@ Example:
   }
 
   try {
+    await validateMetadataUri(metadataUri);
+
     const { wallet } = await getSolanaModules();
     const walletKeypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
@@ -1452,19 +1493,27 @@ Example:
     const onlineSdk = new OnlinePumpSdk(connection);
     const global = await onlineSdk.fetchGlobal();
 
+    // createInstruction/createAndBuyInstructions are @deprecated in the SDK
+    // in favor of the V2 variants below — see agents/handlers/solana.ts's
+    // pumpfunCreateHandler for the full rationale (same migration, same
+    // codebase-wide duplicated logic). createV2Instruction/
+    // createV2AndBuyInstructions always mint under Token-2022 regardless of
+    // mayhemMode; mayhemMode: false here is a normal (non-Mayhem) launch.
     let instructions;
     if (initialBuySol > 0) {
       const solAmount = new BN(Math.floor(initialBuySol * 1e9));
       const amount = getBuyTokenAmountFromSolAmount({
         global, feeConfig: null, mintSupply: null, bondingCurve: null, amount: solAmount, quoteMint: PublicKey.default,
       });
-      instructions = await pumpSdk.createAndBuyInstructions({
+      instructions = await pumpSdk.createV2AndBuyInstructions({
         global, mint: mintKeypair.publicKey, name, symbol, uri: metadataUri,
         creator: walletKeypair.publicKey, user: walletKeypair.publicKey, amount, solAmount,
+        mayhemMode: false, cashback: false,
       });
     } else {
-      instructions = [await pumpSdk.createInstruction({
+      instructions = [await pumpSdk.createV2Instruction({
         mint: mintKeypair.publicKey, name, symbol, uri: metadataUri, creator: walletKeypair.publicKey, user: walletKeypair.publicKey,
+        mayhemMode: false, cashback: false,
       })];
     }
 

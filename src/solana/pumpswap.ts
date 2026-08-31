@@ -271,7 +271,7 @@ export async function executePumpSwapTrade(
     // getLatestBlockhash doesn't depend on pool state (or vice versa) — fire
     // both concurrently rather than paying for this RPC round-trip only
     // after pool discovery/state-fetch finishes.
-    const [{ poolKey, state }, { blockhash }] = await Promise.all([
+    const [{ poolKey, state }, { blockhash, lastValidBlockHeight }] = await Promise.all([
       findBestPumpSwapState(connection, baseMint, quoteMintKey, keypair.publicKey),
       connection.getLatestBlockhash('confirmed'),
     ]);
@@ -282,7 +282,18 @@ export async function executePumpSwapTrade(
 
     const allInstructions = [...instructions];
     if (params.priorityFeeLamports) {
-      const computeUnitLimit = 200_000;
+      // PumpSwap trades can bundle extendAccount (pre-POOL_ACCOUNT_NEW_SIZE
+      // pools), ATA creation, WSOL wrap/sync/close, and boost/cashback
+      // remaining accounts on top of the base buy/sell instruction — a
+      // worst-case combination of all of those can exceed a plain 200k CU
+      // budget. This only matters when a caller opts into a priority fee at
+      // all (this whole block is skipped otherwise, falling back to
+      // Solana's default per-transaction compute budget); microLamports is
+      // derived FROM priorityFeeLamports/computeUnitLimit below, so raising
+      // this doesn't change the actual lamports spent on priority fee — the
+      // total (microLamports * computeUnitLimit) is priorityFeeLamports by
+      // construction either way, just spread over more CU headroom.
+      const computeUnitLimit = 400_000;
       const microLamports = Math.max(1, Math.floor((params.priorityFeeLamports * 1_000_000) / computeUnitLimit));
       allInstructions.unshift(
         ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
@@ -297,7 +308,7 @@ export async function executePumpSwapTrade(
     }).compileToV0Message();
     const tx = new VersionedTransaction(message);
 
-    const signature = await signAndSendTransaction(connection, keypair, tx);
+    const signature = await signAndSendTransaction(connection, keypair, tx, lastValidBlockHeight);
 
     return { success: true, txHash: signature, poolAddress: poolKey.toBase58() };
   } catch (error) {
