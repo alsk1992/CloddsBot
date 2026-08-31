@@ -1444,12 +1444,11 @@ Example:
     const walletKeypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
 
-    const { PumpSdk, OnlinePumpSdk, getBuyTokenAmountFromSolAmount } = await import('@pump-fun/pump-sdk');
+    const { PUMP_SDK: pumpSdk, OnlinePumpSdk, getBuyTokenAmountFromSolAmount } = await import('@pump-fun/pump-sdk');
     const { Keypair, PublicKey, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
     const BN = (await import('bn.js')).default;
 
     const mintKeypair = Keypair.generate();
-    const pumpSdk = new PumpSdk();
     const onlineSdk = new OnlinePumpSdk(connection);
     const global = await onlineSdk.fetchGlobal();
 

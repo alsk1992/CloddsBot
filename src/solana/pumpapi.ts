@@ -23,7 +23,7 @@ const TOKEN_PROGRAM_ID = SplToken.TOKEN_PROGRAM_ID;
 // well-known program IDs (see getBondingCurveTokenAccount below).
 const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 import {
-  PumpSdk,
+  PUMP_SDK,
   OnlinePumpSdk,
   getBuyTokenAmountFromSolAmount,
   getBuySolAmountFromTokenAmount,
@@ -423,6 +423,29 @@ export function calculateSolForTokens(
 
 const ONE_BILLION_SUPPLY = new BN(TOTAL_SUPPLY);
 
+// `new OnlinePumpSdk(connection)` isn't a cheap wrapper — its constructor
+// builds Anchor Program instances (instruction/account Borsh coders) from
+// the Pump program's IDL, measured at ~33ms per call. On a hot trading
+// path (one call per snipe/buy/sell) that's pure avoidable latency, not
+// network time. wallet.getSolanaConnection() also returns a fresh
+// Connection object on every call rather than reusing one, so caching by
+// Connection object identity wouldn't hit — cache by rpcEndpoint URL
+// instead, which is what actually determines whether two calls are
+// talking to the same node. (new PumpSdk(), similarly ~19.5ms/call, is
+// avoided entirely below by using the package's own PUMP_SDK singleton —
+// its constructor takes no connection, so there's nothing to key a cache
+// on and no reason not to just reuse the package's instance directly.)
+const onlinePumpSdkCache = new Map<string, OnlinePumpSdk>();
+function getOnlinePumpSdk(connection: Connection): OnlinePumpSdk {
+  const key = connection.rpcEndpoint;
+  let sdk = onlinePumpSdkCache.get(key);
+  if (!sdk) {
+    sdk = new OnlinePumpSdk(connection);
+    onlinePumpSdkCache.set(key, sdk);
+  }
+  return sdk;
+}
+
 async function detectTokenProgram(connection: Connection, mint: PublicKey): Promise<PublicKey> {
   const info = await connection.getAccountInfo(mint);
   if (!info) {
@@ -481,22 +504,36 @@ export async function buildPumpFunTradeInstructions(
     slippagePercent?: number;
   }
 ): Promise<PumpFunTradeInstructionsResult> {
+  // Fail fast on a pure-local validation before spending any RPC round-trips on it.
+  if (params.action === 'sell' && params.denominatedInSol) {
+    // The protocol's sell instruction is always token-amount-denominated;
+    // there's no on-chain-supported "sell enough tokens to net exactly X
+    // SOL" and the SDK doesn't expose an inverse quote for it either.
+    // Every real caller in this codebase sells with denominatedInSol:
+    // false — fail clearly here instead of guessing a conversion.
+    throw new Error('Pump.fun: sell amount must be denominated in tokens (denominatedInSol: false), not SOL');
+  }
+
   const mint = new PublicKey(params.mint);
-  const tokenProgram = await detectTokenProgram(connection, mint);
   const slippage = params.slippagePercent ?? 1;
   const rawAmount = Number(params.amount);
 
-  const onlineSdk = new OnlinePumpSdk(connection);
-  const pumpSdk = new PumpSdk();
+  const onlineSdk = getOnlinePumpSdk(connection);
+  const pumpSdk = PUMP_SDK;
 
-  const [global, feeConfig] = await Promise.all([
-    onlineSdk.fetchGlobal(),
-    onlineSdk.fetchFeeConfig().catch(() => null),
-  ]);
+  // detectTokenProgram must resolve first — fetchBuyState/fetchSellState need
+  // tokenProgram to derive the correct associated-token-account address. But
+  // fetchGlobal/fetchFeeConfig depend on neither tokenProgram nor each other,
+  // so once tokenProgram is known, fire all three remaining RPC calls
+  // together instead of sequentially — one fewer full round-trip of latency
+  // on a path where every millisecond matters for competitive execution.
+  const tokenProgram = await detectTokenProgram(connection, mint);
 
   if (params.action === 'buy') {
-    const { bondingCurveAccountInfo, bondingCurve, associatedUserAccountInfo } =
-      await onlineSdk.fetchBuyState(mint, user, tokenProgram);
+    const [[global, feeConfig], { bondingCurveAccountInfo, bondingCurve, associatedUserAccountInfo }] = await Promise.all([
+      Promise.all([onlineSdk.fetchGlobal(), onlineSdk.fetchFeeConfig().catch(() => null)]),
+      onlineSdk.fetchBuyState(mint, user, tokenProgram),
+    ]);
 
     if (bondingCurve.complete) {
       throw new Error(`Pump.fun: ${params.mint} has graduated to PumpSwap — bonding-curve buy is no longer available for this token`);
@@ -523,16 +560,10 @@ export async function buildPumpFunTradeInstructions(
   }
 
   // sell
-  if (params.denominatedInSol) {
-    // The protocol's sell instruction is always token-amount-denominated;
-    // there's no on-chain-supported "sell enough tokens to net exactly X
-    // SOL" and the SDK doesn't expose an inverse quote for it either.
-    // Every real caller in this codebase sells with denominatedInSol:
-    // false — fail clearly here instead of guessing a conversion.
-    throw new Error('Pump.fun: sell amount must be denominated in tokens (denominatedInSol: false), not SOL');
-  }
-
-  const { bondingCurveAccountInfo, bondingCurve } = await onlineSdk.fetchSellState(mint, user, tokenProgram);
+  const [[global, feeConfig], { bondingCurveAccountInfo, bondingCurve }] = await Promise.all([
+    Promise.all([onlineSdk.fetchGlobal(), onlineSdk.fetchFeeConfig().catch(() => null)]),
+    onlineSdk.fetchSellState(mint, user, tokenProgram),
+  ]);
 
   if (bondingCurve.complete) {
     throw new Error(`Pump.fun: ${params.mint} has graduated to PumpSwap — bonding-curve sell is no longer available for this token`);
@@ -561,13 +592,21 @@ export async function executePumpFunTrade(
 ): Promise<PumpFunTradeResult> {
   assertSupportedPumpPool(params.pool);
 
-  const { instructions, solAmount } = await buildPumpFunTradeInstructions(connection, keypair.publicKey, {
-    mint: params.mint,
-    action: params.action,
-    amount: params.amount,
-    denominatedInSol: params.denominatedInSol,
-    slippagePercent: params.slippageBps !== undefined ? params.slippageBps / 100 : undefined,
-  });
+  // getLatestBlockhash doesn't depend on anything buildPumpFunTradeInstructions
+  // computes (or vice versa) — fire both concurrently instead of paying for
+  // this RPC round-trip only after instruction-building finishes. Blockhash
+  // validity is ~60-90s; shaving tens of ms off time-to-submission by
+  // fetching it earlier is a clear net win, not a meaningful expiry risk.
+  const [{ instructions, solAmount }, { blockhash }] = await Promise.all([
+    buildPumpFunTradeInstructions(connection, keypair.publicKey, {
+      mint: params.mint,
+      action: params.action,
+      amount: params.amount,
+      denominatedInSol: params.denominatedInSol,
+      slippagePercent: params.slippageBps !== undefined ? params.slippageBps / 100 : undefined,
+    }),
+    connection.getLatestBlockhash('confirmed'),
+  ]);
 
   const allInstructions = [...instructions];
   if (params.priorityFeeLamports) {
@@ -579,7 +618,6 @@ export async function executePumpFunTrade(
     );
   }
 
-  const { blockhash } = await connection.getLatestBlockhash('confirmed');
   const message = new TransactionMessage({
     payerKey: keypair.publicKey,
     recentBlockhash: blockhash,
@@ -619,20 +657,22 @@ export async function getPumpFunQuote(params: {
     const connection = params.connection ?? new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
     const mint = new PublicKey(params.mint);
     const tokenProgram = await detectTokenProgram(connection, mint);
-    const onlineSdk = new OnlinePumpSdk(connection);
-
-    const [global, feeConfig] = await Promise.all([
-      onlineSdk.fetchGlobal(),
-      onlineSdk.fetchFeeConfig().catch(() => null),
-    ]);
+    const onlineSdk = getOnlinePumpSdk(connection);
 
     // A throwaway pubkey is fine here — fetchBuyState/fetchSellState only
     // use `user` to derive the caller's own (irrelevant-to-the-quote) ATA.
     const probeUser = PublicKey.default;
     const rawAmount = Number(params.amount);
 
+    // fetchGlobal/fetchFeeConfig depend on neither tokenProgram nor the
+    // bonding-curve fetch below (or each other) — fire all three together.
+    const [global, feeConfig, { bondingCurve }] = await Promise.all([
+      onlineSdk.fetchGlobal(),
+      onlineSdk.fetchFeeConfig().catch(() => null),
+      onlineSdk.fetchBuyState(mint, probeUser, tokenProgram),
+    ]);
+
     if (params.action === 'buy') {
-      const { bondingCurve } = await onlineSdk.fetchBuyState(mint, probeUser, tokenProgram);
       const mintSupply = bondingCurve.isMayhemMode ? global.tokenTotalSupply : ONE_BILLION_SUPPLY;
       const solAmount = new BN(Math.floor(rawAmount * 1e9));
       const tokensOut = getBuyTokenAmountFromSolAmount({ global, feeConfig, mintSupply, bondingCurve, amount: solAmount, quoteMint: PublicKey.default });
@@ -650,11 +690,10 @@ export async function getPumpFunQuote(params: {
       };
     }
 
-    // fetchBuyState (not fetchSellState) is used here even for a sell quote:
-    // it returns the same bondingCurve data without fetchSellState's extra
-    // "associated token account must already exist" requirement, which a
-    // throwaway probe address would never satisfy.
-    const { bondingCurve } = await onlineSdk.fetchBuyState(mint, probeUser, tokenProgram);
+    // sell: bondingCurve was already fetched above via fetchBuyState (not
+    // fetchSellState — it returns the same bondingCurve data without
+    // fetchSellState's extra "associated token account must already exist"
+    // requirement, which a throwaway probe address would never satisfy).
     const mintSupply = bondingCurve.isMayhemMode ? global.tokenTotalSupply : ONE_BILLION_SUPPLY;
     const amount = new BN(Math.floor(rawAmount * 10 ** TOKEN_DECIMALS));
     const solOut = getSellSolAmountFromTokenAmount({ global, feeConfig, mintSupply, bondingCurve, amount });
