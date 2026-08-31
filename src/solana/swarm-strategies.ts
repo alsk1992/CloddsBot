@@ -15,6 +15,8 @@
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 import { generateId as generateSecureId } from '../utils/id';
+import type { DexType } from './swarm-builders';
+import type { ExecutionMode } from './pump-swarm';
 
 // ============================================================================
 // Strategy Types
@@ -62,8 +64,8 @@ export interface StepParams {
   walletIds?: string[];
   slippageBps?: number;
   pool?: 'pump' | 'raydium' | 'auto';
-  executionMode?: 'parallel' | 'bundle' | 'multi-bundle' | 'sequential';
-  dex?: 'pumpfun' | 'bags' | 'meteora' | 'auto';
+  executionMode?: ExecutionMode;
+  dex?: DexType;
   poolAddress?: string;
 }
 
@@ -830,9 +832,9 @@ export interface SwarmTradeParams {
   amountPerWallet: number | string;
   slippageBps?: number;
   pool?: string;
-  executionMode?: string;
+  executionMode?: ExecutionMode;
   walletIds?: string[];
-  dex?: 'pumpfun' | 'bags' | 'meteora' | 'auto';
+  dex?: DexType;
   poolAddress?: string;
 }
 

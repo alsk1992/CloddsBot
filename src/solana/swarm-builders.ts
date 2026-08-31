@@ -16,6 +16,8 @@ import {
   TransactionMessage,
 } from '@solana/web3.js';
 import { buildPumpFunTradeInstructions } from './pumpapi';
+import { findBestPumpSwapState } from './pumpswap';
+import { PUMP_AMM_SDK } from '@pump-fun/pump-swap-sdk';
 
 // ============================================================================
 // Types
@@ -172,6 +174,112 @@ export class PumpFunBuilder implements SwarmTransactionBuilder {
       : Number(quote.outputAmount) / 1e9; // lamports -> SOL
 
     return { inputAmount: amount, outputAmount, route: 'pumpfun' };
+  }
+}
+
+// ============================================================================
+// PumpSwap Builder — for tokens that have graduated off the bonding curve.
+// Built locally via the official @pump-fun/pump-swap-sdk (PUMP_AMM_SDK),
+// same pool-selection logic (findBestPumpSwapState in pumpswap.ts) used by
+// getPumpSwapQuote, so a quote and the trade it's for hit the same pool.
+// ============================================================================
+
+const PUMPSWAP_WSOL_MINT = 'So11111111111111111111111111111111111111112';
+
+export class PumpSwapBuilder implements SwarmTransactionBuilder {
+  name = 'pumpswap';
+  supportedPools = ['pumpswap'];
+
+  private async buildTransaction(
+    connection: Connection,
+    wallet: SwarmWallet,
+    mint: string,
+    amount: number,
+    side: 'buy' | 'sell',
+    options: BuilderOptions
+  ): Promise<VersionedTransaction> {
+    const { PublicKey } = await import('@solana/web3.js');
+    const BN = (await import('bn.js')).default;
+
+    const baseMint = new PublicKey(mint);
+    const quoteMint = new PublicKey(PUMPSWAP_WSOL_MINT);
+    const slippagePercent = options.slippageBps / 100;
+
+    const { state } = await findBestPumpSwapState(connection, baseMint, quoteMint, wallet.keypair.publicKey);
+
+    // buy is quote-denominated (SOL, 9dp), sell is base-denominated (pump.fun token, 6dp) —
+    // same convention as PumpFunBuilder and getPumpSwapQuote.
+    const amountIn = side === 'buy'
+      ? new BN(Math.floor(amount * 1e9))
+      : new BN(Math.floor(amount * 1e6));
+
+    const instructions = side === 'buy'
+      ? await PUMP_AMM_SDK.buyQuoteInput(state, amountIn, slippagePercent)
+      : await PUMP_AMM_SDK.sellBaseInput(state, amountIn, slippagePercent);
+
+    const allInstructions = [...instructions];
+    if (options.priorityFeeLamports) {
+      const computeUnitLimit = 200_000;
+      const microLamports = Math.max(1, Math.floor((options.priorityFeeLamports * 1_000_000) / computeUnitLimit));
+      allInstructions.unshift(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
+      );
+    }
+
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    const message = new TransactionMessage({
+      payerKey: wallet.keypair.publicKey,
+      recentBlockhash: blockhash,
+      instructions: allInstructions,
+    }).compileToV0Message();
+
+    return new VersionedTransaction(message);
+  }
+
+  async buildBuyTransaction(
+    connection: Connection,
+    wallet: SwarmWallet,
+    mint: string,
+    amountSol: number,
+    options: BuilderOptions
+  ): Promise<VersionedTransaction> {
+    return this.buildTransaction(connection, wallet, mint, amountSol, 'buy', options);
+  }
+
+  async buildSellTransaction(
+    connection: Connection,
+    wallet: SwarmWallet,
+    mint: string,
+    tokenAmount: number,
+    options: BuilderOptions
+  ): Promise<VersionedTransaction> {
+    return this.buildTransaction(connection, wallet, mint, tokenAmount, 'sell', options);
+  }
+
+  async getQuote(
+    connection: Connection,
+    mint: string,
+    amount: number,
+    isBuy: boolean,
+    _options?: Partial<BuilderOptions>
+  ): Promise<SwarmQuote> {
+    const { getPumpSwapQuote } = await import('./pumpswap');
+    const BN = (await import('bn.js')).default;
+    const rawAmountIn = isBuy ? Math.floor(amount * 1e9) : Math.floor(amount * 1e6);
+
+    const quote = await getPumpSwapQuote({
+      connection,
+      mint,
+      side: isBuy ? 'buy' : 'sell',
+      amountIn: new BN(rawAmountIn).toString(),
+    });
+
+    const outputAmount = isBuy
+      ? Number(quote.amountOut) / 1e6 // tokens, 6dp
+      : Number(quote.amountOut) / 1e9; // lamports -> SOL
+
+    return { inputAmount: amount, outputAmount, route: 'pumpswap' };
   }
 }
 
@@ -506,12 +614,13 @@ export class MeteoraBuilder implements SwarmTransactionBuilder {
 // Builder Registry
 // ============================================================================
 
-export type DexType = 'pumpfun' | 'bags' | 'meteora' | 'auto';
+export type DexType = 'pumpfun' | 'pumpswap' | 'bags' | 'meteora' | 'auto';
 
 const builders = new Map<string, SwarmTransactionBuilder>();
 
 // Initialize default builders
 builders.set('pumpfun', new PumpFunBuilder());
+builders.set('pumpswap', new PumpSwapBuilder());
 builders.set('bags', new BagsBuilder());
 builders.set('meteora', new MeteoraBuilder());
 
@@ -523,7 +632,7 @@ export function getBuilder(dex: DexType): SwarmTransactionBuilder {
 
   const builder = builders.get(dex);
   if (!builder) {
-    throw new Error(`Unknown DEX: ${dex}. Supported: pumpfun, bags, meteora`);
+    throw new Error(`Unknown DEX: ${dex}. Supported: pumpfun, pumpswap, bags, meteora`);
   }
   return builder;
 }

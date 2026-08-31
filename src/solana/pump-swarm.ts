@@ -65,7 +65,7 @@ export interface SwarmTradeParams {
   pool?: string;
   executionMode?: ExecutionMode; // User can specify
   walletIds?: string[];
-  dex?: 'pumpfun' | 'bags' | 'meteora' | 'auto'; // DEX to use (default: pumpfun)
+  dex?: DexType; // DEX to use (default: pumpfun)
   poolAddress?: string; // Specific pool address (for Meteora)
 }
 

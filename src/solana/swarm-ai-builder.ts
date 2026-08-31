@@ -153,6 +153,7 @@ const INTENT_KEYWORDS: Record<IntentType, string[]> = {
 // DEX keywords
 const DEX_KEYWORDS: Record<DexType, string[]> = {
   pumpfun: ['pump', 'pumpfun', 'pump.fun'],
+  pumpswap: ['pumpswap', 'pump swap', 'pump amm', 'graduated'],
   bags: ['bags', 'bags.fm'],
   meteora: ['meteora', 'dlmm'],
   auto: ['auto', 'best', 'any'],
