@@ -17,14 +17,24 @@
  * the highest-liquidity match, the same pattern used for Orca/Raydium/
  * Meteora in pools.ts.
  */
-import { Connection, PublicKey, SystemProgram } from '@solana/web3.js';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  ComputeBudgetProgram,
+  TransactionMessage,
+  VersionedTransaction,
+} from '@solana/web3.js';
 import BN from 'bn.js';
 import {
   OnlinePumpAmmSdk,
+  PUMP_AMM_SDK,
   buyQuoteInput,
   sellBaseInput,
   PUMP_AMM_PROGRAM_ID,
 } from '@pump-fun/pump-swap-sdk';
+import { signAndSendTransaction } from './wallet';
 
 export { PUMP_AMM_PROGRAM_ID };
 
@@ -92,14 +102,18 @@ export async function findPumpSwapPools(
 }
 
 /**
- * Quote a PumpSwap trade using real on-chain reserves and fee config,
- * searching for the highest-liquidity pool for the mint pair.
+ * Find the highest-liquidity PumpSwap pool for a mint pair and fetch its
+ * live on-chain swap state for the given user. Shared by getPumpSwapQuote
+ * (user is an inert placeholder — no accounts need to exist for a quote)
+ * and executePumpSwapTrade (user is the real trading wallet — its ATAs get
+ * created/wrapped/closed as needed by the instruction builder).
  */
-export async function getPumpSwapQuote(params: PumpSwapQuoteParams): Promise<PumpSwapQuote> {
-  const { connection, mint, quoteMint, side, amountIn, slippageBps = 50 } = params;
-  const baseMint = new PublicKey(mint);
-  const quoteMintKey = new PublicKey(quoteMint ?? WSOL_MINT);
-
+export async function findBestPumpSwapState(
+  connection: Connection,
+  baseMint: PublicKey,
+  quoteMintKey: PublicKey,
+  user: PublicKey
+): Promise<{ poolKey: PublicKey; state: Awaited<ReturnType<OnlinePumpAmmSdk['swapSolanaState']>> }> {
   const candidates = await findPumpSwapPools(connection, baseMint, quoteMintKey);
   if (candidates.length === 0) {
     throw new Error(`No PumpSwap pool found for ${baseMint.toBase58()}/${quoteMintKey.toBase58()}`);
@@ -109,9 +123,9 @@ export async function getPumpSwapQuote(params: PumpSwapQuoteParams): Promise<Pum
   const states = await Promise.all(
     candidates.slice(0, MAX_POOL_CANDIDATES).map(async (poolKey) => {
       try {
-        return { poolKey, state: await onlineSdk.swapSolanaState(poolKey, QUOTE_ONLY_USER) };
+        return { poolKey, state: await onlineSdk.swapSolanaState(poolKey, user) };
       } catch {
-        return null; // a stale/malformed pool account shouldn't fail the whole quote
+        return null; // a stale/malformed pool account shouldn't fail the whole lookup
       }
     })
   );
@@ -123,7 +137,19 @@ export async function getPumpSwapQuote(params: PumpSwapQuoteParams): Promise<Pum
     throw new Error(`All ${candidates.length} PumpSwap pool candidates for ${baseMint.toBase58()} failed to load`);
   }
 
-  const { poolKey, state } = best;
+  return best;
+}
+
+/**
+ * Quote a PumpSwap trade using real on-chain reserves and fee config,
+ * searching for the highest-liquidity pool for the mint pair.
+ */
+export async function getPumpSwapQuote(params: PumpSwapQuoteParams): Promise<PumpSwapQuote> {
+  const { connection, mint, quoteMint, side, amountIn, slippageBps = 50 } = params;
+  const baseMint = new PublicKey(mint);
+  const quoteMintKey = new PublicKey(quoteMint ?? WSOL_MINT);
+
+  const { poolKey, state } = await findBestPumpSwapState(connection, baseMint, quoteMintKey, QUOTE_ONLY_USER);
   const slippagePercent = slippageBps / 100;
 
   if (side === 'buy') {
@@ -171,4 +197,78 @@ export async function getPumpSwapQuote(params: PumpSwapQuoteParams): Promise<Pum
     poolBaseReserve: state.poolBaseAmount.toString(),
     poolQuoteReserve: state.poolQuoteAmount.toString(),
   };
+}
+
+// ============================================================================
+// Trading
+// ============================================================================
+
+export interface PumpSwapTradeParams {
+  mint: string;
+  quoteMint?: string;
+  side: 'buy' | 'sell';
+  /** Raw amount in, in the input token's smallest unit (quote for buy, base for sell — same convention as getPumpSwapQuote). */
+  amountIn: string;
+  slippageBps?: number;
+  priorityFeeLamports?: number;
+}
+
+export interface PumpSwapTradeResult {
+  success: boolean;
+  txHash?: string;
+  poolAddress?: string;
+  amountOut?: string;
+  error?: string;
+}
+
+/**
+ * Execute a buy or sell on a graduated pump.fun token's PumpSwap pool.
+ * Builds and signs instructions locally via the official
+ * @pump-fun/pump-swap-sdk's PumpAmmSdk — same on-chain-state-driven pool
+ * selection as getPumpSwapQuote, so the executed trade routes to the same
+ * pool a caller would have quoted against. Native SOL wrapping/unwrapping
+ * and ATA creation are handled by the SDK's own instruction builder.
+ */
+export async function executePumpSwapTrade(
+  connection: Connection,
+  keypair: Keypair,
+  params: PumpSwapTradeParams
+): Promise<PumpSwapTradeResult> {
+  try {
+    const baseMint = new PublicKey(params.mint);
+    const quoteMintKey = new PublicKey(params.quoteMint ?? WSOL_MINT);
+    const slippageBps = params.slippageBps ?? 50;
+    const slippagePercent = slippageBps / 100;
+    const amountIn = new BN(params.amountIn);
+
+    const { poolKey, state } = await findBestPumpSwapState(connection, baseMint, quoteMintKey, keypair.publicKey);
+
+    const instructions = params.side === 'buy'
+      ? await PUMP_AMM_SDK.buyQuoteInput(state, amountIn, slippagePercent)
+      : await PUMP_AMM_SDK.sellBaseInput(state, amountIn, slippagePercent);
+
+    const allInstructions = [...instructions];
+    if (params.priorityFeeLamports) {
+      const computeUnitLimit = 200_000;
+      const microLamports = Math.max(1, Math.floor((params.priorityFeeLamports * 1_000_000) / computeUnitLimit));
+      allInstructions.unshift(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports })
+      );
+    }
+
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    const message = new TransactionMessage({
+      payerKey: keypair.publicKey,
+      recentBlockhash: blockhash,
+      instructions: allInstructions,
+    }).compileToV0Message();
+    const tx = new VersionedTransaction(message);
+
+    const signature = await signAndSendTransaction(connection, keypair, tx);
+
+    return { success: true, txHash: signature, poolAddress: poolKey.toBase58() };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
