@@ -446,8 +446,15 @@ export async function getDbcPoolStatus(
   }
 
   const poolAddress = poolAccount.publicKey.toBase58();
-  const pool = poolAccount.account;
-  const configPk = (pool as any).config || (pool as any).poolConfig;
+  // poolAccount.account is NOT the flat VirtualPool struct — it's
+  // { poolState: VirtualPool }. Verified live against a real mainnet pool
+  // (client.state.getPool/.getPoolByBaseMint both return this same
+  // wrapper): pool.config/.creator/.migrated/.quoteReserve are all
+  // undefined at the top level, so every field below was silently
+  // returning its fallback default (empty string / false / '0') for
+  // EVERY pool, real or not, regardless of actual on-chain state.
+  const pool = poolAccount.account.poolState;
+  const configPk = pool.config;
 
   let progress = 0;
   try {
@@ -465,8 +472,8 @@ export async function getDbcPoolStatus(
     };
   } catch { /* fee metrics may fail for fresh pools */ }
 
-  const isMigrated = (pool as any).migrated ?? false;
-  const quoteReserve = ((pool as any).quoteReserve || (pool as any).totalQuoteReserve || new BN(0)).toString();
+  const isMigrated = pool.isMigrated ?? false;
+  const quoteReserve = (pool.quoteReserve ?? new BN(0)).toString();
 
   let migrationThreshold = '0';
   try {
@@ -478,8 +485,8 @@ export async function getDbcPoolStatus(
     found: true,
     poolAddress,
     baseMint,
-    configAddress: configPk ? (configPk.toBase58 ? configPk.toBase58() : String(configPk)) : '',
-    creator: (pool as any).creator ? ((pool as any).creator.toBase58 ? (pool as any).creator.toBase58() : String((pool as any).creator)) : '',
+    configAddress: configPk ? configPk.toBase58() : '',
+    creator: pool.creator ? pool.creator.toBase58() : '',
     isMigrated,
     quoteReserve,
     migrationThreshold,
@@ -529,9 +536,22 @@ export async function getDbcSwapQuote(
   const client = await getDbcClient(connection);
 
   const poolAddress = new PublicKey(params.poolAddress);
-  const pool = await client.state.getPool(poolAddress);
-  const configPk = (pool as any).config || (pool as any).poolConfig;
-  const config = await client.state.getPoolConfig(configPk);
+  // client.state.getPool() returns { poolState: VirtualPool }, not a flat
+  // VirtualPool — verified live against a real mainnet pool. The old
+  // (pool as any).config || (pool as any).poolConfig fallback always
+  // resolved to undefined (neither field exists on the wrapper), so
+  // getPoolConfig(undefined) was being called on every invocation.
+  //
+  // swapQuote()'s `virtualPool` param, despite its .d.ts type reading as a
+  // flat VirtualPool, is dereferenced internally as `virtualPool.poolState.*`
+  // (confirmed by reading the shipped dist/index.js — getSwapResult() reads
+  // virtualPool.poolState.sqrtPrice/.volatilityTracker/.activationPoint) —
+  // it wants the SAME wrapper client.state.getPool() returns, unwrapped.
+  // Passing the unwrapped pool here throws "Cannot read properties of
+  // undefined (reading 'quoteReserve')". Only field-level reads (like in
+  // getDbcPoolStatus) want the unwrapped .poolState.
+  const wrapper = await client.state.getPool(poolAddress);
+  const config = await client.state.getPoolConfig(wrapper.poolState.config);
 
   const getCurrentPointFn = sdk.getCurrentPoint;
   const ActivationType = sdk.ActivationType;
@@ -543,7 +563,7 @@ export async function getDbcSwapQuote(
   }
 
   const quoteResult = client.pool.swapQuote({
-    virtualPool: pool,
+    virtualPool: wrapper,
     config,
     swapBaseForQuote: params.swapBaseForQuote,
     amountIn: new BN(params.amountIn),
@@ -992,9 +1012,13 @@ export async function getDbcSwapQuoteV2(
 
   const SwapMode = sdk.SwapMode;
   const poolAddress = new PublicKey(params.poolAddress);
-  const pool = await client.state.getPool(poolAddress);
-  const configPk = (pool as any).config || (pool as any).poolConfig;
-  const config = await client.state.getPoolConfig(configPk);
+  // See getDbcSwapQuote above — getPool() returns { poolState: VirtualPool },
+  // not a flat VirtualPool; the old fallback chain always resolved to
+  // undefined here too. swapQuote2()'s virtualPool param also wants the
+  // wrapper itself (dereferenced internally as virtualPool.poolState.*),
+  // same as swapQuote() — confirmed by reading dist/index.js.
+  const wrapper = await client.state.getPool(poolAddress);
+  const config = await client.state.getPoolConfig(wrapper.poolState.config);
 
   const getCurrentPointFn = sdk.getCurrentPoint;
   const ActivationType = sdk.ActivationType;
@@ -1007,7 +1031,7 @@ export async function getDbcSwapQuoteV2(
 
   let quoteParams: any;
   const base = {
-    virtualPool: pool,
+    virtualPool: wrapper,
     config,
     swapBaseForQuote: params.swapBaseForQuote,
     hasReferral: false,
@@ -1255,16 +1279,22 @@ export async function claimDbcCreatorFeesV2(
 
 /**
  * Get all DBC pool configs.
+ *
+ * DELIBERATELY DISABLED — same failure class as getDbcPools() below.
+ * Verified live: client.state.getPoolConfigs() (unfiltered) did not return
+ * within 30s against mainnet, consistent with the same unpaginated
+ * unfiltered-fetch problem that crashes getDbcPools() outright. Configs are
+ * created less often than pools so this may only hang rather than crash,
+ * but there's no reason to risk either — use getDbcPoolConfigsByOwner
+ * instead.
  */
 export async function getDbcPoolConfigs(
-  connection: Connection
+  _connection: Connection
 ): Promise<Array<{ address: string; config: any }>> {
-  const client = await getDbcClient(connection);
-  const configs = await client.state.getPoolConfigs();
-  return configs.map((c: any) => ({
-    address: c.publicKey.toBase58(),
-    config: c.account,
-  }));
+  throw new Error(
+    'getDbcPoolConfigs() is unfiltered and did not return within 30s against live mainnet in testing (same class of problem as the crash getDbcPools() is guarded against). ' +
+    'Use getDbcPoolConfigsByOwner(connection, owner) instead.'
+  );
 }
 
 /**
@@ -1313,9 +1343,13 @@ export async function getDbcPoolsByConfig(
 ): Promise<Array<{ address: string; pool: any }>> {
   const client = await getDbcClient(connection);
   const pools = await client.state.getPoolsByConfig(configAddress);
+  // p.account is { poolState: VirtualPool }, not a flat VirtualPool —
+  // verified live (same wrapper as getPoolByBaseMint/getPool, see
+  // getDbcPoolStatus above). Unwrapped here so callers get the actual
+  // pool fields directly instead of a wrapper they'd need to know about.
   return pools.map((p: any) => ({
     address: p.publicKey.toBase58(),
-    pool: p.account,
+    pool: p.account.poolState,
   }));
 }
 
@@ -1328,9 +1362,10 @@ export async function getDbcPoolsByCreator(
 ): Promise<Array<{ address: string; pool: any }>> {
   const client = await getDbcClient(connection);
   const pools = await client.state.getPoolsByCreator(creator);
+  // See getDbcPoolsByConfig above — p.account is { poolState: VirtualPool }.
   return pools.map((p: any) => ({
     address: p.publicKey.toBase58(),
-    pool: p.account,
+    pool: p.account.poolState,
   }));
 }
 
