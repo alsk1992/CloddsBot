@@ -310,7 +310,7 @@ export async function getTokenPriceInfo(
  * is market-cap-tiered, not a flat rate, and can vary per token. Measured
  * live at 100bps total (95bps protocol + 5bps creator) for one real token
  * during development, but do not treat that as a fixed constant either.
- * getPumpPortalQuote / buildPumpFunTradeInstructions in this same file
+ * getPumpFunQuote / buildPumpFunTradeInstructions in this same file
  * compute the actual fee-tier-aware quote via the official SDK and are what
  * actual trade execution relies on — use this only for a fast
  * instant-display estimate where an RPC call isn't worth the latency.
@@ -413,7 +413,7 @@ export function calculateSolForTokens(
 // ============================================================================
 //
 // Builds and signs bonding-curve buy/sell instructions entirely locally
-// against the on-chain Pump program — no third-party API (PumpPortal) is
+// against the on-chain Pump program — no third-party relay API is
 // involved in constructing or relaying the transaction. Verified against
 // live mainnet during development: fetches the real Global/FeeConfig
 // accounts (fee-tier-aware, not a hardcoded flat rate), detects Token-2022
@@ -429,6 +429,28 @@ async function detectTokenProgram(connection: Connection, mint: PublicKey): Prom
     throw new Error(`Pump.fun: mint account not found: ${mint.toBase58()}`);
   }
   return info.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+}
+
+/**
+ * PumpPortal's `pool` param used to route trades across other DEXes
+ * entirely (raydium, launchlab, raydium-cpmm, bonk) via its own
+ * aggregation, not just Pump's bonding curve — a caller passing
+ * pool: 'raydium' actually traded on Raydium through PumpPortal's relay.
+ * This codebase's local instruction builder only knows the Pump bonding
+ * curve program (and, separately, PumpSwap for graduated tokens via
+ * pumpswap.ts) — it has no equivalent multi-DEX routing. Silently
+ * ignoring an unsupported pool value would execute a materially
+ * different trade than requested, so this fails loudly instead. Use the
+ * dedicated raydium.ts/meteora.ts/etc. integrations directly for
+ * non-Pump.fun DEXes.
+ */
+export function assertSupportedPumpPool(pool: string | undefined): void {
+  if (pool !== undefined && pool !== 'pump' && pool !== 'auto') {
+    throw new Error(
+      `Pump.fun: pool "${pool}" is not supported here — this codebase trades directly against the Pump bonding curve program (and PumpSwap for graduated tokens via pumpswap.ts/PumpSwapBuilder), not through a multi-DEX relay. ` +
+      'For raydium/launchlab/raydium-cpmm/bonk, use the dedicated integration for that DEX instead.'
+    );
+  }
 }
 
 export interface PumpFunTradeInstructionsResult {
@@ -537,6 +559,8 @@ export async function executePumpFunTrade(
   keypair: Keypair,
   params: PumpFunTradeParams
 ): Promise<PumpFunTradeResult> {
+  assertSupportedPumpPool(params.pool);
+
   const { instructions, solAmount } = await buildPumpFunTradeInstructions(connection, keypair.publicKey, {
     mint: params.mint,
     action: params.action,
@@ -569,10 +593,10 @@ export async function executePumpFunTrade(
 }
 
 // ============================================================================
-// Local quote (was: PumpPortal quote endpoint)
+// Local quote
 // ============================================================================
 
-export interface PumpPortalQuote {
+export interface PumpFunQuote {
   inputAmount: string;
   outputAmount: string;
   fee: string;
@@ -583,14 +607,15 @@ export interface PumpPortalQuote {
  * Get a buy/sell quote computed locally via the official SDK's fee-tier-aware
  * bonding-curve math (no network call to any third-party quote API).
  */
-export async function getPumpPortalQuote(params: {
+export async function getPumpFunQuote(params: {
   mint: string;
   action: 'buy' | 'sell';
   amount: string;
   pool?: string;
   connection?: Connection;
-}): Promise<PumpPortalQuote | null> {
+}): Promise<PumpFunQuote | null> {
   try {
+    assertSupportedPumpPool(params.pool);
     const connection = params.connection ?? new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
     const mint = new PublicKey(params.mint);
     const tokenProgram = await detectTokenProgram(connection, mint);

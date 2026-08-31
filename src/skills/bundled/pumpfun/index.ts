@@ -3,8 +3,10 @@
  *
  * Solana memecoin launchpad with bonding curve trading.
  *
- * Trading API: PumpPortal (pumpportal.fun)
- * Data API: PumpPortal WebSocket + Pump.fun Frontend API
+ * Trading API: official @pump-fun/pump-sdk — instructions built and signed
+ * locally, no third-party trade relay.
+ * Data API: Pump.fun Frontend API (discovery/stats) + on-chain onLogs
+ * (real-time watch).
  *
  * Commands:
  *
@@ -37,15 +39,14 @@
  * /pump chart <mint> [--interval 1m|5m|15m|1h|4h|1d] - Price chart data
  *
  * CREATION:
- * /pump create <name> <symbol> <description> [--image <url>] [--twitter <url>]
- * /pump claim <mint> - Claim creator fees
+ * /pump create <name> <symbol> <metadata-uri> [--initial <SOL>] - metadata-uri must already be hosted (IPFS/Arweave/etc)
+ * /pump claim - Claim all accumulated creator fees for this wallet
  *
  * MONITORING:
- * /pump watch <mint> - Watch token for trades (WebSocket)
- * /pump snipe <symbol> - Wait for token with symbol to launch
+ * /pump watch <mint> [--seconds N] - Watch for real trades on-chain (bounded window)
+ * /pump snipe - Not an auto-trading command; see pump-swarm skill / copytrade.ts
  */
 
-const PUMPPORTAL_API = 'https://pumpportal.fun/api';
 const PUMPFUN_FRONTEND_API = 'https://frontend-api-v3.pump.fun';
 const PUMPFUN_ADVANCED_API = 'https://advanced-api-v2.pump.fun';
 
@@ -114,27 +115,6 @@ function getSolanaModules() {
 
 function isConfigured(): boolean {
   return !!(process.env.SOLANA_PRIVATE_KEY || process.env.SOLANA_KEYPAIR_PATH);
-}
-
-async function pumpPortalRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const apiKey = process.env.PUMPPORTAL_API_KEY;
-  const separator = endpoint.includes('?') ? '&' : '?';
-  const url = apiKey ? `${PUMPPORTAL_API}${endpoint}${separator}api-key=${apiKey}` : `${PUMPPORTAL_API}${endpoint}`;
-
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PumpPortal error: ${response.status} - ${error}`);
-  }
-
-  return response.json() as Promise<T>;
 }
 
 async function pumpFrontendRequest<T>(endpoint: string, baseUrl: string = PUMPFUN_FRONTEND_API): Promise<T> {
@@ -209,7 +189,7 @@ async function handleBuy(args: string[]): Promise<string> {
     return `Usage: /pump buy <mint> <amount> [options]
 
 Options:
-  --pool <pool>       Pool: pump, raydium, pump-amm, launchlab, raydium-cpmm, bonk, auto (default: pump)
+  --pool <pool>       Pool: pump, auto (default: pump) — for graduated tokens use the separate PumpSwap path
   --slippage <bps>    Slippage in bps (default: 500 = 5%)
   --priority <lamps>  Priority fee in lamports
 
@@ -275,7 +255,7 @@ Amount can be:
   - Percentage: 50% or 100%
 
 Options:
-  --pool <pool>       Pool: pump, raydium, pump-amm, launchlab, raydium-cpmm, bonk, auto (default: pump)
+  --pool <pool>       Pool: pump, auto (default: pump) — for graduated tokens use the separate PumpSwap path
   --slippage <bps>    Slippage in bps (default: 1000 = 10%)
 
 Examples:
@@ -1341,6 +1321,11 @@ Returns: metadataUri for use in token creation`;
   }
 
   try {
+    // NOTE: verified during a separate audit that pump.fun's own IPFS
+    // upload API is Cloudflare-gated against server-side/bot requests
+    // (same protection as their trading frontend API) — this call may 403
+    // in a headless environment. handleCreate no longer depends on this;
+    // pass an already-hosted metadata_uri there instead if this fails.
     const formData = new FormData();
     formData.append('name', name);
     formData.append('symbol', symbol);
@@ -1428,145 +1413,90 @@ async function handleCreate(args: string[]): Promise<string> {
   }
 
   if (args.length < 3) {
-    return `Usage: /pump create <name> <symbol> <description> [options]
+    return `Usage: /pump create <name> <symbol> <metadata-uri> [options]
+
+metadata-uri must point to already-hosted JSON metadata (pin it via IPFS,
+Arweave, or any host first) matching pump.fun's expected shape:
+{ name, symbol, description, image, twitter, telegram, website, showName }.
+This command builds and signs the create transaction locally — it does not
+upload metadata for you (pump.fun's own upload API blocks server-side/bot
+requests, so there's no reliable official endpoint to depend on for that).
 
 Options:
-  --image <url>      Token image URL
-  --twitter <url>    Twitter link
-  --telegram <url>   Telegram link
-  --website <url>    Website link
   --initial <SOL>    Initial buy amount (default: 0)
-  --slippage <pct>   Slippage percent (default: 10)
-  --priority <SOL>   Priority fee in SOL (default: 0.0005)
 
 Example:
-  /pump create "Moon Dog" MDOG "The moon-bound dog" --image https://i.imgur.com/abc.png --initial 0.5`;
+  /pump create "Moon Dog" MDOG https://ipfs.io/ipfs/Qm... --initial 0.5`;
   }
 
   const name = args[0];
   const symbol = args[1];
-  const description = args[2];
+  const metadataUri = args[2];
 
-  let imageUrl: string | undefined;
-  let twitter: string | undefined;
-  let telegram: string | undefined;
-  let website: string | undefined;
-  let initialBuy = 0;
-  let slippage = 10;
-  let priorityFee = 0.0005;
+  let initialBuySol = 0;
 
   for (let i = 3; i < args.length; i++) {
-    if (args[i] === '--image' && args[i + 1]) { imageUrl = args[++i]; }
-    else if (args[i] === '--twitter' && args[i + 1]) { twitter = args[++i]; }
-    else if (args[i] === '--telegram' && args[i + 1]) { telegram = args[++i]; }
-    else if (args[i] === '--website' && args[i + 1]) { website = args[++i]; }
-    else if (args[i] === '--initial' && args[i + 1]) { initialBuy = parseFloat(args[++i]); }
-    else if (args[i] === '--slippage' && args[i + 1]) { slippage = parseInt(args[++i], 10); }
-    else if (args[i] === '--priority' && args[i + 1]) { priorityFee = parseFloat(args[++i]); }
+    if (args[i] === '--initial' && args[i + 1]) { initialBuySol = parseFloat(args[++i]); }
   }
 
   try {
     const { wallet } = await getSolanaModules();
     const walletKeypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
-    const { Keypair, VersionedTransaction } = await import('@solana/web3.js');
 
-    // Step 1: Upload metadata to IPFS
-    const formData = new FormData();
-    formData.append('name', name);
-    formData.append('symbol', symbol);
-    formData.append('description', description);
-    if (twitter) formData.append('twitter', twitter);
-    if (telegram) formData.append('telegram', telegram);
-    if (website) formData.append('website', website);
-    formData.append('showName', 'true');
+    const { PumpSdk, OnlinePumpSdk, getBuyTokenAmountFromSolAmount } = await import('@pump-fun/pump-sdk');
+    const { Keypair, PublicKey, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
+    const BN = (await import('bn.js')).default;
 
-    if (imageUrl) {
-      const imgResponse = await fetch(imageUrl);
-      if (imgResponse.ok) {
-        const blob = await imgResponse.blob();
-        formData.append('file', blob, 'image.png');
-      } else {
-        return `Failed to download image from ${imageUrl}`;
-      }
-    }
-
-    const ipfsResponse = await fetch('https://pump.fun/api/ipfs', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!ipfsResponse.ok) {
-      throw new Error(`IPFS upload failed: ${ipfsResponse.status} - ${await ipfsResponse.text()}`);
-    }
-
-    const ipfsResult = await ipfsResponse.json() as { metadataUri: string };
-    if (!ipfsResult.metadataUri) {
-      throw new Error('IPFS upload returned no metadataUri');
-    }
-
-    // Step 2: Generate a new mint keypair
     const mintKeypair = Keypair.generate();
+    const pumpSdk = new PumpSdk();
+    const onlineSdk = new OnlinePumpSdk(connection);
+    const global = await onlineSdk.fetchGlobal();
 
-    // Step 3: Create token via PumpPortal trade-local endpoint
-    const endpoint = process.env.PUMPFUN_LOCAL_TX_URL || 'https://pumpportal.fun/api/trade-local';
-
-    const createBody = {
-      publicKey: walletKeypair.publicKey.toBase58(),
-      action: 'create',
-      tokenMetadata: {
-        name,
-        symbol,
-        uri: ipfsResult.metadataUri,
-      },
-      mint: mintKeypair.publicKey.toBase58(),
-      denominatedInSol: 'true',
-      amount: initialBuy,
-      slippage,
-      priorityFee,
-      pool: 'pump',
-    };
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createBody),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`PumpPortal create error: ${response.status} - ${errorText}`);
+    let instructions;
+    if (initialBuySol > 0) {
+      const solAmount = new BN(Math.floor(initialBuySol * 1e9));
+      const amount = getBuyTokenAmountFromSolAmount({
+        global, feeConfig: null, mintSupply: null, bondingCurve: null, amount: solAmount, quoteMint: PublicKey.default,
+      });
+      instructions = await pumpSdk.createAndBuyInstructions({
+        global, mint: mintKeypair.publicKey, name, symbol, uri: metadataUri,
+        creator: walletKeypair.publicKey, user: walletKeypair.publicKey, amount, solAmount,
+      });
+    } else {
+      instructions = [await pumpSdk.createInstruction({
+        mint: mintKeypair.publicKey, name, symbol, uri: metadataUri, creator: walletKeypair.publicKey, user: walletKeypair.publicKey,
+      })];
     }
 
-    // Step 4: Deserialize, sign with BOTH keypairs, and send
-    const txBytes = new Uint8Array(await response.arrayBuffer());
-    const tx = VersionedTransaction.deserialize(txBytes);
-    tx.sign([mintKeypair, walletKeypair]);
-    const signature = await connection.sendRawTransaction(tx.serialize());
-    await connection.confirmTransaction(signature, 'confirmed');
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    const message = new TransactionMessage({
+      payerKey: walletKeypair.publicKey, recentBlockhash: blockhash, instructions,
+    }).compileToV0Message();
+    const tx = new VersionedTransaction(message);
+    tx.sign([walletKeypair, mintKeypair]); // the new mint account must co-sign its own creation
+
+    const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
 
     return `**Token Created!**
 
 Name: ${name}
 Symbol: ${symbol}
 Mint: \`${mintKeypair.publicKey.toBase58()}\`
-Metadata: \`${ipfsResult.metadataUri}\`
+Metadata: \`${metadataUri}\`
 TX: \`${signature}\`
 
 Your token is now live on pump.fun!
-${initialBuy > 0 ? `Initial buy: ${initialBuy} SOL` : 'No initial buy.'}`;
+${initialBuySol > 0 ? `Initial buy: ${initialBuySol} SOL` : 'No initial buy.'}`;
   } catch (error) {
     return `Creation failed: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
-async function handleClaim(mint: string): Promise<string> {
+async function handleClaim(): Promise<string> {
   if (!isConfigured()) {
     return 'Pump.fun not configured. Set SOLANA_PRIVATE_KEY.';
-  }
-
-  if (!mint) {
-    return 'Usage: /pump claim <mint>';
   }
 
   try {
@@ -1574,44 +1504,27 @@ async function handleClaim(mint: string): Promise<string> {
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
 
-    // Try PumpPortal claim-fees endpoint (undocumented — may not exist)
-    const endpoint = process.env.PUMPFUN_LOCAL_TX_URL || 'https://pumpportal.fun/api/trade-local';
+    const { OnlinePumpSdk } = await import('@pump-fun/pump-sdk');
+    const { TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        publicKey: keypair.publicKey.toBase58(),
-        action: 'claim',
-        mint,
-      }),
-    });
+    const onlineSdk = new OnlinePumpSdk(connection);
+    const instructions = await onlineSdk.collectCoinCreatorFeeInstructions(keypair.publicKey);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      // If endpoint doesn't support claim action, provide guidance
-      if (response.status === 400 || response.status === 404) {
-        return `**Claim Fees**
-
-Creator fee claiming may not be supported via API.
-Visit https://pump.fun to claim fees for token:
-\`${mint}\`
-
-Alternatively, use the Pump.fun program directly via Solana CLI.`;
-      }
-      throw new Error(`Claim error: ${response.status} - ${errorText}`);
-    }
-
-    const txBytes = new Uint8Array(await response.arrayBuffer());
-    const { VersionedTransaction } = await import('@solana/web3.js');
-    const tx = VersionedTransaction.deserialize(txBytes);
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    const message = new TransactionMessage({
+      payerKey: keypair.publicKey, recentBlockhash: blockhash, instructions,
+    }).compileToV0Message();
+    const tx = new VersionedTransaction(message);
     tx.sign([keypair]);
-    const signature = await connection.sendRawTransaction(tx.serialize());
-    await connection.confirmTransaction(signature, 'confirmed');
+
+    const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
 
     return `**Fees Claimed**
 
-Token: \`${mint.slice(0, 20)}...\`
+Claims ALL accumulated creator fees for this wallet across every token it
+created (bonding-curve and PumpSwap combined) — the on-chain vault is keyed
+by creator address, not by mint.
 TX: \`${signature}\``;
   } catch (error) {
     return `Claim failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -1622,42 +1535,72 @@ TX: \`${signature}\``;
 // Monitoring Handlers
 // ============================================================================
 
-async function handleWatch(mint: string): Promise<string> {
+/**
+ * Real (not instructional-text) monitoring: subscribes to the bonding
+ * curve's own on-chain logs via connection.onLogs for a bounded window,
+ * then reports what it saw. Bounded because this command is one-shot
+ * request/response, not a persistent process — for actual continuous
+ * real-time monitoring or auto-execution, use the pump-swarm skill or
+ * src/solana/copytrade.ts, which are built as long-running processes.
+ */
+async function handleWatch(args: string[]): Promise<string> {
+  const mint = args[0];
   if (!mint) {
-    return 'Usage: /pump watch <mint>\n\nStarts WebSocket subscription for real-time trades.';
+    return 'Usage: /pump watch <mint> [--seconds N]\n\nListens for real trades on this token\'s bonding curve for a bounded window (default 20s, max 60s) and reports what happened.';
   }
 
-  return `**Watching Token**
+  let seconds = 20;
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--seconds' && args[i + 1]) {
+      seconds = Math.min(60, Math.max(1, parseInt(args[++i], 10) || 20));
+    }
+  }
 
-Mint: \`${mint}\`
+  try {
+    const { wallet, pumpapi } = await getSolanaModules();
+    const { PublicKey } = await import('@solana/web3.js');
+    const connection = wallet.getSolanaConnection();
+    const bondingCurve = pumpapi.getBondingCurveAddress(new PublicKey(mint));
 
-To monitor trades in real-time, connect to:
-\`wss://pumpportal.fun/api/data\`
+    const events: string[] = [];
+    const subId = connection.onLogs(
+      bondingCurve,
+      (logs) => {
+        if (logs.err) return;
+        const isBuy = logs.logs.some((l) => l.includes('Instruction: Buy'));
+        const isSell = logs.logs.some((l) => l.includes('Instruction: Sell'));
+        if (isBuy || isSell) events.push(`${isBuy ? 'BUY' : 'SELL'}  ${logs.signature}`);
+      },
+      'confirmed'
+    );
 
-Subscribe with:
-\`{"method": "subscribeTokenTrade", "keys": ["${mint}"]}\`
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    await connection.removeOnLogsListener(subId);
 
-Trade events will stream in real-time.`;
+    if (events.length === 0) {
+      return `**Watched \`${mint}\` for ${seconds}s** — no trades observed in this window.`;
+    }
+    const shown = events.slice(0, 20);
+    return `**Watched \`${mint}\` for ${seconds}s** — ${events.length} trade(s):\n\n${shown.join('\n')}${events.length > shown.length ? `\n...and ${events.length - shown.length} more` : ''}`;
+  } catch (error) {
+    return `Watch failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
-async function handleSnipe(symbol: string): Promise<string> {
-  if (!symbol) {
-    return 'Usage: /pump snipe <symbol>\n\nWaits for a token with this symbol to launch.';
-  }
+async function handleSnipe(): Promise<string> {
+  return `**Snipe is not an auto-trading command here.**
 
-  return `**Snipe Mode**
+Detecting a brand-new token by symbol requires watching every Pump.fun
+create event globally and decoding each one's metadata — meaningfully
+different from watching one already-known mint (what /pump watch does),
+and auto-executing a buy the instant a match is found is a persistent,
+stateful operation that doesn't fit a one-shot command/response tool.
 
-Watching for: ${symbol.toUpperCase()}
+For real sniping (continuous monitoring + auto-execute), use:
+- the pump-swarm skill (multi-wallet coordinated execution), or
+- src/solana/copytrade.ts (persistent onLogs-based wallet/program monitoring)
 
-To snipe new tokens, connect to:
-\`wss://pumpportal.fun/api/data\`
-
-Subscribe with:
-\`{"method": "subscribeNewToken"}\`
-
-When a token with symbol "${symbol.toUpperCase()}" is detected, execute buy immediately.
-
-**Note:** Sniping is competitive. Use priority fees and fast RPC.`;
+Both are built as long-running processes, which is what this actually needs.`;
 }
 
 // ============================================================================
@@ -1733,13 +1676,13 @@ export async function execute(args: string): Promise<string> {
     case 'create':
       return handleCreate(rest);
     case 'claim':
-      return handleClaim(rest[0]);
+      return handleClaim();
 
     // Monitoring
     case 'watch':
-      return handleWatch(rest[0]);
+      return handleWatch(rest);
     case 'snipe':
-      return handleSnipe(rest[0]);
+      return handleSnipe();
 
     // Additional Discovery
     case 'for-you':
@@ -1803,23 +1746,22 @@ export async function execute(args: string): Promise<string> {
 
 **Creator Tools:**
   /pump user-coins <address>        Tokens created by wallet
-  /pump create <name> <symbol> <desc> [options]
-  /pump claim <mint>                Claim creator fees
-  /pump ipfs-upload <name> <sym> <desc>  Upload metadata
+  /pump create <name> <symbol> <metadata-uri> [--initial <SOL>]
+  /pump claim                       Claim all accumulated creator fees
+  /pump ipfs-upload <name> <sym> <desc>  Upload metadata (may be blocked server-side)
 
 **Platform:**
   /pump latest-trades [--limit N]   Platform-wide trades
   /pump sol-price                   Current SOL price
 
 **Monitoring:**
-  /pump watch <mint>                Watch for trades (WS info)
-  /pump snipe <symbol>              Wait for token launch (WS info)
+  /pump watch <mint> [--seconds N]  Watch for real trades (bounded window)
+  /pump snipe                       Not auto-trading — see pump-swarm skill
 
 **Pools:** pump, raydium, pump-amm, launchlab, raydium-cpmm, bonk, auto
 
 **Setup:**
   export SOLANA_PRIVATE_KEY="your-key"
-  export PUMPPORTAL_API_KEY="your-key"  # Optional
   export PUMPFUN_JWT="your-jwt"         # Optional`;
   }
 }

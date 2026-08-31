@@ -1420,7 +1420,8 @@ Coordinate up to 20 wallets for synchronized trading.
   --sequential    Staggered execution (stealthy)
 
 **Multi-DEX Support:**
-  --dex pumpfun   Pump.fun via PumpPortal (default)
+  --dex pumpfun   Pump.fun bonding curve, official SDK (default)
+  --dex pumpswap  Pump.fun graduated tokens (PumpSwap AMM), official SDK
   --dex bags      Bags.fm (requires BAGS_API_KEY)
   --dex meteora   Meteora DLMM pools
 

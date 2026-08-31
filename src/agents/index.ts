@@ -64,7 +64,7 @@ import {
   calculateSellQuote,
   isGraduated,
   getTokenInfo,
-  getPumpPortalQuote,
+  getPumpFunQuote,
   getTokenBalance,
   getUserPumpTokens,
   getBestPool,
@@ -5052,31 +5052,24 @@ function buildTools(): ToolDefinition[] {
     },
     {
       name: 'pumpfun_create',
-      description: 'Create a new token on Pump.fun.',
+      description: 'Create a new token on Pump.fun. Builds and signs the create transaction locally via the official SDK — metadata (description/image/socials) must already be hosted (e.g. via IPFS or Arweave) and passed as metadata_uri; this tool does not upload metadata for you.',
       input_schema: {
         type: 'object',
         properties: {
           name: { type: 'string', description: 'Token name' },
           symbol: { type: 'string', description: 'Token symbol/ticker' },
-          description: { type: 'string', description: 'Token description' },
-          image_url: { type: 'string', description: 'Token image URL' },
-          twitter: { type: 'string', description: 'Twitter URL' },
-          telegram: { type: 'string', description: 'Telegram URL' },
-          website: { type: 'string', description: 'Website URL' },
+          metadata_uri: { type: 'string', description: 'URI to pre-hosted metadata JSON (name, symbol, description, image, twitter, telegram, website, showName)' },
           initial_buy_sol: { type: 'number', description: 'Initial buy amount in SOL' },
         },
-        required: ['name', 'symbol', 'description'],
+        required: ['name', 'symbol', 'metadata_uri'],
       },
     },
     {
       name: 'pumpfun_claim',
-      description: 'Claim creator fees for a Pump.fun token you created.',
+      description: 'Claim all accumulated Pump.fun creator fees for the connected wallet (across every token it created, both bonding-curve and PumpSwap) in one transaction.',
       input_schema: {
         type: 'object',
-        properties: {
-          mint: { type: 'string', description: 'Token mint address' },
-        },
-        required: ['mint'],
+        properties: {},
       },
     },
     {
@@ -5223,7 +5216,7 @@ function buildTools(): ToolDefinition[] {
     },
     {
       name: 'pumpfun_portal_quote',
-      description: 'Get swap quote from PumpPortal API (supports both pump and raydium pools).',
+      description: 'Get a Pump.fun bonding-curve swap quote, computed locally via the official SDK.',
       input_schema: {
         type: 'object',
         properties: {
@@ -14179,7 +14172,7 @@ async function executeTool(
 
       case 'pumpfun_portal_quote': {
         try {
-          const quote = await getPumpPortalQuote({
+          const quote = await getPumpFunQuote({
             mint: toolInput.mint as string,
             action: toolInput.action as 'buy' | 'sell',
             amount: toolInput.amount as string,

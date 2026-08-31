@@ -26,7 +26,7 @@ Platform Subcommands:
       Kalshi DCA
 
   /dca pump <mint> <total-SOL> --per <SOL> --every <interval> [--slippage <bps>] [--pool pump|raydium|auto]
-      PumpFun DCA (buys via PumpPortal)
+      PumpFun DCA (buys via the official @pump-fun/pump-sdk, built and signed locally)
 
   /dca hl <coin> <total-$> --per <$> --every <interval> [--side long|short] [--leverage <n>]
       Hyperliquid perps DCA

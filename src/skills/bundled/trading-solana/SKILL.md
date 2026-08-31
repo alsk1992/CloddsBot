@@ -253,7 +253,7 @@ import {
   calculateSellQuote,
   isGraduated,
   getTokenInfo,
-  getPumpPortalQuote,
+  getPumpFunQuote,
 } from 'clodds/solana/pumpapi';
 
 // Buy token on Pump.fun
@@ -312,15 +312,14 @@ if (graduation.graduated) {
 }
 ```
 
-#### PumpPortal Quote API
+#### Pump.fun Local Quote
 
 ```typescript
-// Get quote from PumpPortal (supports pump and raydium pools)
-const quote = await getPumpPortalQuote({
+// Computed locally via the official SDK (fee-tier-aware) — no third-party relay call
+const quote = await getPumpFunQuote({
   mint: 'token_mint',
   action: 'buy',
   amount: '0.5',  // 0.5 SOL
-  pool: 'auto',   // pump, raydium, or auto
 });
 console.log(`Input: ${quote.inputAmount}, Output: ${quote.outputAmount}`);
 ```

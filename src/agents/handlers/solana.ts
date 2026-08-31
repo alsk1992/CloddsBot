@@ -371,79 +371,100 @@ async function pumpfunChartHandler(toolInput: ToolInput): Promise<HandlerResult>
   });
 }
 
+/**
+ * Builds and submits a real create (and optional initial-buy) transaction
+ * locally via the official @pump-fun/pump-sdk — no third-party relay.
+ *
+ * Metadata hosting (name/symbol/description/image -> a URI) is now the
+ * caller's responsibility (metadata_uri), not this endpoint's — pump.fun's
+ * own IPFS upload endpoint (like their trading frontend API) is
+ * Cloudflare-gated against server-side/bot requests, so there's no
+ * reliable official endpoint this codebase can depend on for that step.
+ * Pin the metadata JSON (matching pump.fun's expected shape: name, symbol,
+ * description, image, twitter, telegram, website, showName) via any IPFS/
+ * Arweave provider first, then pass the resulting URI here.
+ */
 async function pumpfunCreateHandler(toolInput: ToolInput): Promise<HandlerResult> {
   const name = toolInput.name as string;
   const symbol = toolInput.symbol as string;
-  const description = toolInput.description as string;
-  const imageUrl = toolInput.image_url as string | undefined;
-  const twitter = toolInput.twitter as string | undefined;
-  const telegram = toolInput.telegram as string | undefined;
-  const website = toolInput.website as string | undefined;
-  const initialBuyLamports = toolInput.initial_buy_lamports as number | undefined;
+  const metadataUri = toolInput.metadata_uri as string;
+  const initialBuySol = toolInput.initial_buy_sol as number | undefined;
 
   return safeHandler(async () => {
     const { wallet } = await getSolanaModules();
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
 
-    const apiKey = process.env.PUMPPORTAL_API_KEY;
-    const url = apiKey
-      ? `https://pumpportal.fun/api/create?api-key=${apiKey}`
-      : 'https://pumpportal.fun/api/create';
+    const { PumpSdk, OnlinePumpSdk, getBuyTokenAmountFromSolAmount } = await import('@pump-fun/pump-sdk');
+    const { Keypair, PublicKey, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
+    const BN = (await import('bn.js')).default;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        publicKey: keypair.publicKey.toBase58(),
-        name, symbol, description, imageUrl, twitter, telegram, website, initialBuyLamports,
-      }),
-    });
+    const mintKeypair = Keypair.generate();
+    const pumpSdk = new PumpSdk();
+    const onlineSdk = new OnlinePumpSdk(connection);
+    const global = await onlineSdk.fetchGlobal();
 
-    if (!response.ok) throw new Error(`Create failed: ${response.status}`);
-    const result = await response.json() as { mint: string; transaction: string };
+    let instructions;
+    if (initialBuySol && initialBuySol > 0) {
+      const solAmount = new BN(Math.floor(initialBuySol * 1e9));
+      const amount = getBuyTokenAmountFromSolAmount({
+        global, feeConfig: null, mintSupply: null, bondingCurve: null, amount: solAmount, quoteMint: PublicKey.default,
+      });
+      instructions = await pumpSdk.createAndBuyInstructions({
+        global, mint: mintKeypair.publicKey, name, symbol, uri: metadataUri,
+        creator: keypair.publicKey, user: keypair.publicKey, amount, solAmount,
+      });
+    } else {
+      instructions = [await pumpSdk.createInstruction({
+        mint: mintKeypair.publicKey, name, symbol, uri: metadataUri, creator: keypair.publicKey, user: keypair.publicKey,
+      })];
+    }
 
-    const { VersionedTransaction } = await import('@solana/web3.js');
-    const tx = VersionedTransaction.deserialize(Buffer.from(result.transaction, 'base64'));
-    tx.sign([keypair]);
-    const signature = await connection.sendRawTransaction(tx.serialize());
-    await connection.confirmTransaction(signature, 'confirmed');
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    const message = new TransactionMessage({
+      payerKey: keypair.publicKey, recentBlockhash: blockhash, instructions,
+    }).compileToV0Message();
+    const tx = new VersionedTransaction(message);
+    tx.sign([keypair, mintKeypair]); // the new mint account must co-sign its own creation
 
-    return { mint: result.mint, signature };
-  }, 'Token creation failed. Ensure SOLANA_PRIVATE_KEY is set.');
+    const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+
+    return { mint: mintKeypair.publicKey.toBase58(), signature };
+  }, 'Token creation failed. Ensure SOLANA_PRIVATE_KEY is set and metadata_uri points to valid hosted JSON metadata.');
 }
 
-async function pumpfunClaimHandler(toolInput: ToolInput): Promise<HandlerResult> {
-  const mint = toolInput.mint as string;
-
+/**
+ * Claims accumulated creator fees via the official SDK's
+ * collectCoinCreatorFeeInstructions, which covers both the bonding-curve
+ * program and PumpSwap (post-graduation) in one transaction. Note this
+ * claims ALL of the creator's accumulated fees across every token they've
+ * created in one call — the on-chain vault is keyed by creator address,
+ * not by mint, so no mint parameter is needed.
+ */
+async function pumpfunClaimHandler(): Promise<HandlerResult> {
   return safeHandler(async () => {
     const { wallet } = await getSolanaModules();
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
 
-    const apiKey = process.env.PUMPPORTAL_API_KEY;
-    const url = apiKey
-      ? `https://pumpportal.fun/api/claim-fees?api-key=${apiKey}`
-      : 'https://pumpportal.fun/api/claim-fees';
+    const { OnlinePumpSdk } = await import('@pump-fun/pump-sdk');
+    const { TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ publicKey: keypair.publicKey.toBase58(), mint }),
-    });
+    const onlineSdk = new OnlinePumpSdk(connection);
+    const instructions = await onlineSdk.collectCoinCreatorFeeInstructions(keypair.publicKey);
 
-    if (!response.ok) throw new Error(`Claim failed: ${response.status}`);
-    const result = await response.json() as { transaction?: string; amount?: number };
-
-    if (!result.transaction) return { claimed: false, message: 'No fees to claim' };
-
-    const { VersionedTransaction } = await import('@solana/web3.js');
-    const tx = VersionedTransaction.deserialize(Buffer.from(result.transaction, 'base64'));
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    const message = new TransactionMessage({
+      payerKey: keypair.publicKey, recentBlockhash: blockhash, instructions,
+    }).compileToV0Message();
+    const tx = new VersionedTransaction(message);
     tx.sign([keypair]);
-    const signature = await connection.sendRawTransaction(tx.serialize());
-    await connection.confirmTransaction(signature, 'confirmed');
 
-    return { claimed: true, amount: result.amount, signature };
+    const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+
+    return { claimed: true, signature };
   }, 'Fee claim failed. Ensure SOLANA_PRIVATE_KEY is set.');
 }
 
