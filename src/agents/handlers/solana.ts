@@ -427,7 +427,13 @@ async function pumpfunCreateHandler(toolInput: ToolInput): Promise<HandlerResult
     tx.sign([keypair, mintKeypair]); // the new mint account must co-sign its own creation
 
     const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    if (confirmation.value.err) {
+      // confirmTransaction only throws on expiry/timeout — a landed-but-reverted
+      // instruction resolves normally with the failure in .value.err, which must
+      // be checked explicitly or a failed create gets reported as a success.
+      throw new Error(`Create transaction ${signature} landed but reverted on-chain: ${JSON.stringify(confirmation.value.err)}`);
+    }
 
     return { mint: mintKeypair.publicKey.toBase58(), signature };
   }, 'Token creation failed. Ensure SOLANA_PRIVATE_KEY is set and metadata_uri points to valid hosted JSON metadata.');
@@ -451,6 +457,12 @@ async function pumpfunClaimHandler(): Promise<HandlerResult> {
     const { TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
 
     const onlineSdk = new OnlinePumpSdk(connection);
+
+    const claimable = await onlineSdk.getCreatorVaultBalanceBothPrograms(keypair.publicKey);
+    if (claimable.isZero()) {
+      return { claimed: false, message: 'No creator fees to claim right now.' };
+    }
+
     const instructions = await onlineSdk.collectCoinCreatorFeeInstructions(keypair.publicKey);
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
@@ -461,7 +473,10 @@ async function pumpfunClaimHandler(): Promise<HandlerResult> {
     tx.sign([keypair]);
 
     const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    if (confirmation.value.err) {
+      throw new Error(`Claim transaction ${signature} landed but reverted on-chain: ${JSON.stringify(confirmation.value.err)}`);
+    }
 
     return { claimed: true, signature };
   }, 'Fee claim failed. Ensure SOLANA_PRIVATE_KEY is set.');

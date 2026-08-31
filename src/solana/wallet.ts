@@ -31,6 +31,25 @@ export function getSolanaConnection(config: SolanaWalletConfig = {}): Connection
   return new Connection(rpcUrl, 'confirmed');
 }
 
+/**
+ * confirmTransaction only THROWS on expiry/timeout/nonce-invalidation — a
+ * transaction that lands on-chain but whose program instruction reverts
+ * resolves normally, with the failure reported solely via result.value.err.
+ * Every caller of these two functions used to ignore that field entirely,
+ * meaning a reverted trade (wrong slippage, insufficient funds, whatever)
+ * was reported back as a successful signature. Real-money callers need to
+ * know the difference between "landed and succeeded" and "landed and
+ * reverted" — throw here so they can't silently miss it.
+ */
+function assertConfirmedOk(
+  signature: string,
+  result: Awaited<ReturnType<Connection['confirmTransaction']>>
+): void {
+  if (result.value.err) {
+    throw new Error(`Transaction ${signature} landed but reverted on-chain: ${JSON.stringify(result.value.err)}`);
+  }
+}
+
 export async function signAndSendVersionedTransaction(
   connection: Connection,
   keypair: Keypair,
@@ -46,7 +65,8 @@ export async function signAndSendVersionedTransaction(
 
   // Confirm transaction to detect on-chain failures
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+  const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+  assertConfirmedOk(signature, result);
 
   return signature;
 }
@@ -57,6 +77,12 @@ export async function signAndSendTransaction(
   transaction: Transaction | VersionedTransaction
 ): Promise<string> {
   if (transaction instanceof VersionedTransaction) {
+    // Fetch a fresh blockhash for confirmation rather than reusing whatever
+    // was baked into the transaction's own message: the tx's own blockhash
+    // may have been fetched a while ago (e.g. concurrently with instruction
+    // building), and confirming against an already-stale lastValidBlockHeight
+    // would make confirmTransaction think the tx is still within its window
+    // after it has actually already expired.
     transaction.sign([keypair]);
     const raw = transaction.serialize();
     const signature = await connection.sendRawTransaction(raw, {
@@ -66,7 +92,8 @@ export async function signAndSendTransaction(
 
     // Confirm to detect on-chain failures
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    assertConfirmedOk(signature, result);
 
     return signature;
   }
@@ -81,7 +108,8 @@ export async function signAndSendTransaction(
   });
 
   // Confirm to detect on-chain failures
-  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+  const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+  assertConfirmedOk(signature, result);
 
   return signature;
 }

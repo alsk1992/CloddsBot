@@ -174,11 +174,21 @@ export async function getPumpSwapQuote(params: PumpSwapQuoteParams): Promise<Pum
       slippage: slippagePercent,
       baseReserve: state.poolBaseAmount,
       quoteReserve: state.poolQuoteAmount,
+      virtualQuoteReserves: state.pool.virtualQuoteReserves,
       globalConfig: state.globalConfig,
       baseMintAccount: state.baseMintAccount,
       baseMint: state.baseMint,
       coinCreator: state.pool.coinCreator,
-      creator: state.pool.coinCreator,
+      // NOT state.pool.coinCreator — `creator` here feeds isPumpPool()'s fee-tier
+      // check (does creator == pumpPoolAuthorityPda(baseMint)?), which needs the
+      // pool's own `creator` field, distinct from `coinCreator` (the human
+      // token-deployer wallet). Passing coinCreator here makes isPumpPool() false
+      // for virtually every real pool, silently mispricing the quote into the
+      // wrong fee-tier branch — verified ~2.57% quote error on a real fee schedule.
+      // The SDK's own instance methods (buyQuoteInput/sellBaseInput on
+      // PUMP_AMM_SDK, used for actual execution) get this right internally;
+      // this only affects the standalone pure-function quote path here.
+      creator: state.pool.creator,
       feeConfig: state.feeConfig,
     });
     return {
@@ -197,11 +207,12 @@ export async function getPumpSwapQuote(params: PumpSwapQuoteParams): Promise<Pum
     slippage: slippagePercent,
     baseReserve: state.poolBaseAmount,
     quoteReserve: state.poolQuoteAmount,
+    virtualQuoteReserves: state.pool.virtualQuoteReserves,
     globalConfig: state.globalConfig,
     baseMintAccount: state.baseMintAccount,
     baseMint: state.baseMint,
     coinCreator: state.pool.coinCreator,
-    creator: state.pool.coinCreator,
+    creator: state.pool.creator, // see buy-branch comment above — NOT coinCreator
     feeConfig: state.feeConfig,
   });
   return {

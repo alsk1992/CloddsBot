@@ -829,11 +829,15 @@ export async function getTokenBalance(
   const mintPubkey = typeof mint === 'string' ? new PublicKey(mint) : mint;
 
   try {
-    // Find ATA
+    // Mayhem-mode pump.fun tokens use Token-2022, not classic SPL Token — the
+    // ATA derivation differs by token program, so this must be detected per
+    // mint rather than assumed, or a Token-2022 holding's ATA is computed
+    // wrong and silently looks like a zero balance.
+    const tokenProgram = await detectTokenProgram(connection, mintPubkey);
     const [ata] = PublicKey.findProgramAddressSync(
       [
         ownerPubkey.toBuffer(),
-        TOKEN_PROGRAM_ID.toBuffer(),
+        tokenProgram.toBuffer(),
         mintPubkey.toBuffer(),
       ],
       new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
@@ -870,10 +874,18 @@ export async function getUserPumpTokens(
   const ownerPubkey = typeof owner === 'string' ? new PublicKey(owner) : owner;
 
   try {
-    // Get all token accounts for the wallet
-    const tokenAccounts = await connection.getTokenAccountsByOwner(ownerPubkey, {
-      programId: TOKEN_PROGRAM_ID,
-    });
+    // Mayhem-mode pump.fun tokens use Token-2022, not classic SPL Token — a
+    // wallet's Token-2022 holdings live in accounts owned by a different
+    // program entirely, invisible to a getTokenAccountsByOwner call scoped
+    // to just TOKEN_PROGRAM_ID. Query both; the base account layout (mint
+    // at offset 0, amount at offset 64) is identical between the two — only
+    // Token-2022's optional extensions, which this function doesn't read,
+    // differ.
+    const [classicAccounts, token2022Accounts] = await Promise.all([
+      connection.getTokenAccountsByOwner(ownerPubkey, { programId: TOKEN_PROGRAM_ID }),
+      connection.getTokenAccountsByOwner(ownerPubkey, { programId: TOKEN_2022_PROGRAM_ID }),
+    ]);
+    const tokenAccounts = { value: [...classicAccounts.value, ...token2022Accounts.value] };
 
     const balances: TokenBalance[] = [];
 
