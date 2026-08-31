@@ -84,6 +84,22 @@ export interface PumpSwapQuote {
 
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
+// Same rationale as pumpapi.ts's onlinePumpSdkCache: OnlinePumpAmmSdk's
+// constructor builds Anchor Program instances from the AMM program's IDL
+// (measured ~7ms/call) — real, avoidable latency on a hot trading path if
+// reconstructed per call. Cached by rpcEndpoint URL since callers don't
+// reliably reuse a single Connection object.
+const onlinePumpAmmSdkCache = new Map<string, OnlinePumpAmmSdk>();
+function getOnlinePumpAmmSdk(connection: Connection): OnlinePumpAmmSdk {
+  const key = connection.rpcEndpoint;
+  let sdk = onlinePumpAmmSdkCache.get(key);
+  if (!sdk) {
+    sdk = new OnlinePumpAmmSdk(connection);
+    onlinePumpAmmSdkCache.set(key, sdk);
+  }
+  return sdk;
+}
+
 /** Find every PumpSwap pool for a given (base, quote) mint pair. */
 export async function findPumpSwapPools(
   connection: Connection,
@@ -119,7 +135,7 @@ export async function findBestPumpSwapState(
     throw new Error(`No PumpSwap pool found for ${baseMint.toBase58()}/${quoteMintKey.toBase58()}`);
   }
 
-  const onlineSdk = new OnlinePumpAmmSdk(connection);
+  const onlineSdk = getOnlinePumpAmmSdk(connection);
   const states = await Promise.all(
     candidates.slice(0, MAX_POOL_CANDIDATES).map(async (poolKey) => {
       try {
@@ -241,7 +257,13 @@ export async function executePumpSwapTrade(
     const slippagePercent = slippageBps / 100;
     const amountIn = new BN(params.amountIn);
 
-    const { poolKey, state } = await findBestPumpSwapState(connection, baseMint, quoteMintKey, keypair.publicKey);
+    // getLatestBlockhash doesn't depend on pool state (or vice versa) — fire
+    // both concurrently rather than paying for this RPC round-trip only
+    // after pool discovery/state-fetch finishes.
+    const [{ poolKey, state }, { blockhash }] = await Promise.all([
+      findBestPumpSwapState(connection, baseMint, quoteMintKey, keypair.publicKey),
+      connection.getLatestBlockhash('confirmed'),
+    ]);
 
     const instructions = params.side === 'buy'
       ? await PUMP_AMM_SDK.buyQuoteInput(state, amountIn, slippagePercent)
@@ -257,7 +279,6 @@ export async function executePumpSwapTrade(
       );
     }
 
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
     const message = new TransactionMessage({
       payerKey: keypair.publicKey,
       recentBlockhash: blockhash,

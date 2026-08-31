@@ -104,13 +104,18 @@ export class PumpFunBuilder implements SwarmTransactionBuilder {
   ): Promise<VersionedTransaction> {
     assertSupportedPumpPool(options.pool);
 
-    const { instructions } = await buildPumpFunTradeInstructions(connection, wallet.keypair.publicKey, {
-      mint,
-      action,
-      amount,
-      denominatedInSol,
-      slippagePercent: options.slippageBps / 100,
-    });
+    // See pumpapi.ts's executePumpFunTrade for why this runs concurrently
+    // with instruction-building rather than after it.
+    const [{ instructions }, { blockhash }] = await Promise.all([
+      buildPumpFunTradeInstructions(connection, wallet.keypair.publicKey, {
+        mint,
+        action,
+        amount,
+        denominatedInSol,
+        slippagePercent: options.slippageBps / 100,
+      }),
+      connection.getLatestBlockhash('confirmed'),
+    ]);
 
     const allInstructions = [...instructions];
     if (options.priorityFeeLamports) {
@@ -122,7 +127,6 @@ export class PumpFunBuilder implements SwarmTransactionBuilder {
       );
     }
 
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
     const message = new TransactionMessage({
       payerKey: wallet.keypair.publicKey,
       recentBlockhash: blockhash,
@@ -207,7 +211,13 @@ export class PumpSwapBuilder implements SwarmTransactionBuilder {
     const quoteMint = new PublicKey(PUMPSWAP_WSOL_MINT);
     const slippagePercent = options.slippageBps / 100;
 
-    const { state } = await findBestPumpSwapState(connection, baseMint, quoteMint, wallet.keypair.publicKey);
+    // getLatestBlockhash doesn't depend on pool state (or vice versa) — fire
+    // both concurrently rather than paying for this RPC round-trip only
+    // after pool discovery/state-fetch finishes.
+    const [{ state }, { blockhash }] = await Promise.all([
+      findBestPumpSwapState(connection, baseMint, quoteMint, wallet.keypair.publicKey),
+      connection.getLatestBlockhash('confirmed'),
+    ]);
 
     // buy is quote-denominated (SOL, 9dp), sell is base-denominated (pump.fun token, 6dp) —
     // same convention as PumpFunBuilder and getPumpSwapQuote.
@@ -229,7 +239,6 @@ export class PumpSwapBuilder implements SwarmTransactionBuilder {
       );
     }
 
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
     const message = new TransactionMessage({
       payerKey: wallet.keypair.publicKey,
       recentBlockhash: blockhash,
