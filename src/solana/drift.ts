@@ -117,6 +117,19 @@ interface DriftClientWrapper {
   unsubscribe: () => Promise<void>;
 }
 
+/**
+ * Drift's OrderType/OrderStatus/MarketType/PositionDirection are Anchor-style
+ * object-shaped enums (e.g. OrderType.LIMIT = { limit: {} }) — verified
+ * against the SDK's own types.d.ts. Comparing a freshly-decoded on-chain
+ * value against these with === / !== always fails (different object
+ * references, even for the same conceptual variant); confirmed directly —
+ * `{ perp: {} } === MarketType.PERP` is false even though both represent
+ * "perp". The correct read is the object's own single key.
+ */
+function enumVariant(value: any): string {
+  return value && typeof value === 'object' ? Object.keys(value)[0] ?? 'unknown' : 'unknown';
+}
+
 async function createDriftClient(
   connection: Connection,
   keypair: Keypair
@@ -208,7 +221,7 @@ export async function cancelDriftOrder(
   keypair: Keypair,
   params: DriftCancelOrderParams
 ): Promise<DriftCancelOrderResult> {
-  const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
+  const { client, unsubscribe } = await createDriftClient(connection, keypair);
 
   try {
     let txSig: string;
@@ -220,21 +233,26 @@ export async function cancelDriftOrder(
       cancelled.push(params.orderId);
     } else if (params.marketIndex !== undefined) {
       // Cancel all orders for a market
-      const user = client.getUser();
-      const orders = user.getOpenOrders();
-      const marketType = params.marketType === 'spot' ? sdk.MarketType.SPOT : sdk.MarketType.PERP;
-
-      for (const order of orders) {
-        if (order.marketIndex === params.marketIndex && order.marketType === marketType) {
-          cancelled.push(order.orderId);
-        }
-      }
-
-      if (cancelled.length > 0) {
-        txSig = await client.cancelOrders(cancelled.map((id) => ({ orderId: id })));
-      } else {
+      if (!client.hasUser()) {
         txSig = '';
+      } else {
+        const user = client.getUser();
+        const orders = user.getOpenOrders();
+        const marketType = params.marketType || 'perp';
+
+        for (const order of orders) {
+          if (order.marketIndex === params.marketIndex && enumVariant(order.marketType) === marketType) {
+            cancelled.push(order.orderId);
+          }
+        }
+
+        txSig = cancelled.length > 0
+          ? await client.cancelOrders(cancelled.map((id) => ({ orderId: id })))
+          : '';
       }
+    } else if (!client.hasUser()) {
+      // Cancel all orders, but there's no account to have any
+      txSig = '';
     } else {
       // Cancel all orders
       txSig = await client.cancelAllOrders();
@@ -273,29 +291,37 @@ export async function getDriftOrders(
   marketIndex?: number,
   marketType?: 'perp' | 'spot'
 ): Promise<DriftOrderInfo[]> {
-  const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
+  const { client, unsubscribe } = await createDriftClient(connection, keypair);
 
   try {
+    // client.getUser() throws ("DriftClient has no user for user id ...")
+    // rather than returning null/undefined for a wallet that has never
+    // initialized a Drift account — confirmed live. Any first-time-checking
+    // wallet would otherwise get an uncaught exception instead of a
+    // sensible "no orders" result.
+    if (!client.hasUser()) return [];
+
     const user = client.getUser();
     const orders = user.getOpenOrders();
 
     const result: DriftOrderInfo[] = [];
-    const mType = marketType === 'spot' ? sdk.MarketType.SPOT : sdk.MarketType.PERP;
 
     for (const order of orders) {
+      const orderMarketType = enumVariant(order.marketType) === 'spot' ? 'spot' : 'perp';
+
       // Filter by market if specified
       if (marketIndex !== undefined && order.marketIndex !== marketIndex) continue;
-      if (marketType && order.marketType !== mType) continue;
+      if (marketType && orderMarketType !== marketType) continue;
 
       result.push({
         orderId: order.orderId,
         marketIndex: order.marketIndex,
-        marketType: order.marketType === sdk.MarketType.SPOT ? 'spot' : 'perp',
-        direction: order.direction === sdk.PositionDirection.LONG ? 'long' : 'short',
-        orderType: Object.keys(sdk.OrderType).find((k) => sdk.OrderType[k] === order.orderType) || 'unknown',
+        marketType: orderMarketType,
+        direction: enumVariant(order.direction) === 'long' ? 'long' : 'short',
+        orderType: enumVariant(order.orderType),
         baseAssetAmount: order.baseAssetAmount.toString(),
         price: order.price.toString(),
-        status: Object.keys(sdk.OrderStatus).find((k) => sdk.OrderStatus[k] === order.status) || 'unknown',
+        status: enumVariant(order.status),
       });
     }
 
@@ -327,6 +353,8 @@ export async function getDriftPositions(
   const { client, sdk, unsubscribe } = await createDriftClient(connection, keypair);
 
   try {
+    if (!client.hasUser()) return [];
+
     const user = client.getUser();
     const perpPositions = user.getPerpPositions();
     const spotPositions = user.getSpotPositions();
@@ -403,6 +431,16 @@ export async function getDriftBalance(
   const { client, unsubscribe } = await createDriftClient(connection, keypair);
 
   try {
+    if (!client.hasUser()) {
+      return {
+        totalCollateral: '0.00',
+        freeCollateral: '0.00',
+        maintenanceMargin: '0.00',
+        healthFactor: Infinity,
+        accountEquity: '0.00',
+      };
+    }
+
     const user = client.getUser();
 
     const totalCollateral = user.getTotalCollateral().toNumber() / 1e6;
@@ -597,9 +635,13 @@ export function createDriftLiquidationMonitor(
     const positions: DriftPosition[] = [];
 
     try {
-      const user = client.getUser();
-      if (!user) return positions;
+      // client.getUser() throws rather than returning null/undefined for an
+      // account with no Drift user yet — the `if (!user)` below never
+      // actually caught that case; confirmed live. hasUser() is the real
+      // guard.
+      if (!client.hasUser()) return positions;
 
+      const user = client.getUser();
       const perpPositions = user.getPerpPositions();
       const driftSdk = await import('@drift-labs/sdk');
 
@@ -628,16 +670,16 @@ export function createDriftLiquidationMonitor(
           ? positionValue - costBasis
           : costBasis - positionValue;
 
-        // Calculate liquidation price (simplified)
-        const maintenanceMarginRatio = 0.05; // 5% for most perps
+        // The SDK's own user.liquidationPrice() accounts for real per-market
+        // margin requirements, cross-margining across all of the account's
+        // positions, and open orders — the flat 5%-maintenance-margin,
+        // single-position formula this used to call
+        // (calculateLiquidationPriceForPosition) doesn't reflect any of
+        // that and can be materially wrong for a real, multi-position
+        // account. Precision: PRICE_PRECISION (1e6), matching currentPrice
+        // above.
         const collateral = user.getTotalCollateral().toNumber() / 1e6;
-        const liquidationPrice = calculateLiquidationPriceForPosition(
-          baseAmount,
-          entryPrice,
-          collateral,
-          maintenanceMarginRatio,
-          direction
-        );
+        const liquidationPrice = user.liquidationPrice(marketIndex).toNumber() / 1e6;
 
         // Calculate leverage
         const leverage = collateral > 0 ? positionValue / collateral : 0;
@@ -705,10 +747,12 @@ export function createDriftLiquidationMonitor(
     const client = await initializeClient();
 
     try {
-      const user = client.getUser();
-      if (!user) {
+      // Same as getPositions() above: getUser() throws rather than
+      // returning null, so this check needs to happen first via hasUser().
+      if (!client.hasUser()) {
         throw new Error('User account not found');
       }
+      const user = client.getUser();
 
       const totalCollateral = user.getTotalCollateral().toNumber() / 1e6;
       const maintenanceMargin = user.getMaintenanceMarginRequirement().toNumber() / 1e6;
