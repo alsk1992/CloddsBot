@@ -87,6 +87,8 @@
     "@noble/secp256k1": "^3.0.0",
     "@orca-so/whirlpool-sdk": "^0.4.2",
     "@orca-so/whirlpools": "^6.0.0",
+    "@orca-so/whirlpools-client": "^6.0.0",
+    "@orca-so/whirlpools-core": "^3.0.0",
     "@polkadot/api": "^14.3.1",
     "@predictdotfun/sdk": "^1.3.0",
     "@project-serum/anchor": "^0.26.0",
@@ -94,6 +96,7 @@
     "@pump-fun/pump-swap-sdk": "1.19.0",
     "@raydium-io/raydium-sdk-v2": "^0.2.32-alpha",
     "@slack/bolt": "^3.17.1",
+    "@solana/kit": "^5.0.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "@trpc/server": "10.45.4",
@@ -161,7 +164,8 @@
     "@cosmjs/proto-signing": "^0.38.1",
     "@cosmjs/stargate": "^0.38.1",
     "@cosmjs/tendermint-rpc": "^0.38.1",
-    "@cosmjs/cosmwasm-stargate": "^0.38.1"
+    "@cosmjs/cosmwasm-stargate": "^0.38.1",
+    "@solana/kit": "^5.0.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
