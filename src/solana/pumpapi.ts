@@ -90,6 +90,8 @@ export interface BondingCurveState {
   tokenTotalSupply: BN;
   /** Whether the bonding curve is complete (graduated) */
   complete: boolean;
+  /** The token's creator (fee recipient) */
+  creator: PublicKey;
   /** Whether this is a mayhem mode token (Token2022) */
   isMayhemMode?: boolean;
 }
@@ -199,6 +201,12 @@ export function parseBondingCurveState(data: Buffer): BondingCurveState | null {
   const realSolReserves = new BN(data.subarray(32, 40), 'le');
   const tokenTotalSupply = new BN(data.subarray(40, 48), 'le');
   const complete = data[48] === 1;
+  // creator: Pubkey (32 bytes) immediately follows complete — verified
+  // against the official SDK's real BondingCurve type (which lists
+  // creator right after complete) and against this parser's own existing
+  // isMayhemMode read at byte 81, which only lines up if creator occupies
+  // exactly bytes 49-80 (49 + 32 = 81).
+  const creator = new PublicKey(data.subarray(49, 81));
 
   // Check for mayhem mode flag (byte 81 in extended accounts)
   let isMayhemMode = false;
@@ -213,6 +221,7 @@ export function parseBondingCurveState(data: Buffer): BondingCurveState | null {
     realSolReserves,
     tokenTotalSupply,
     complete,
+    creator,
     isMayhemMode,
   };
 }
@@ -905,6 +914,61 @@ export async function getTokenBalance(
   } catch {
     return null;
   }
+}
+
+export interface PumpTokenHolder {
+  wallet: string;
+  balance: number;
+  balanceRaw: string;
+  percentage: number;
+  isCreator: boolean;
+}
+
+/**
+ * Get top token holders directly from validator state via
+ * getTokenLargestAccounts — no dependency on pump.fun's frontend/advanced
+ * API, both of which are Cloudflare-blocked from server-side requests
+ * (confirmed live: every endpoint on both hosts returns HTTP 403 with a
+ * Cloudflare challenge page from this environment). Hard-capped by the
+ * RPC method itself at 20 results. Includes the bonding curve's own vault
+ * as a "holder" if the curve hasn't graduated yet — accurate, same as any
+ * standard Solana explorer would show, not filtered out.
+ */
+export async function getPumpTokenHolders(
+  connection: Connection,
+  mint: PublicKey | string
+): Promise<PumpTokenHolder[]> {
+  const mintPubkey = typeof mint === 'string' ? new PublicKey(mint) : mint;
+
+  const [largest, supply, curveState] = await Promise.all([
+    connection.getTokenLargestAccounts(mintPubkey),
+    connection.getTokenSupply(mintPubkey),
+    getBondingCurveState(connection, mintPubkey).catch(() => null),
+  ]);
+
+  const totalSupply = Number(supply.value.amount);
+  if (totalSupply === 0 || largest.value.length === 0) return [];
+
+  const accountInfos = await connection.getMultipleAccountsInfo(largest.value.map((a) => a.address));
+  const creatorBase58 = curveState?.creator.toBase58();
+
+  return largest.value.map((account, i) => {
+    // SPL Token / Token-2022 account layout: mint (32) + owner (32) +
+    // amount (8, u64 LE) + ... — both programs share this prefix.
+    const data = accountInfos[i]?.data;
+    const owner = data && data.length >= 64
+      ? new PublicKey(data.subarray(32, 64)).toBase58()
+      : account.address.toBase58();
+    const balanceRaw = account.amount;
+
+    return {
+      wallet: owner,
+      balance: Number(balanceRaw) / (10 ** TOKEN_DECIMALS),
+      balanceRaw,
+      percentage: (Number(balanceRaw) / totalSupply) * 100,
+      isCreator: owner === creatorBase58,
+    };
+  });
 }
 
 /**
