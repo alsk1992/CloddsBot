@@ -156,11 +156,21 @@ export async function getKaminoMarkets(
   connection: Connection
 ): Promise<KaminoMarketInfo[]> {
   try {
-    const { KaminoMarket, PROGRAM_ID } = await import('@kamino-finance/klend-sdk');
+    const { KaminoMarket, PROGRAM_ID, DEFAULT_RECENT_SLOT_DURATION_MS } = await import('@kamino-finance/klend-sdk');
 
+    // KaminoMarket.load()'s real signature is (connection, marketAddress,
+    // recentSlotDurationMs: number, programId?, ...) — verified against the
+    // SDK's own market.d.ts. Every call site here used to pass PROGRAM_ID
+    // as the third argument (a PublicKey where a number was expected) and
+    // never passed a real programId at all, since the `as any` cast
+    // silenced TypeScript's arity/type check. Confirmed live: this was the
+    // actual root cause of "[DecimalError] Invalid argument: undefined" and
+    // "Invalid borrow rate curve, could not identify the interpolation
+    // points" errors on every single reserve.
     const market = await KaminoMarket.load(
       connection,
       new PublicKey(KAMINO_MAIN_MARKET),
+      DEFAULT_RECENT_SLOT_DURATION_MS,
       PROGRAM_ID as any
     );
 
@@ -168,22 +178,37 @@ export async function getKaminoMarkets(
       return [];
     }
 
+    // calculateSupplyAPR()/calculateBorrowAPR() require (slot, referralFeeBps)
+    // — confirmed against the SDK's own reserve.d.ts. The old code called
+    // them with zero arguments (the `as any` cast on `reserve` silenced
+    // TypeScript's arity check), which threw "[DecimalError] Invalid
+    // argument: undefined" for every single reserve, aborted this loop, and
+    // bubbled up to the outer catch — meaning getKaminoMarkets() always
+    // silently returned [] regardless of real reserve data. 0 referral bps
+    // (no referral program integration here). The per-reserve try/catch
+    // stays as defense against any genuinely malformed reserve, matching
+    // the per-item pattern getKaminoStrategies() below already uses.
+    const currentSlot = await connection.getSlot();
     const reserves: KaminoReserveInfo[] = [];
     for (const [, reserve] of market.reserves) {
-      reserves.push({
-        address: reserve.address.toBase58(),
-        symbol: reserve.symbol || 'UNKNOWN',
-        mint: reserve.getLiquidityMint().toBase58(),
-        decimals: (reserve.state.liquidity.mintDecimals as BN).toNumber(),
-        depositRate: (reserve as any).calculateSupplyAPR() * 100,
-        borrowRate: (reserve as any).calculateBorrowAPR() * 100,
-        totalDeposits: reserve.getTotalSupply().toString(),
-        totalBorrows: reserve.getBorrowedAmount().toString(),
-        availableLiquidity: reserve.getLiquidityAvailableAmount().toString(),
-        utilizationRate: reserve.calculateUtilizationRatio() * 100,
-        ltv: reserve.state.config.loanToValuePct,
-        liquidationThreshold: reserve.state.config.liquidationThresholdPct,
-      });
+      try {
+        reserves.push({
+          address: reserve.address.toBase58(),
+          symbol: reserve.symbol || 'UNKNOWN',
+          mint: reserve.getLiquidityMint().toBase58(),
+          decimals: (reserve.state.liquidity.mintDecimals as BN).toNumber(),
+          depositRate: (reserve as any).calculateSupplyAPR(currentSlot, 0) * 100,
+          borrowRate: (reserve as any).calculateBorrowAPR(currentSlot, 0) * 100,
+          totalDeposits: reserve.getTotalSupply().toString(),
+          totalBorrows: reserve.getBorrowedAmount().toString(),
+          availableLiquidity: reserve.getLiquidityAvailableAmount().toString(),
+          utilizationRate: reserve.calculateUtilizationRatio() * 100,
+          ltv: reserve.state.config.loanToValuePct,
+          liquidationThreshold: reserve.state.config.liquidationThresholdPct,
+        });
+      } catch (error) {
+        logger.warn({ error, reserve: reserve.address.toBase58() }, 'Skipping Kamino reserve that failed to load');
+      }
     }
 
     return [{
@@ -227,11 +252,12 @@ export async function getKaminoObligation(
   marketAddress?: string
 ): Promise<KaminoObligationInfo | null> {
   try {
-    const { KaminoMarket, VanillaObligation, PROGRAM_ID } = await import('@kamino-finance/klend-sdk');
+    const { KaminoMarket, VanillaObligation, PROGRAM_ID, DEFAULT_RECENT_SLOT_DURATION_MS } = await import('@kamino-finance/klend-sdk');
 
     const market = await KaminoMarket.load(
       connection,
       new PublicKey(marketAddress || KAMINO_MAIN_MARKET),
+      DEFAULT_RECENT_SLOT_DURATION_MS,
       PROGRAM_ID as any
     );
 
@@ -309,12 +335,13 @@ export async function depositToKamino(
   keypair: Keypair,
   params: KaminoDepositParams
 ): Promise<KaminoLendingResult> {
-  const { KaminoMarket, KaminoAction, VanillaObligation, PROGRAM_ID } =
+  const { KaminoMarket, KaminoAction, VanillaObligation, PROGRAM_ID, DEFAULT_RECENT_SLOT_DURATION_MS } =
     await import('@kamino-finance/klend-sdk');
 
   const market = await KaminoMarket.load(
     connection,
     new PublicKey(params.marketAddress || KAMINO_MAIN_MARKET),
+    DEFAULT_RECENT_SLOT_DURATION_MS,
     PROGRAM_ID as any
   );
 
@@ -366,12 +393,13 @@ export async function withdrawFromKamino(
   keypair: Keypair,
   params: KaminoWithdrawParams
 ): Promise<KaminoLendingResult> {
-  const { KaminoMarket, KaminoAction, VanillaObligation, PROGRAM_ID } =
+  const { KaminoMarket, KaminoAction, VanillaObligation, PROGRAM_ID, DEFAULT_RECENT_SLOT_DURATION_MS } =
     await import('@kamino-finance/klend-sdk');
 
   const market = await KaminoMarket.load(
     connection,
     new PublicKey(params.marketAddress || KAMINO_MAIN_MARKET),
+    DEFAULT_RECENT_SLOT_DURATION_MS,
     PROGRAM_ID as any
   );
 
@@ -423,12 +451,13 @@ export async function borrowFromKamino(
   keypair: Keypair,
   params: KaminoBorrowParams
 ): Promise<KaminoLendingResult> {
-  const { KaminoMarket, KaminoAction, VanillaObligation, PROGRAM_ID } =
+  const { KaminoMarket, KaminoAction, VanillaObligation, PROGRAM_ID, DEFAULT_RECENT_SLOT_DURATION_MS } =
     await import('@kamino-finance/klend-sdk');
 
   const market = await KaminoMarket.load(
     connection,
     new PublicKey(params.marketAddress || KAMINO_MAIN_MARKET),
+    DEFAULT_RECENT_SLOT_DURATION_MS,
     PROGRAM_ID as any
   );
 
@@ -480,12 +509,13 @@ export async function repayToKamino(
   keypair: Keypair,
   params: KaminoRepayParams
 ): Promise<KaminoLendingResult> {
-  const { KaminoMarket, KaminoAction, VanillaObligation, PROGRAM_ID } =
+  const { KaminoMarket, KaminoAction, VanillaObligation, PROGRAM_ID, DEFAULT_RECENT_SLOT_DURATION_MS } =
     await import('@kamino-finance/klend-sdk');
 
   const market = await KaminoMarket.load(
     connection,
     new PublicKey(params.marketAddress || KAMINO_MAIN_MARKET),
+    DEFAULT_RECENT_SLOT_DURATION_MS,
     PROGRAM_ID as any
   );
 
