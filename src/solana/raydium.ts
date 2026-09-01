@@ -370,21 +370,37 @@ export async function listRaydiumPoolsSdk(
     limit?: number;
   }
 ): Promise<RaydiumPoolInfoV2[]> {
-  const raydium = await initRaydiumSdk(connection);
-
+  // raydium.api.getPoolList() (the SDK's own wrapper) always returns
+  // { count: 0, data: [] } regardless of params — confirmed live against
+  // the installed 0.2.32-alpha SDK (every variation of type/sort/order
+  // tried, all empty). The raw HTTP endpoint below, hit directly with these
+  // exact param names, returns real data — same endpoint listRaydiumPools()
+  // already uses successfully, so this mirrors that proven-working call
+  // instead of going through the SDK wrapper.
+  const baseUrl = process.env.RAYDIUM_POOL_LIST_URL || 'https://api-v3.raydium.io/pools/info';
   const poolType = filters?.type === 'CLMM' ? 'concentrated'
     : filters?.type === 'AMM' ? 'standard'
     : filters?.type === 'CPMM' ? 'cpmm'
     : 'all';
 
-  const response = await raydium.api.getPoolList({
-    type: poolType,
-    sort: 'volume24h',
-    order: 'desc',
-    pageSize: filters?.limit || 50,
-  });
+  const url = new URL(`${baseUrl}/list`);
+  url.searchParams.set('poolType', poolType);
+  url.searchParams.set('poolSortField', 'volume24h');
+  url.searchParams.set('sortType', 'desc');
+  url.searchParams.set('pageSize', String(filters?.limit || 50));
+  url.searchParams.set('page', '1');
 
-  let pools = response?.data || [];
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(`Raydium pool list error: ${response.status}`);
+  }
+
+  const json = await response.json() as any;
+  if (json?.success === false) {
+    throw new Error(`Raydium pool list error: ${json?.msg ?? 'unknown error'}`);
+  }
+
+  let pools: any[] = json?.data?.data ?? [];
 
   if (filters?.tokenMint) {
     const mint = filters.tokenMint.toLowerCase();
@@ -446,17 +462,39 @@ export async function getClmmPositions(
     filtered = positions.filter((p: any) => p.poolId.toBase58() === poolId);
   }
 
-  return filtered.map((p: any) => ({
-    nftMint: p.nftMint.toBase58(),
-    poolId: p.poolId.toBase58(),
-    tickLower: p.tickLower,
-    tickUpper: p.tickUpper,
-    liquidity: p.liquidity.toString(),
-    tokenA: p.tokenFeesOwedA?.toString() || '0',
-    tokenB: p.tokenFeesOwedB?.toString() || '0',
-    feeOwedA: p.feeGrowthInsideLastX64A?.toString(),
-    feeOwedB: p.feeGrowthInsideLastX64B?.toString(),
-  }));
+  // The raw on-chain position layout (verified against
+  // @raydium-io/raydium-sdk-v2's PositionInfoLayout) has no mintA/mintB —
+  // those live on the pool, not the position — and its fee fields are named
+  // the opposite of what the old code assumed: tokenFeesOwedA/B are the
+  // actual owed amounts, feeGrowthInsideLastX64A/B are internal accounting
+  // checkpoints (huge X64 fixed-point cursors, not a real "owed" quantity).
+  // Batch-fetch pool info for the mint addresses and reward-token mints
+  // (rewardDefaultInfos[].mint.address, confirmed live) the same way
+  // harvestClmmRewards already does below.
+  const poolIds = [...new Set(filtered.map((p: any) => p.poolId.toBase58()))];
+  const poolInfoList = poolIds.length > 0
+    ? await raydium.api.fetchPoolById({ ids: poolIds.join(',') })
+    : [];
+  const poolInfoMap = new Map(poolInfoList.map((pool: any) => [pool.id, pool]));
+
+  return filtered.map((p: any) => {
+    const pool = poolInfoMap.get(p.poolId.toBase58()) as any;
+    return {
+      nftMint: p.nftMint.toBase58(),
+      poolId: p.poolId.toBase58(),
+      tickLower: p.tickLower,
+      tickUpper: p.tickUpper,
+      liquidity: p.liquidity.toString(),
+      tokenA: pool?.mintA?.address ?? '',
+      tokenB: pool?.mintB?.address ?? '',
+      feeOwedA: p.tokenFeesOwedA?.toString() ?? '0',
+      feeOwedB: p.tokenFeesOwedB?.toString() ?? '0',
+      rewardInfos: (p.rewardInfos || []).map((r: any, i: number) => ({
+        mint: pool?.rewardDefaultInfos?.[i]?.mint?.address ?? '',
+        amountOwed: r.rewardAmountOwed?.toString() ?? '0',
+      })),
+    };
+  });
 }
 
 export async function createClmmPosition(
