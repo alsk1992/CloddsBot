@@ -230,7 +230,7 @@ import {
   DexType,
   SwarmWallet as BuilderSwarmWallet,
 } from './swarm-builders';
-import { getBondingCurveState, calculatePrice } from './pumpapi';
+import { getBondingCurveState, calculatePrice, getBondingCurveAddress } from './pumpapi';
 
 // ============================================================================
 // Constants
@@ -1669,6 +1669,13 @@ export class PumpFunSwarm extends EventEmitter {
   private stopLossConfigs: Map<string, StopLossConfig> = new Map();
   private takeProfitConfigs: Map<string, TakeProfitConfig> = new Map();
   private priceMonitorInterval: NodeJS.Timeout | null = null;
+  // Per-mint onLogs subscription for near-instant, block-by-block trigger
+  // checks — reacts the moment a trade actually lands instead of waiting
+  // up to priceMonitorInterval's period later. isPumpSwap tracks which
+  // address is currently being watched (bonding curve vs., post-
+  // graduation, the PumpSwap pool) so a graduation event can retarget it —
+  // matches copytrade.ts's proven onLogs subscription pattern.
+  private mintSubscriptions: Map<string, { subId: number; isPumpSwap: boolean }> = new Map();
 
   /**
    * Set up a stop loss for a token
@@ -1677,6 +1684,7 @@ export class PumpFunSwarm extends EventEmitter {
     const key = `sl_${config.mint}`;
     this.stopLossConfigs.set(key, config);
     this.startPriceMonitor();
+    this.subscribeToMint(config.mint);
     this.emit('stopLossSet', config);
   }
 
@@ -1686,6 +1694,7 @@ export class PumpFunSwarm extends EventEmitter {
   removeStopLoss(mint: string): boolean {
     const key = `sl_${mint}`;
     const existed = this.stopLossConfigs.delete(key);
+    this.maybeUnsubscribeFromMint(mint);
     if (this.stopLossConfigs.size === 0 && this.takeProfitConfigs.size === 0) {
       this.stopPriceMonitor();
     }
@@ -1706,6 +1715,7 @@ export class PumpFunSwarm extends EventEmitter {
     const key = `tp_${config.mint}`;
     this.takeProfitConfigs.set(key, config);
     this.startPriceMonitor();
+    this.subscribeToMint(config.mint);
     this.emit('takeProfitSet', config);
   }
 
@@ -1715,6 +1725,7 @@ export class PumpFunSwarm extends EventEmitter {
   removeTakeProfit(mint: string): boolean {
     const key = `tp_${mint}`;
     const existed = this.takeProfitConfigs.delete(key);
+    this.maybeUnsubscribeFromMint(mint);
     if (this.stopLossConfigs.size === 0 && this.takeProfitConfigs.size === 0) {
       this.stopPriceMonitor();
     }
@@ -1728,22 +1739,83 @@ export class PumpFunSwarm extends EventEmitter {
     return Array.from(this.takeProfitConfigs.values());
   }
 
+  private hasActiveTriggerConfig(mint: string): boolean {
+    const sl = this.stopLossConfigs.get(`sl_${mint}`);
+    const tp = this.takeProfitConfigs.get(`tp_${mint}`);
+    return !!sl?.enabled || !!tp?.enabled;
+  }
+
+  /**
+   * Subscribes to on-chain logs for a mint's currently-relevant address
+   * (bonding curve while active, PumpSwap pool once graduated) so
+   * checkMintTriggers fires the moment a trade lands, not up to
+   * priceMonitorInterval's period later. Fire-and-forget by design —
+   * setStopLoss/setTakeProfit are synchronous and the slower interval
+   * poll (see startPriceMonitor) covers the gap until the subscription is
+   * actually established, and forever after if it silently drops (RPC
+   * websocket disconnects happen; this is a real risk with a live-money
+   * safety mechanism, hence keeping the poll rather than relying solely
+   * on push notifications).
+   */
+  private subscribeToMint(mint: string, watchAddress?: PublicKey, isPumpSwap = false): void {
+    if (this.mintSubscriptions.has(mint)) return; // already watching something for this mint
+
+    try {
+      const address = watchAddress ?? getBondingCurveAddress(new PublicKey(mint));
+      const subId = this.connection.onLogs(
+        address,
+        (logs) => {
+          if (logs.err) return;
+          this.checkMintTriggers(mint).catch((e) => {
+            logger.warn({ mint, error: e instanceof Error ? e.message : String(e) }, 'Price trigger check (subscription) failed');
+          });
+        },
+        'confirmed'
+      );
+      this.mintSubscriptions.set(mint, { subId, isPumpSwap });
+    } catch (e) {
+      logger.warn({ mint, error: e instanceof Error ? e.message : String(e) }, 'Failed to subscribe to mint for price triggers — falling back to interval polling only');
+    }
+  }
+
+  private unsubscribeFromMint(mint: string): void {
+    const sub = this.mintSubscriptions.get(mint);
+    if (sub) {
+      this.connection.removeOnLogsListener(sub.subId).catch(() => { /* best-effort cleanup */ });
+      this.mintSubscriptions.delete(mint);
+    }
+  }
+
+  private maybeUnsubscribeFromMint(mint: string): void {
+    if (!this.hasActiveTriggerConfig(mint)) {
+      this.unsubscribeFromMint(mint);
+    }
+  }
+
   private startPriceMonitor(): void {
     if (this.priceMonitorInterval) return;
 
+    // Subscriptions (see subscribeToMint) are now the primary, near-
+    // instant detection path — this interval is a slower safety net for
+    // when a websocket subscription silently drops, not the main
+    // mechanism. Slowed from the original 5s since it's no longer
+    // load-bearing for latency in the common case.
     this.priceMonitorInterval = setInterval(async () => {
       try {
         await this.checkPriceTriggers();
       } catch (e) {
         logger.warn({ error: e instanceof Error ? e.message : String(e) }, 'Price trigger check failed');
       }
-    }, 5000); // Check every 5 seconds
+    }, 30000);
   }
 
   private stopPriceMonitor(): void {
     if (this.priceMonitorInterval) {
       clearInterval(this.priceMonitorInterval);
       this.priceMonitorInterval = null;
+    }
+    for (const mint of [...this.mintSubscriptions.keys()]) {
+      this.unsubscribeFromMint(mint);
     }
   }
 
@@ -1758,94 +1830,117 @@ export class PumpFunSwarm extends EventEmitter {
     }
 
     for (const mint of mints) {
-      try {
-        // Was fetched from Pump.fun's frontend API, which sits behind
-        // Cloudflare bot-protection that blocks non-browser requests
-        // (confirmed live elsewhere this session — see isGraduated()'s fix
-        // in pumpapi.ts). On a block, `!response.ok` silently `continue`d
-        // with no log line at all, meaning stop-loss/take-profit could
-        // stop firing entirely with zero trace. The raw
-        // solReserves/tokenReserves ratio computed here was also never
-        // decimal-adjusted (SOL has 9 decimals, pump.fun tokens have 6) —
-        // off from a real per-token price by ~1000x, so even when the API
-        // call succeeded, triggerPrice comparisons (documented/configured
-        // in real, human-scale SOL-per-token terms, e.g. the `/swarm
-        // stop-loss` command's own usage example of 0.00001) were
-        // comparing against the wrong magnitude entirely. Reading the
-        // bonding curve directly on-chain and using calculatePrice()
-        // (already decimal-correct, matches getTokenPriceInfo()'s
-        // convention) fixes both problems at once.
-        const state = await getBondingCurveState(this.connection, mint);
-        if (!state) {
-          logger.warn({ mint }, 'Price trigger check: bonding curve not found (token may not exist yet, or has already fully migrated off-chain)');
-          continue;
-        }
+      await this.checkMintTriggers(mint);
+    }
+  }
 
-        // The bonding curve account isn't closed on graduation (confirmed
-        // live elsewhere this session, see isGraduated()'s fix) — but its
-        // reserves are FROZEN at their final pre-graduation values once
-        // trading moves to PumpSwap. calculatePrice(state) on a graduated
-        // curve would silently return that stale, frozen price forever
-        // instead of tracking the real, live PumpSwap price — the same
-        // "doesn't account for the post-graduation state transition" bug
-        // class as isGraduated()/getBuilder('auto'), recurring here.
-        let currentPrice: number;
-        if (state.complete) {
-          try {
-            const { findBestPumpSwapState } = await import('./pumpswap');
-            const baseMint = new PublicKey(mint);
-            const quoteMint = new PublicKey('So11111111111111111111111111111111111111112'); // WSOL, matches pumpswap.ts's/PumpSwapBuilder's default
-            const { state: poolState } = await findBestPumpSwapState(this.connection, baseMint, quoteMint, SystemProgram.programId);
-            const quoteSol = poolState.poolQuoteAmount.toNumber() / 1e9;
-            const baseTokens = poolState.poolBaseAmount.toNumber() / 1e6; // pump.fun tokens are always 6dp
-            currentPrice = baseTokens > 0 ? quoteSol / baseTokens : 0;
-          } catch (err) {
-            logger.warn({ mint, err }, 'Price trigger check: graduated token, but no PumpSwap pool found (or lookup failed) — skipping this cycle');
-            continue;
-          }
-        } else {
-          currentPrice = calculatePrice(state);
-        }
-        if (!currentPrice) continue;
-
-        // Check stop loss
-        const slConfig = this.stopLossConfigs.get(`sl_${mint}`);
-        if (slConfig && slConfig.enabled && currentPrice <= slConfig.triggerPrice) {
-          this.emit('stopLossTriggered', { mint, price: currentPrice, config: slConfig });
-          slConfig.enabled = false; // Disable after triggering
-
-          // Execute sell
-          await this.coordinatedSell({
-            mint,
-            action: 'sell',
-            amountPerWallet: `${slConfig.sellPercent}%`,
-            walletIds: slConfig.walletIds,
-            slippageBps: 1000, // Higher slippage for stop loss
-            dex: slConfig.dex,
-            poolAddress: slConfig.poolAddress,
-          });
-        }
-
-        // Check take profit
-        const tpConfig = this.takeProfitConfigs.get(`tp_${mint}`);
-        if (tpConfig && tpConfig.enabled && currentPrice >= tpConfig.triggerPrice) {
-          this.emit('takeProfitTriggered', { mint, price: currentPrice, config: tpConfig });
-          tpConfig.enabled = false; // Disable after triggering
-
-          // Execute sell
-          await this.coordinatedSell({
-            mint,
-            action: 'sell',
-            amountPerWallet: `${tpConfig.sellPercent}%`,
-            walletIds: tpConfig.walletIds,
-            slippageBps: 500,
-            dex: tpConfig.dex,
-            poolAddress: tpConfig.poolAddress,
-          });
-        }
-      } catch (e) {
-        logger.error({ error: e, mint }, 'Price trigger check failed');
+  /**
+   * Core per-mint price-check-and-trigger logic — shared by both the
+   * onLogs subscription callback (near-instant, primary path) and the
+   * slower interval poll (safety net) so the two can never diverge in
+   * behavior.
+   */
+  private async checkMintTriggers(mint: string): Promise<void> {
+    try {
+      // Was fetched from Pump.fun's frontend API, which sits behind
+      // Cloudflare bot-protection that blocks non-browser requests
+      // (confirmed live elsewhere this session — see isGraduated()'s fix
+      // in pumpapi.ts). On a block, `!response.ok` silently `continue`d
+      // with no log line at all, meaning stop-loss/take-profit could
+      // stop firing entirely with zero trace. The raw
+      // solReserves/tokenReserves ratio computed here was also never
+      // decimal-adjusted (SOL has 9 decimals, pump.fun tokens have 6) —
+      // off from a real per-token price by ~1000x, so even when the API
+      // call succeeded, triggerPrice comparisons (documented/configured
+      // in real, human-scale SOL-per-token terms, e.g. the `/swarm
+      // stop-loss` command's own usage example of 0.00001) were
+      // comparing against the wrong magnitude entirely. Reading the
+      // bonding curve directly on-chain and using calculatePrice()
+      // (already decimal-correct, matches getTokenPriceInfo()'s
+      // convention) fixes both problems at once.
+      const state = await getBondingCurveState(this.connection, mint);
+      if (!state) {
+        logger.warn({ mint }, 'Price trigger check: bonding curve not found (token may not exist yet, or has already fully migrated off-chain)');
+        return;
       }
+
+      // The bonding curve account isn't closed on graduation (confirmed
+      // live elsewhere this session, see isGraduated()'s fix) — but its
+      // reserves are FROZEN at their final pre-graduation values once
+      // trading moves to PumpSwap. calculatePrice(state) on a graduated
+      // curve would silently return that stale, frozen price forever
+      // instead of tracking the real, live PumpSwap price — the same
+      // "doesn't account for the post-graduation state transition" bug
+      // class as isGraduated()/getBuilder('auto'), recurring here.
+      let currentPrice: number;
+      if (state.complete) {
+        try {
+          const { findBestPumpSwapState } = await import('./pumpswap');
+          const baseMint = new PublicKey(mint);
+          const quoteMint = new PublicKey('So11111111111111111111111111111111111111112'); // WSOL, matches pumpswap.ts's/PumpSwapBuilder's default
+          const { poolKey, state: poolState } = await findBestPumpSwapState(this.connection, baseMint, quoteMint, SystemProgram.programId);
+          const quoteSol = poolState.poolQuoteAmount.toNumber() / 1e9;
+          const baseTokens = poolState.poolBaseAmount.toNumber() / 1e6; // pump.fun tokens are always 6dp
+          currentPrice = baseTokens > 0 ? quoteSol / baseTokens : 0;
+
+          // Retarget the subscription to the PumpSwap pool the first time
+          // we see this mint has graduated — the bonding curve stops
+          // seeing new trades entirely once migrated, so a subscription
+          // still pointed at it would go silent forever post-graduation
+          // (same bug class again, now at the subscription level).
+          const existing = this.mintSubscriptions.get(mint);
+          if (existing && !existing.isPumpSwap) {
+            this.unsubscribeFromMint(mint);
+            this.subscribeToMint(mint, poolKey, true);
+          }
+        } catch (err) {
+          logger.warn({ mint, err }, 'Price trigger check: graduated token, but no PumpSwap pool found (or lookup failed) — skipping this cycle');
+          return;
+        }
+      } else {
+        currentPrice = calculatePrice(state);
+      }
+      if (!currentPrice) return;
+
+      // Check stop loss
+      const slConfig = this.stopLossConfigs.get(`sl_${mint}`);
+      if (slConfig && slConfig.enabled && currentPrice <= slConfig.triggerPrice) {
+        this.emit('stopLossTriggered', { mint, price: currentPrice, config: slConfig });
+        slConfig.enabled = false; // Disable after triggering
+        this.maybeUnsubscribeFromMint(mint);
+
+        // Execute sell
+        await this.coordinatedSell({
+          mint,
+          action: 'sell',
+          amountPerWallet: `${slConfig.sellPercent}%`,
+          walletIds: slConfig.walletIds,
+          slippageBps: 1000, // Higher slippage for stop loss
+          dex: slConfig.dex,
+          poolAddress: slConfig.poolAddress,
+        });
+      }
+
+      // Check take profit
+      const tpConfig = this.takeProfitConfigs.get(`tp_${mint}`);
+      if (tpConfig && tpConfig.enabled && currentPrice >= tpConfig.triggerPrice) {
+        this.emit('takeProfitTriggered', { mint, price: currentPrice, config: tpConfig });
+        tpConfig.enabled = false; // Disable after triggering
+        this.maybeUnsubscribeFromMint(mint);
+
+        // Execute sell
+        await this.coordinatedSell({
+          mint,
+          action: 'sell',
+          amountPerWallet: `${tpConfig.sellPercent}%`,
+          walletIds: tpConfig.walletIds,
+          slippageBps: 500,
+          dex: tpConfig.dex,
+          poolAddress: tpConfig.poolAddress,
+        });
+      }
+    } catch (e) {
+      logger.error({ error: e, mint }, 'Price trigger check failed');
     }
   }
 
