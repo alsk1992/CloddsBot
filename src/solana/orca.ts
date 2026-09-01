@@ -225,6 +225,119 @@ export async function listOrcaWhirlpoolPools(filters?: {
 }
 
 // ============================================
+// V2 SDK SHARED HELPERS
+//
+// Everything below was verified live against @orca-so/whirlpools@6.0.0's
+// actual shipped dist/index.d.ts and runtime behavior (not just assumed from
+// naming conventions), after discovering the whole v2 SDK failed to import
+// at all — see the @solana/kit override in package.json. Four confirmed,
+// distinct bug classes, all present before this fix:
+//  1. Wrong function names (sdk.openPosition/sdk.increaseLiquidity don't
+//     exist; real names are openConcentratedPosition/increasePosLiquidity).
+//  2. Wrong argument types — @solana/kit's `Address` is a plain base58
+//     string, never a legacy web3.js PublicKey object; wrapping addresses in
+//     `new PublicKey(...)` broke every call (confirmed live: e.g.
+//     fetchPositionsForOwner(new PublicKey(x)) throws "rpc.getTokenAccounts
+//     ByOwner is not a function" because the PublicKey lands in the `rpc`
+//     argument slot).
+//  3. Wrong result shape — SDK read/list functions return
+//     Account<T> = { data: T, address, ... }, not a flat T (same class of
+//     bug as Meteora DBC's poolState wrapper).
+//  4. Missing execution — every write function
+//     (open/increase/decrease/harvest/close/create) returns
+//     { instructions, quote, callback } and does NOT send anything until
+//     `.callback()` is called. The old code read a nonexistent
+//     `result.signature` field and never called `.callback()` at all, so
+//     these functions built valid instructions but never actually
+//     transacted, while still reporting back an (empty) "signature".
+// ============================================
+
+/**
+ * @orca-so/whirlpools' IncreaseLiquidityQuoteParam/DecreaseLiquidityQuoteParam
+ * are discriminated unions accepting EXACTLY ONE of liquidity/tokenA/tokenB.
+ * Building an object with an extra key present (even set to `undefined`)
+ * risks breaking the SDK's internal narrowing depending on how it checks
+ * for the field.
+ */
+function buildOrcaLiquidityParam(params: {
+  liquidityAmount?: string;
+  tokenAmountA?: string;
+  tokenAmountB?: string;
+}): { liquidity: bigint } | { tokenA: bigint } | { tokenB: bigint } {
+  if (params.liquidityAmount) return { liquidity: BigInt(params.liquidityAmount) };
+  if (params.tokenAmountB) return { tokenB: BigInt(params.tokenAmountB) };
+  if (params.tokenAmountA) return { tokenA: BigInt(params.tokenAmountA) };
+  throw new Error('One of liquidityAmount, tokenAmountA, or tokenAmountB is required.');
+}
+
+/**
+ * Position list/fetch results are Account<Position> (fields under `.data`)
+ * or, for bundles, Account<PositionBundle> & { positions: Account<Position>[] }.
+ * Flattens both shapes to a plain list of Account<Position>-like entries.
+ */
+function flattenOrcaPositions(positions: any[]): any[] {
+  return (positions || []).flatMap((p) => (p?.isPositionBundle ? p.positions : [p]));
+}
+
+function mapOrcaPositionData(pos: any): OrcaPositionInfo {
+  const data = pos?.data ?? pos ?? {};
+  return {
+    address: data.positionMint ?? pos?.address ?? '',
+    whirlpool: data.whirlpool ?? '',
+    tickLowerIndex: data.tickLowerIndex ?? 0,
+    tickUpperIndex: data.tickUpperIndex ?? 0,
+    liquidity: data.liquidity?.toString?.() ?? '0',
+    feeOwedA: data.feeOwedA?.toString?.() ?? '0',
+    feeOwedB: data.feeOwedB?.toString?.() ?? '0',
+    rewardOwed0: data.rewardInfos?.[0]?.amountOwed?.toString?.(),
+    rewardOwed1: data.rewardInfos?.[1]?.amountOwed?.toString?.(),
+    rewardOwed2: data.rewardInfos?.[2]?.amountOwed?.toString?.(),
+  };
+}
+
+/**
+ * Builds a @solana/kit RPC client from the same endpoint the caller's legacy
+ * Connection points at — required for the "fetch"-family v2 SDK functions,
+ * which (unlike the write/"action" functions) take `rpc` as an explicit
+ * first argument rather than reading it from sdk.setRpc()'s internal config.
+ */
+async function getOrcaKitRpc(sdk: any, connection: Connection): Promise<any> {
+  await sdk.setRpc(connection.rpcEndpoint);
+  const kit = await import('@solana/kit');
+  const { rpcUrl } = sdk.getRpcConfig();
+  return (kit as any).createSolanaRpc(rpcUrl);
+}
+
+/**
+ * openConcentratedPosition()'s .d.ts types the range as ticks-shaped but the
+ * real signature takes nominal (lowerPrice, upperPrice) — verified live via
+ * dist/index.d.ts and tickIndexToPrice()'s actual output. Converts using the
+ * pool's real on-chain token decimals.
+ */
+async function orcaTickRangeToPrices(
+  connection: Connection,
+  rpc: any,
+  poolAddress: string,
+  tickLowerIndex: number,
+  tickUpperIndex: number
+): Promise<{ lowerPrice: number; upperPrice: number }> {
+  const client = await import('@orca-so/whirlpools-client') as any;
+  const core = await import('@orca-so/whirlpools-core') as any;
+  const { getMint } = await import('@solana/spl-token');
+
+  const pool = await client.fetchWhirlpool(rpc, poolAddress);
+  const [mintA, mintB] = await Promise.all([
+    getMint(connection, new PublicKey(String(pool.data.tokenMintA))),
+    getMint(connection, new PublicKey(String(pool.data.tokenMintB))),
+  ]);
+
+  return {
+    lowerPrice: core.tickIndexToPrice(tickLowerIndex, mintA.decimals, mintB.decimals),
+    upperPrice: core.tickIndexToPrice(tickUpperIndex, mintA.decimals, mintB.decimals),
+  };
+}
+
+// ============================================
 // POSITION MANAGEMENT (v2 SDK)
 // ============================================
 
@@ -244,18 +357,16 @@ export async function openOrcaFullRangePosition(
   await sdk.setRpc(connection.rpcEndpoint);
 
   const result = await sdk.openFullRangePosition(
-    new PublicKey(params.poolAddress),
-    {
-      tokenA: BigInt(params.tokenAmountA),
-      tokenB: params.tokenAmountB ? BigInt(params.tokenAmountB) : undefined,
-    },
+    params.poolAddress,
+    buildOrcaLiquidityParam(params),
     params.slippageBps ?? 50
   );
+  const signature = await result.callback();
 
   return {
-    signature: result.signature || result.signatures?.[0] || '',
-    positionAddress: result.positionMint?.toBase58?.() || result.positionAddress?.toBase58?.() || '',
-    positionMint: result.positionMint?.toBase58?.() || '',
+    signature,
+    positionAddress: result.positionMint,
+    positionMint: result.positionMint,
   };
 }
 
@@ -276,23 +387,29 @@ export async function openOrcaConcentratedPosition(
 
   await sdk.setWhirlpoolsConfig('solanaMainnet');
   await sdk.setPayerFromBytes(keypair.secretKey);
-  await sdk.setRpc(connection.rpcEndpoint);
+  const rpc = await getOrcaKitRpc(sdk, connection);
 
-  const result = await sdk.openPosition(
-    new PublicKey(params.poolAddress),
-    {
-      tokenA: BigInt(params.tokenAmountA),
-      tokenB: params.tokenAmountB ? BigInt(params.tokenAmountB) : undefined,
-    },
+  const { lowerPrice, upperPrice } = await orcaTickRangeToPrices(
+    connection,
+    rpc,
+    params.poolAddress,
     params.tickLowerIndex,
-    params.tickUpperIndex,
-    params.slippageBps ?? 50
+    params.tickUpperIndex
   );
 
+  const result = await sdk.openConcentratedPosition(
+    params.poolAddress,
+    buildOrcaLiquidityParam(params),
+    lowerPrice,
+    upperPrice,
+    params.slippageBps ?? 50
+  );
+  const signature = await result.callback();
+
   return {
-    signature: result.signature || result.signatures?.[0] || '',
-    positionAddress: result.positionMint?.toBase58?.() || result.positionAddress?.toBase58?.() || '',
-    positionMint: result.positionMint?.toBase58?.() || '',
+    signature,
+    positionAddress: result.positionMint,
+    positionMint: result.positionMint,
   };
 }
 
@@ -307,22 +424,10 @@ export async function fetchOrcaPositionsForOwner(
   const sdk = await import('@orca-so/whirlpools') as any;
 
   await sdk.setWhirlpoolsConfig('solanaMainnet');
-  await sdk.setRpc(connection.rpcEndpoint);
+  const rpc = await getOrcaKitRpc(sdk, connection);
 
-  const positions = await sdk.fetchPositionsForOwner(new PublicKey(ownerAddress));
-
-  return (positions || []).map((pos: any) => ({
-    address: pos.address?.toBase58?.() || pos.positionMint?.toBase58?.() || '',
-    whirlpool: pos.whirlpool?.toBase58?.() || pos.whirlpool || '',
-    tickLowerIndex: pos.tickLowerIndex ?? 0,
-    tickUpperIndex: pos.tickUpperIndex ?? 0,
-    liquidity: pos.liquidity?.toString?.() || '0',
-    feeOwedA: pos.feeOwedA?.toString?.() || '0',
-    feeOwedB: pos.feeOwedB?.toString?.() || '0',
-    rewardOwed0: pos.rewardInfos?.[0]?.amountOwed?.toString?.(),
-    rewardOwed1: pos.rewardInfos?.[1]?.amountOwed?.toString?.(),
-    rewardOwed2: pos.rewardInfos?.[2]?.amountOwed?.toString?.(),
-  }));
+  const positions = await sdk.fetchPositionsForOwner(rpc, ownerAddress);
+  return flattenOrcaPositions(positions).map(mapOrcaPositionData);
 }
 
 /**
@@ -336,22 +441,10 @@ export async function fetchOrcaPositionsInWhirlpool(
   const sdk = await import('@orca-so/whirlpools') as any;
 
   await sdk.setWhirlpoolsConfig('solanaMainnet');
-  await sdk.setRpc(connection.rpcEndpoint);
+  const rpc = await getOrcaKitRpc(sdk, connection);
 
-  const positions = await sdk.fetchPositionsInWhirlpool(new PublicKey(poolAddress));
-
-  return (positions || []).map((pos: any) => ({
-    address: pos.address?.toBase58?.() || pos.positionMint?.toBase58?.() || '',
-    whirlpool: poolAddress,
-    tickLowerIndex: pos.tickLowerIndex ?? 0,
-    tickUpperIndex: pos.tickUpperIndex ?? 0,
-    liquidity: pos.liquidity?.toString?.() || '0',
-    feeOwedA: pos.feeOwedA?.toString?.() || '0',
-    feeOwedB: pos.feeOwedB?.toString?.() || '0',
-    rewardOwed0: pos.rewardInfos?.[0]?.amountOwed?.toString?.(),
-    rewardOwed1: pos.rewardInfos?.[1]?.amountOwed?.toString?.(),
-    rewardOwed2: pos.rewardInfos?.[2]?.amountOwed?.toString?.(),
-  }));
+  const positions = await sdk.fetchPositionsInWhirlpool(rpc, poolAddress);
+  return flattenOrcaPositions(positions).map(mapOrcaPositionData);
 }
 
 // ============================================
@@ -373,23 +466,17 @@ export async function increaseOrcaLiquidity(
   await sdk.setPayerFromBytes(keypair.secretKey);
   await sdk.setRpc(connection.rpcEndpoint);
 
-  const param = params.liquidityAmount
-    ? { liquidity: BigInt(params.liquidityAmount) }
-    : {
-        tokenA: params.tokenAmountA ? BigInt(params.tokenAmountA) : undefined,
-        tokenB: params.tokenAmountB ? BigInt(params.tokenAmountB) : undefined,
-      };
-
-  const result = await sdk.increaseLiquidity(
-    new PublicKey(params.positionAddress),
-    param,
+  const result = await sdk.increasePosLiquidity(
+    params.positionAddress,
+    buildOrcaLiquidityParam(params),
     params.slippageBps ?? 50
   );
+  const signature = await result.callback();
 
   return {
-    signature: result.signature || result.signatures?.[0] || '',
+    signature,
     positionAddress: params.positionAddress,
-    liquidityDelta: result.liquidityDelta?.toString?.() || result.quote?.liquidityDelta?.toString?.(),
+    liquidityDelta: result.quote?.liquidityDelta?.toString?.(),
   };
 }
 
@@ -408,23 +495,17 @@ export async function decreaseOrcaLiquidity(
   await sdk.setPayerFromBytes(keypair.secretKey);
   await sdk.setRpc(connection.rpcEndpoint);
 
-  const param = params.liquidityAmount
-    ? { liquidity: BigInt(params.liquidityAmount) }
-    : {
-        tokenA: params.tokenAmountA ? BigInt(params.tokenAmountA) : undefined,
-        tokenB: params.tokenAmountB ? BigInt(params.tokenAmountB) : undefined,
-      };
-
   const result = await sdk.decreaseLiquidity(
-    new PublicKey(params.positionAddress),
-    param,
+    params.positionAddress,
+    buildOrcaLiquidityParam(params),
     params.slippageBps ?? 50
   );
+  const signature = await result.callback();
 
   return {
-    signature: result.signature || result.signatures?.[0] || '',
+    signature,
     positionAddress: params.positionAddress,
-    liquidityDelta: result.liquidityDelta?.toString?.() || result.quote?.liquidityDelta?.toString?.(),
+    liquidityDelta: result.quote?.liquidityDelta?.toString?.(),
   };
 }
 
@@ -447,14 +528,15 @@ export async function harvestOrcaPosition(
   await sdk.setPayerFromBytes(keypair.secretKey);
   await sdk.setRpc(connection.rpcEndpoint);
 
-  const result = await sdk.harvestPosition(new PublicKey(positionAddress));
+  const result = await sdk.harvestPosition(positionAddress);
+  const signature = await result.callback();
 
   return {
-    signature: result.signature || result.signatures?.[0] || '',
+    signature,
     positionAddress,
-    feesCollectedA: result.feesCollectedA?.toString?.(),
-    feesCollectedB: result.feesCollectedB?.toString?.(),
-    rewardsCollected: result.rewardsCollected?.map((r: any) => r?.toString?.() || '0'),
+    feesCollectedA: result.feesQuote?.feeOwedA?.toString?.(),
+    feesCollectedB: result.feesQuote?.feeOwedB?.toString?.(),
+    rewardsCollected: result.rewardsQuote?.rewards?.map((r: any) => r?.rewardsOwed?.toString?.() ?? '0'),
   };
 }
 
@@ -496,12 +578,12 @@ export async function closeOrcaPosition(
   await sdk.setPayerFromBytes(keypair.secretKey);
   await sdk.setRpc(connection.rpcEndpoint);
 
-  const result = await sdk.closePosition(new PublicKey(positionAddress));
+  const result = await sdk.closePosition(positionAddress);
+  const signature = await result.callback();
 
   return {
-    signature: result.signature || result.signatures?.[0] || '',
+    signature,
     positionAddress,
-    rentReclaimed: result.rentReclaimed?.toString?.(),
   };
 }
 
@@ -525,14 +607,15 @@ export async function createOrcaSplashPool(
   await sdk.setRpc(connection.rpcEndpoint);
 
   const result = await sdk.createSplashPool(
-    new PublicKey(params.tokenMintA),
-    new PublicKey(params.tokenMintB),
+    params.tokenMintA,
+    params.tokenMintB,
     params.initialPrice ?? 1.0
   );
+  const signature = await result.callback();
 
   return {
-    signature: result.signature || result.signatures?.[0] || '',
-    poolAddress: result.poolAddress?.toBase58?.() || result.whirlpool?.toBase58?.() || '',
+    signature,
+    poolAddress: result.poolAddress,
     tokenMintA: params.tokenMintA,
     tokenMintB: params.tokenMintB,
   };
@@ -557,15 +640,16 @@ export async function createOrcaConcentratedLiquidityPool(
   const tickSpacing = params.tickSpacing ?? (params.feeTierBps === 1 ? 1 : params.feeTierBps === 5 ? 8 : params.feeTierBps === 30 ? 64 : 128);
 
   const result = await sdk.createConcentratedLiquidityPool(
-    new PublicKey(params.tokenMintA),
-    new PublicKey(params.tokenMintB),
+    params.tokenMintA,
+    params.tokenMintB,
     tickSpacing,
     params.initialPrice ?? 1.0
   );
+  const signature = await result.callback();
 
   return {
-    signature: result.signature || result.signatures?.[0] || '',
-    poolAddress: result.poolAddress?.toBase58?.() || result.whirlpool?.toBase58?.() || '',
+    signature,
+    poolAddress: result.poolAddress,
     tokenMintA: params.tokenMintA,
     tokenMintB: params.tokenMintB,
   };
@@ -587,20 +671,16 @@ export async function fetchOrcaWhirlpoolsByTokenPair(
   const sdk = await import('@orca-so/whirlpools') as any;
 
   await sdk.setWhirlpoolsConfig('solanaMainnet');
-  await sdk.setRpc(connection.rpcEndpoint);
+  const rpc = await getOrcaKitRpc(sdk, connection);
 
-  const pools = await sdk.fetchWhirlpoolsByTokenPair(
-    new PublicKey(tokenMintA),
-    new PublicKey(tokenMintB)
-  );
+  const pools = await sdk.fetchWhirlpoolsByTokenPair(rpc, tokenMintA, tokenMintB);
 
   return (pools || []).map((pool: any) => ({
-    address: pool.address?.toBase58?.() || pool.address || '',
-    tokenMintA: pool.tokenMintA?.toBase58?.() || tokenMintA,
-    tokenMintB: pool.tokenMintB?.toBase58?.() || tokenMintB,
+    address: pool.address || '',
+    tokenMintA: pool.tokenMintA || tokenMintA,
+    tokenMintB: pool.tokenMintB || tokenMintB,
     stable: false,
     price: pool.price ? Number(pool.price) : undefined,
-    tvl: pool.tvl ? Number(pool.tvl) : undefined,
     liquidity: pool.liquidity ? Number(pool.liquidity) : undefined,
     tickSpacing: pool.tickSpacing,
   }));
