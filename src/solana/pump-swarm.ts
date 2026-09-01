@@ -230,12 +230,12 @@ import {
   DexType,
   SwarmWallet as BuilderSwarmWallet,
 } from './swarm-builders';
+import { getBondingCurveState, calculatePrice } from './pumpapi';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const PUMPFUN_FRONTEND_API = 'https://frontend-api-v3.pump.fun';
 const JITO_BLOCK_ENGINE = 'https://mainnet.block-engine.jito.wtf';
 const JITO_TIP_ACCOUNTS = [
   '96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5',
@@ -945,7 +945,7 @@ export class PumpFunSwarm extends EventEmitter {
   ): Promise<VersionedTransaction | null> {
     // Get the appropriate builder for the DEX
     const dex: DexType = params.dex ?? 'pumpfun';
-    const builder = getBuilder(dex);
+    const builder = await getBuilder(dex, this.connection, params.mint);
 
     const options: BuilderOptions = {
       slippageBps: params.slippageBps ?? this.config.defaultSlippageBps,
@@ -1482,7 +1482,7 @@ export class PumpFunSwarm extends EventEmitter {
 
     // Get the builder for the specified DEX
     const dex: DexType = params.dex ?? 'pumpfun';
-    const builder = getBuilder(dex);
+    const builder = await getBuilder(dex, this.connection, params.mint);
 
     for (const wallet of wallets) {
       try {
@@ -1759,23 +1759,53 @@ export class PumpFunSwarm extends EventEmitter {
 
     for (const mint of mints) {
       try {
-        // Get current price from Pump.fun frontend API
-        const priceHeaders: Record<string, string> = {
-          'Accept': 'application/json',
-          'Origin': 'https://pump.fun',
-        };
-        const jwt = process.env.PUMPFUN_JWT;
-        if (jwt) {
-          priceHeaders['Authorization'] = `Bearer ${jwt}`;
+        // Was fetched from Pump.fun's frontend API, which sits behind
+        // Cloudflare bot-protection that blocks non-browser requests
+        // (confirmed live elsewhere this session — see isGraduated()'s fix
+        // in pumpapi.ts). On a block, `!response.ok` silently `continue`d
+        // with no log line at all, meaning stop-loss/take-profit could
+        // stop firing entirely with zero trace. The raw
+        // solReserves/tokenReserves ratio computed here was also never
+        // decimal-adjusted (SOL has 9 decimals, pump.fun tokens have 6) —
+        // off from a real per-token price by ~1000x, so even when the API
+        // call succeeded, triggerPrice comparisons (documented/configured
+        // in real, human-scale SOL-per-token terms, e.g. the `/swarm
+        // stop-loss` command's own usage example of 0.00001) were
+        // comparing against the wrong magnitude entirely. Reading the
+        // bonding curve directly on-chain and using calculatePrice()
+        // (already decimal-correct, matches getTokenPriceInfo()'s
+        // convention) fixes both problems at once.
+        const state = await getBondingCurveState(this.connection, mint);
+        if (!state) {
+          logger.warn({ mint }, 'Price trigger check: bonding curve not found (token may not exist yet, or has already fully migrated off-chain)');
+          continue;
         }
-        const response = await fetch(`${PUMPFUN_FRONTEND_API}/coins/${mint}`, { headers: priceHeaders });
-        if (!response.ok) continue;
 
-        const data = await response.json() as { market_cap?: number; virtual_sol_reserves?: number; virtual_token_reserves?: number; usd_market_cap?: number };
-        // Estimate price from reserves: price ≈ solReserves / tokenReserves
-        const solReserves = data.virtual_sol_reserves ?? 0;
-        const tokenReserves = data.virtual_token_reserves ?? 0;
-        const currentPrice = (solReserves > 0 && tokenReserves > 0) ? solReserves / tokenReserves : undefined;
+        // The bonding curve account isn't closed on graduation (confirmed
+        // live elsewhere this session, see isGraduated()'s fix) — but its
+        // reserves are FROZEN at their final pre-graduation values once
+        // trading moves to PumpSwap. calculatePrice(state) on a graduated
+        // curve would silently return that stale, frozen price forever
+        // instead of tracking the real, live PumpSwap price — the same
+        // "doesn't account for the post-graduation state transition" bug
+        // class as isGraduated()/getBuilder('auto'), recurring here.
+        let currentPrice: number;
+        if (state.complete) {
+          try {
+            const { findBestPumpSwapState } = await import('./pumpswap');
+            const baseMint = new PublicKey(mint);
+            const quoteMint = new PublicKey('So11111111111111111111111111111111111111112'); // WSOL, matches pumpswap.ts's/PumpSwapBuilder's default
+            const { state: poolState } = await findBestPumpSwapState(this.connection, baseMint, quoteMint, SystemProgram.programId);
+            const quoteSol = poolState.poolQuoteAmount.toNumber() / 1e9;
+            const baseTokens = poolState.poolBaseAmount.toNumber() / 1e6; // pump.fun tokens are always 6dp
+            currentPrice = baseTokens > 0 ? quoteSol / baseTokens : 0;
+          } catch (err) {
+            logger.warn({ mint, err }, 'Price trigger check: graduated token, but no PumpSwap pool found (or lookup failed) — skipping this cycle');
+            continue;
+          }
+        } else {
+          currentPrice = calculatePrice(state);
+        }
         if (!currentPrice) continue;
 
         // Check stop loss

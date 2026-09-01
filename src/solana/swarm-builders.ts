@@ -641,9 +641,35 @@ builders.set('pumpswap', new PumpSwapBuilder());
 builders.set('bags', new BagsBuilder());
 builders.set('meteora', new MeteoraBuilder());
 
-export function getBuilder(dex: DexType): SwarmTransactionBuilder {
+/**
+ * `dex: 'auto'` used to unconditionally resolve to PumpFunBuilder (the
+ * bonding-curve builder) regardless of whether the token had actually
+ * graduated — 'auto' didn't do what its name promised, and the deeper
+ * pool: 'auto' option threaded through to buildPumpFunTradeInstructions
+ * (see assertSupportedPumpPool in pumpapi.ts) is treated identically to
+ * pool: 'pump' there too, so there was no real auto-routing anywhere in
+ * this call chain. A trade against a graduated token would only fail
+ * loudly via that function's own graduated-token guard, never actually
+ * route to PumpSwap. Reachable in practice via the `/swarm buy`/`/swarm
+ * sell --dex auto` skill flag (type-allowed, if undocumented in the
+ * printed help text).
+ */
+export async function getBuilder(
+  dex: DexType,
+  connection?: Connection,
+  mint?: string
+): Promise<SwarmTransactionBuilder> {
   if (dex === 'auto') {
-    // Default to pumpfun for auto
+    if (connection && mint) {
+      const { getBestPool } = await import('./pumpapi');
+      const { pool } = await getBestPool(connection, mint);
+      return builders.get(pool === 'pump-amm' ? 'pumpswap' : 'pumpfun')!;
+    }
+    // No connection/mint to check graduation with (e.g. a caller building
+    // a quote-only estimate with no live RPC context) — pumpfun remains a
+    // reasonable default, but this can no longer silently misroute a real
+    // trade against a graduated token when the caller does have that
+    // context, which every real call site in pump-swarm.ts does.
     return builders.get('pumpfun')!;
   }
 
