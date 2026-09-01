@@ -4,9 +4,7 @@
  * Lending: deposit, withdraw, borrow, repay
  */
 
-import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
-import { signAndSendTransaction } from './wallet';
-import BN from 'bn.js';
+import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { createLogger } from '../utils/logger';
 
 const logger = createLogger('solana:marginfi');
@@ -92,10 +90,12 @@ export async function getMarginfiAccount(
   keypair: Keypair
 ): Promise<MarginfiAccountInfo | null> {
   try {
-    const { MarginfiClient, getConfig } = await import('@mrgnlabs/marginfi-client-v2');
+    const { MarginfiClient, getConfig, MarginRequirementType } = await import('@mrgnlabs/marginfi-client-v2');
+    const anchor = await import('@coral-xyz/anchor');
 
     const config = getConfig('production');
-    const client = await MarginfiClient.fetch(config, {} as any, connection as any);
+    const wallet = new anchor.Wallet(keypair);
+    const client = await MarginfiClient.fetch(config, wallet as any, connection);
 
     const accounts = await client.getMarginfiAccountsForAuthority(keypair.publicKey);
     if (!accounts || accounts.length === 0) {
@@ -108,22 +108,26 @@ export async function getMarginfiAccount(
     let totalDepositValue = 0;
     let totalBorrowValue = 0;
 
-    const balances = (account as any).activeBalances || (account as any).balances || [];
-    for (const balance of balances) {
+    for (const balance of account.activeBalances) {
       try {
-        const bank = (client as any).getBankByPk?.(balance.bankPk) ?? (client as any).banks?.get(balance.bankPk?.toBase58?.());
+        const bank = client.getBankByPk(balance.bankPk);
         if (!bank) continue;
+        const oraclePrice = client.getOraclePriceByBank(bank.address);
+        if (!oraclePrice) continue;
 
-        const symbol = (bank as any).tokenSymbol || (bank as any).label || 'UNKNOWN';
-        const mint = (bank as any).mint?.toBase58?.() || '';
-        const depositAmount = (balance as any).computeQuantity?.((bank as any))?.assets?.toNumber?.() ?? 0;
-        const borrowAmount = (balance as any).computeQuantity?.((bank as any))?.liabilities?.toNumber?.() ?? 0;
-        const depositUsd = (balance as any).computeUsdValue?.((bank as any))?.assets?.toNumber?.() ?? 0;
-        const borrowUsd = (balance as any).computeUsdValue?.((bank as any))?.liabilities?.toNumber?.() ?? 0;
+        const symbol = bank.tokenSymbol || 'UNKNOWN';
+        const mint = bank.mint.toBase58();
+        const { assets: assetsQty, liabilities: liabsQty } = balance.computeQuantityUi(bank);
+        const { assets: assetsUsd, liabilities: liabsUsd } = balance.computeUsdValue(bank, oraclePrice);
+
+        const depositAmount = assetsQty.toNumber();
+        const borrowAmount = liabsQty.toNumber();
+        const depositUsd = assetsUsd.toNumber();
+        const borrowUsd = liabsUsd.toNumber();
 
         if (depositAmount > 0) {
           deposits.push({
-            bankAddress: balance.bankPk?.toBase58?.() || '',
+            bankAddress: balance.bankPk.toBase58(),
             symbol,
             mint,
             amount: depositAmount.toString(),
@@ -134,7 +138,7 @@ export async function getMarginfiAccount(
 
         if (borrowAmount > 0) {
           borrows.push({
-            bankAddress: balance.bankPk?.toBase58?.() || '',
+            bankAddress: balance.bankPk.toBase58(),
             symbol,
             mint,
             amount: borrowAmount.toString(),
@@ -147,18 +151,21 @@ export async function getMarginfiAccount(
       }
     }
 
-    const ltv = totalDepositValue > 0 ? totalBorrowValue / totalDepositValue : 0;
-    const healthFactor = ltv > 0 ? 1 / ltv : Infinity;
+    const { assets: maintAssets, liabilities: maintLiabs } = account.computeHealthComponents(
+      MarginRequirementType.Maintenance
+    );
+    const healthFactor = maintLiabs.isZero() ? Infinity : maintAssets.dividedBy(maintLiabs).toNumber();
+    const ltv = totalDepositValue > 0 ? (totalBorrowValue / totalDepositValue) * 100 : 0;
 
     return {
-      address: (account as any).address?.toBase58?.() || (account as any).publicKey?.toBase58?.() || '',
+      address: account.address.toBase58(),
       owner: keypair.publicKey.toBase58(),
       deposits,
       borrows,
       totalDepositValue: totalDepositValue.toString(),
       totalBorrowValue: totalBorrowValue.toString(),
       healthFactor,
-      ltv: ltv * 100,
+      ltv,
     };
   } catch (error) {
     logger.error({ error }, 'Failed to get MarginFi account');
@@ -175,35 +182,47 @@ export async function getMarginfiBanks(
   connection: Connection
 ): Promise<MarginfiBankInfo[]> {
   try {
-    const { MarginfiClient, getConfig } = await import('@mrgnlabs/marginfi-client-v2');
+    const { MarginfiClient, getConfig, MarginRequirementType, PriceBias } = await import(
+      '@mrgnlabs/marginfi-client-v2'
+    );
 
     const config = getConfig('production');
-    const client = await MarginfiClient.fetch(config, {} as any, connection as any);
+    const readOnlyWallet = {
+      publicKey: PublicKey.default,
+      signTransaction: async (tx: any) => tx,
+      signAllTransactions: async (txs: any) => txs,
+    };
+    const client = await MarginfiClient.fetch(config, readOnlyWallet as any, connection);
 
     const banks: MarginfiBankInfo[] = [];
-    const bankMap = (client as any).banks || new Map();
 
-    for (const [, bank] of bankMap) {
+    for (const [, bank] of client.banks) {
       try {
-        const depositRate = (bank as any).computeInterestRates?.()?.lendingRate?.toNumber?.() ?? 0;
-        const borrowRate = (bank as any).computeInterestRates?.()?.borrowingRate?.toNumber?.() ?? 0;
-        const totalDeposits = (bank as any).computeAssetUsdValue?.()?.toNumber?.() ?? 0;
-        const totalBorrows = (bank as any).computeLiabilityUsdValue?.()?.toNumber?.() ?? 0;
+        const oraclePrice = client.getOraclePriceByBank(bank.address);
+        if (!oraclePrice) continue;
+
+        const { lendingRate, borrowingRate } = bank.computeInterestRates();
+        const totalDeposits = bank
+          .computeAssetUsdValue(oraclePrice, bank.totalAssetShares, MarginRequirementType.Equity, PriceBias.None)
+          .toNumber();
+        const totalBorrows = bank
+          .computeLiabilityUsdValue(oraclePrice, bank.totalLiabilityShares, MarginRequirementType.Equity, PriceBias.None)
+          .toNumber();
         const utilization = totalDeposits > 0 ? (totalBorrows / totalDeposits) * 100 : 0;
 
         banks.push({
-          address: (bank as any).address?.toBase58?.() || (bank as any).publicKey?.toBase58?.() || '',
-          symbol: (bank as any).tokenSymbol || (bank as any).label || 'UNKNOWN',
-          mint: (bank as any).mint?.toBase58?.() || '',
-          decimals: (bank as any).mintDecimals?.toNumber?.() ?? (bank as any).mintDecimals ?? 6,
-          depositRate: depositRate * 100,
-          borrowRate: borrowRate * 100,
+          address: bank.address.toBase58(),
+          symbol: bank.tokenSymbol || 'UNKNOWN',
+          mint: bank.mint.toBase58(),
+          decimals: bank.mintDecimals,
+          depositRate: lendingRate.toNumber() * 100,
+          borrowRate: borrowingRate.toNumber() * 100,
           totalDeposits: totalDeposits.toString(),
           totalBorrows: totalBorrows.toString(),
           availableLiquidity: (totalDeposits - totalBorrows).toString(),
           utilizationRate: utilization,
-          ltv: (bank as any).config?.assetWeightInit?.toNumber?.() ?? 0,
-          liquidationThreshold: (bank as any).config?.liabilityWeightInit?.toNumber?.() ?? 0,
+          ltv: bank.config.assetWeightInit.toNumber(),
+          liquidationThreshold: bank.config.assetWeightMaint.toNumber(),
         });
       } catch {
         // Skip banks that fail to parse
@@ -230,40 +249,27 @@ export async function marginfiDeposit(
   params: MarginfiDepositParams
 ): Promise<MarginfiResult> {
   const { MarginfiClient, getConfig } = await import('@mrgnlabs/marginfi-client-v2');
+  const anchor = await import('@coral-xyz/anchor');
 
   const config = getConfig('production');
-  const client = await MarginfiClient.fetch(config, {} as any, connection as any);
+  const wallet = new anchor.Wallet(keypair);
+  const client = await MarginfiClient.fetch(config, wallet as any, connection);
 
-  // Find bank by mint
-  const bank = findBankByMint(client, params.bankMint);
+  const bank = client.getBankByMint(params.bankMint);
   if (!bank) {
     throw new Error(`Bank not found for mint: ${params.bankMint}`);
   }
 
   // Get or create marginfi account
-  let accounts = await client.getMarginfiAccountsForAuthority(keypair.publicKey);
-  let account = accounts?.[0];
-  if (!account) {
-    await client.createMarginfiAccount(keypair.publicKey);
-    accounts = await client.getMarginfiAccountsForAuthority(keypair.publicKey);
-    account = accounts?.[0];
-    if (!account) throw new Error('Failed to create MarginFi account');
-  }
+  const accounts = await client.getMarginfiAccountsForAuthority(keypair.publicKey);
+  const account = accounts?.[0] ?? (await client.createMarginfiAccount());
 
-  const amount = new BN(params.amount);
-  const tx = await (account as any).deposit(amount, (bank as any).address || (bank as any).publicKey);
-
-  let signature: string;
-  if (typeof tx === 'string') {
-    signature = tx;
-  } else {
-    signature = await signAndSendTransaction(connection, keypair, tx as Transaction);
-  }
+  const signature = await account.deposit(params.amount, bank.address);
 
   return {
     signature,
     amount: params.amount,
-    symbol: (bank as any).tokenSymbol || (bank as any).label,
+    symbol: bank.tokenSymbol,
   };
 }
 
@@ -280,11 +286,13 @@ export async function marginfiWithdraw(
   params: MarginfiWithdrawParams
 ): Promise<MarginfiResult> {
   const { MarginfiClient, getConfig } = await import('@mrgnlabs/marginfi-client-v2');
+  const anchor = await import('@coral-xyz/anchor');
 
   const config = getConfig('production');
-  const client = await MarginfiClient.fetch(config, {} as any, connection as any);
+  const wallet = new anchor.Wallet(keypair);
+  const client = await MarginfiClient.fetch(config, wallet as any, connection);
 
-  const bank = findBankByMint(client, params.bankMint);
+  const bank = client.getBankByMint(params.bankMint);
   if (!bank) {
     throw new Error(`Bank not found for mint: ${params.bankMint}`);
   }
@@ -293,24 +301,13 @@ export async function marginfiWithdraw(
   const account = accounts?.[0];
   if (!account) throw new Error('No MarginFi account found');
 
-  const amount = params.withdrawAll ? undefined : new BN(params.amount);
-  const tx = await (account as any).withdraw(
-    amount,
-    (bank as any).address || (bank as any).publicKey,
-    params.withdrawAll
-  );
-
-  let signature: string;
-  if (typeof tx === 'string') {
-    signature = tx;
-  } else {
-    signature = await signAndSendTransaction(connection, keypair, tx as Transaction);
-  }
+  const amount = params.withdrawAll ? 0 : params.amount;
+  const signatures = await account.withdraw(amount, bank.address, params.withdrawAll);
 
   return {
-    signature,
+    signature: signatures[signatures.length - 1],
     amount: params.amount,
-    symbol: (bank as any).tokenSymbol || (bank as any).label,
+    symbol: bank.tokenSymbol,
   };
 }
 
@@ -327,11 +324,13 @@ export async function marginfiBorrow(
   params: MarginfiBorrowParams
 ): Promise<MarginfiResult> {
   const { MarginfiClient, getConfig } = await import('@mrgnlabs/marginfi-client-v2');
+  const anchor = await import('@coral-xyz/anchor');
 
   const config = getConfig('production');
-  const client = await MarginfiClient.fetch(config, {} as any, connection as any);
+  const wallet = new anchor.Wallet(keypair);
+  const client = await MarginfiClient.fetch(config, wallet as any, connection);
 
-  const bank = findBankByMint(client, params.bankMint);
+  const bank = client.getBankByMint(params.bankMint);
   if (!bank) {
     throw new Error(`Bank not found for mint: ${params.bankMint}`);
   }
@@ -340,20 +339,12 @@ export async function marginfiBorrow(
   const account = accounts?.[0];
   if (!account) throw new Error('No MarginFi account found. Deposit collateral first.');
 
-  const amount = new BN(params.amount);
-  const tx = await (account as any).borrow(amount, (bank as any).address || (bank as any).publicKey);
-
-  let signature: string;
-  if (typeof tx === 'string') {
-    signature = tx;
-  } else {
-    signature = await signAndSendTransaction(connection, keypair, tx as Transaction);
-  }
+  const signatures = await account.borrow(params.amount, bank.address);
 
   return {
-    signature,
+    signature: signatures[signatures.length - 1],
     amount: params.amount,
-    symbol: (bank as any).tokenSymbol || (bank as any).label,
+    symbol: bank.tokenSymbol,
   };
 }
 
@@ -370,11 +361,13 @@ export async function marginfiRepay(
   params: MarginfiRepayParams
 ): Promise<MarginfiResult> {
   const { MarginfiClient, getConfig } = await import('@mrgnlabs/marginfi-client-v2');
+  const anchor = await import('@coral-xyz/anchor');
 
   const config = getConfig('production');
-  const client = await MarginfiClient.fetch(config, {} as any, connection as any);
+  const wallet = new anchor.Wallet(keypair);
+  const client = await MarginfiClient.fetch(config, wallet as any, connection);
 
-  const bank = findBankByMint(client, params.bankMint);
+  const bank = client.getBankByMint(params.bankMint);
   if (!bank) {
     throw new Error(`Bank not found for mint: ${params.bankMint}`);
   }
@@ -383,24 +376,13 @@ export async function marginfiRepay(
   const account = accounts?.[0];
   if (!account) throw new Error('No MarginFi account found');
 
-  const amount = params.repayAll ? undefined : new BN(params.amount);
-  const tx = await (account as any).repay(
-    amount,
-    (bank as any).address || (bank as any).publicKey,
-    params.repayAll
-  );
-
-  let signature: string;
-  if (typeof tx === 'string') {
-    signature = tx;
-  } else {
-    signature = await signAndSendTransaction(connection, keypair, tx as Transaction);
-  }
+  const amount = params.repayAll ? 0 : params.amount;
+  const signature = await account.repay(amount, bank.address, params.repayAll);
 
   return {
     signature,
     amount: params.amount,
-    symbol: (bank as any).tokenSymbol || (bank as any).label,
+    symbol: bank.tokenSymbol,
   };
 }
 
@@ -415,17 +397,4 @@ export async function getMarginfiHealth(
   keypair: Keypair
 ): Promise<MarginfiAccountInfo | null> {
   return getMarginfiAccount(connection, keypair);
-}
-
-// ============================================
-// HELPERS
-// ============================================
-
-function findBankByMint(client: any, mint: string): any {
-  const bankMap = client.banks || new Map();
-  for (const [, bank] of bankMap) {
-    const bankMint = (bank as any).mint?.toBase58?.() || '';
-    if (bankMint === mint) return bank;
-  }
-  return null;
 }
