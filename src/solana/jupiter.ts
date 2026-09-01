@@ -243,7 +243,18 @@ export async function executeJupiterSwap(
   const txBytes = Buffer.from(swapJson.swapTransaction, 'base64');
   const signature = await signAndSendVersionedTransaction(connection, keypair, new Uint8Array(txBytes));
 
-  return { signature, quote, endpoint: baseUrl };
+  return {
+    signature,
+    quote,
+    endpoint: baseUrl,
+    // Flat convenience fields mirroring the quote — several callers (e.g. the
+    // /jup and /sol skill commands) read these at the top level per the
+    // JupiterSwapResult contract instead of reaching into `quote`.
+    inAmount: quote.inAmount,
+    outAmount: quote.outAmount,
+    priceImpactPct: quote.priceImpactPct,
+    routePlan: quote.routePlan,
+  };
 }
 
 // ============================================================================
@@ -732,7 +743,19 @@ export async function listJupiterLimitOrdersByMint(
     filters.push(outputMintFilter(new PublicKey(options.outputMint)));
   }
 
-  const orders = await provider.getOrders(filters.length > 0 ? filters : undefined);
+  if (filters.length === 0) {
+    // provider.getOrders() with no filters does an unfiltered
+    // program.account.order.all() — a full getProgramAccounts scan of every
+    // open limit order on the entire Jupiter Limit Order program across all
+    // users, not just this caller's. Refuse rather than silently fetching
+    // (and decoding) every order on mainnet.
+    throw new Error(
+      'listJupiterLimitOrdersByMint requires at least one of owner, inputMint, or outputMint — ' +
+      'calling it with no filters would fetch every open Jupiter limit order on mainnet.'
+    );
+  }
+
+  const orders = await provider.getOrders(filters);
 
   return orders.map((order) => ({
     publicKey: order.publicKey.toBase58(),
