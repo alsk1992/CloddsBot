@@ -130,6 +130,25 @@ async function pumpFrontendRequest<T>(endpoint: string, baseUrl: string = PUMPFU
   const response = await fetch(`${baseUrl}${endpoint}`, { headers });
 
   if (!response.ok) {
+    // Both frontend-api-v3.pump.fun and advanced-api-v2.pump.fun sit
+    // behind Cloudflare bot-protection that blocks non-browser requests —
+    // confirmed live: every endpoint on both hosts returns a 403 with an
+    // HTML challenge/redirect page (not JSON) from a server-side
+    // environment like this one. Detect that specifically (rather than
+    // relabeling every non-403, e.g. a genuine 404 for an unknown mint,
+    // as "blocked") so the error tells the user what's actually true and
+    // there's no realistic per-request fix — no API key or header
+    // combination bypasses Cloudflare bot-protection from server-side code.
+    if (response.status === 403) {
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(
+          "pump.fun's data API is blocking this request (Cloudflare bot-protection blocks non-browser requests) — " +
+          'this is not fixable per-request; commands relying on token discovery/listing/search/chart data from ' +
+          'pump.fun directly are currently unavailable from this server.'
+        );
+      }
+    }
     throw new Error(`Pump.fun API error: ${response.status}`);
   }
 
@@ -942,7 +961,14 @@ async function handleHolders(mint: string): Promise<string> {
   }
 
   try {
-    const holders = await pumpAdvancedRequest<PumpHolder[]>(`/coins/top-holders-and-sol-balance/${mint}`);
+    // advanced-api-v2.pump.fun (used here previously) is Cloudflare-blocked
+    // from server-side requests, confirmed live — every endpoint on that
+    // host returns HTTP 403. getTokenLargestAccounts is a standard Solana
+    // RPC method, fully on-chain, same top-20 ceiling the old endpoint had
+    // anyway.
+    const { wallet, pumpapi } = await getSolanaModules();
+    const connection = wallet.getSolanaConnection();
+    const holders = await pumpapi.getPumpTokenHolders(connection, mint);
 
     if (!holders?.length) return 'No holder data available.';
 
@@ -1394,10 +1420,18 @@ async function handleLatestTrades(args: string[]): Promise<string> {
 
 async function handleSolPrice(): Promise<string> {
   try {
-    const result = await pumpFrontendRequest<{ price: number; priceUsd: number }>('/sol-price');
+    // frontend-api-v3.pump.fun (used here previously) is Cloudflare-blocked
+    // from server-side requests, confirmed live. Binance's own price feed
+    // (already used elsewhere in this codebase) has no such dependency and
+    // is a better source for SOL/USD specifically anyway.
+    const { getSOLPrice } = await import('../../../feeds/crypto');
+    const price = await getSOLPrice();
+    if (price === null) {
+      return 'Error: Could not fetch SOL price from any source.';
+    }
     return `**SOL Price**
 
-Price: $${result.priceUsd?.toFixed(2) || result.price?.toFixed(2) || 'N/A'}`;
+Price: $${price.toFixed(2)}`;
   } catch (error) {
     return `Error: ${error instanceof Error ? error.message : String(error)}`;
   }
