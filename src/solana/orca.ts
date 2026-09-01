@@ -314,6 +314,27 @@ async function getOrcaKitRpc(sdk: any, connection: Connection): Promise<any> {
  * dist/index.d.ts and tickIndexToPrice()'s actual output. Converts using the
  * pool's real on-chain token decimals.
  */
+/**
+ * @solana/spl-token's typed getMint() is deliberately avoided here — this
+ * file also dynamically imports @orca-so/whirlpool-sdk (the deprecated
+ * legacy SDK, see executeOrcaWhirlpoolSwap below), which pulls in its own
+ * nested @solana/spl-token@0.1.8 (pre-functional-API, Token-class only).
+ * TypeScript's whole-program module resolution for this specific file
+ * intermittently resolved the bare `@solana/spl-token` specifier to that
+ * old nested copy instead of the real installed 0.4.x, breaking getMint —
+ * confirmed by testing named import, namespace import, and dynamic import,
+ * all failing the same way only in this file. Reading decimals via the raw
+ * parsed-account RPC response sidesteps the ambiguity entirely.
+ */
+async function getMintDecimals(connection: Connection, mint: PublicKey): Promise<number> {
+  const info = await connection.getParsedAccountInfo(mint);
+  const parsed = (info.value?.data as any)?.parsed;
+  if (parsed?.type !== 'mint' || typeof parsed.info?.decimals !== 'number') {
+    throw new Error(`Failed to fetch decimals for mint ${mint.toBase58()}`);
+  }
+  return parsed.info.decimals;
+}
+
 async function orcaTickRangeToPrices(
   connection: Connection,
   rpc: any,
@@ -323,17 +344,16 @@ async function orcaTickRangeToPrices(
 ): Promise<{ lowerPrice: number; upperPrice: number }> {
   const client = await import('@orca-so/whirlpools-client') as any;
   const core = await import('@orca-so/whirlpools-core') as any;
-  const { getMint } = await import('@solana/spl-token');
 
   const pool = await client.fetchWhirlpool(rpc, poolAddress);
-  const [mintA, mintB] = await Promise.all([
-    getMint(connection, new PublicKey(String(pool.data.tokenMintA))),
-    getMint(connection, new PublicKey(String(pool.data.tokenMintB))),
+  const [decimalsA, decimalsB] = await Promise.all([
+    getMintDecimals(connection, new PublicKey(String(pool.data.tokenMintA))),
+    getMintDecimals(connection, new PublicKey(String(pool.data.tokenMintB))),
   ]);
 
   return {
-    lowerPrice: core.tickIndexToPrice(tickLowerIndex, mintA.decimals, mintB.decimals),
-    upperPrice: core.tickIndexToPrice(tickUpperIndex, mintA.decimals, mintB.decimals),
+    lowerPrice: core.tickIndexToPrice(tickLowerIndex, decimalsA, decimalsB),
+    upperPrice: core.tickIndexToPrice(tickUpperIndex, decimalsA, decimalsB),
   };
 }
 
