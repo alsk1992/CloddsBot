@@ -30,6 +30,7 @@ import {
   getSellSolAmountFromTokenAmount,
 } from '@pump-fun/pump-sdk';
 import { signAndSendTransaction } from './wallet';
+import { findPumpSwapPools } from './pumpswap';
 import BN from 'bn.js';
 
 // ============================================================================
@@ -786,6 +787,8 @@ export async function getTokenInfo(mint: string): Promise<PumpTokenInfo | null> 
 // Graduation Check
 // ============================================================================
 
+const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+
 /**
  * Check if a token has graduated to PumpSwap
  */
@@ -796,13 +799,31 @@ export async function isGraduated(
   const state = await getBondingCurveState(connection, mint);
 
   if (state?.complete) {
-    // Try to get PumpSwap pool from API
-    const mintStr = typeof mint === 'string' ? mint : mint.toBase58();
-    const info = await getTokenInfo(mintStr);
-    return {
-      graduated: true,
-      pumpswapPool: info?.pumpswapPool,
-    };
+    const mintPk = typeof mint === 'string' ? new PublicKey(mint) : mint;
+
+    // getTokenInfo() hits pump.fun's frontend API directly, which sits
+    // behind Cloudflare bot-protection that blocks non-browser requests —
+    // confirmed live: a real, long-graduated token's bonding curve
+    // correctly parses as complete:true here, but getTokenInfo() returned
+    // null every time (Cloudflare challenge page, not the real JSON), so
+    // pumpswapPool was always undefined regardless of whether the token
+    // had actually graduated. findPumpSwapPools() resolves the same
+    // information directly from on-chain program accounts — the same
+    // mechanism pumpswap.ts's own trading functions already rely on — so
+    // try that first and only fall back to the frontend API (which may
+    // have richer metadata when it *does* work) if it comes up empty.
+    let pumpswapPool: string | undefined;
+    try {
+      const pools = await findPumpSwapPools(connection, mintPk, WSOL_MINT);
+      pumpswapPool = pools[0]?.toBase58();
+    } catch { /* fall through to the frontend-API attempt below */ }
+
+    if (!pumpswapPool) {
+      const info = await getTokenInfo(mintPk.toBase58());
+      pumpswapPool = info?.pumpswapPool;
+    }
+
+    return { graduated: true, pumpswapPool };
   }
 
   return { graduated: false };
