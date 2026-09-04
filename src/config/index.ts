@@ -273,7 +273,7 @@ export interface BrowserConfig {
 
 export interface TTSConfig {
   enabled?: boolean;
-  provider?: 'elevenlabs' | 'system';
+  provider?: 'elevenlabs' | 'atlas' | 'system';
   voice?: string;
   apiKey?: string;
 }
@@ -655,6 +655,13 @@ const ENV_MAPPINGS: Record<string, (cfg: CloddsConfig) => void> = {
   OPENAI_API_KEY: () => {},
   ELEVENLABS_API_KEY: (cfg) => {
     if (cfg.tts) cfg.tts.apiKey = process.env.ELEVENLABS_API_KEY;
+  },
+  ATLASCLOUD_API_KEY: () => {},
+  CLODDS_TTS_PROVIDER: (cfg) => {
+    const provider = process.env.CLODDS_TTS_PROVIDER;
+    if (cfg.tts && (provider === 'elevenlabs' || provider === 'atlas')) {
+      cfg.tts.provider = provider;
+    }
   },
   TELEGRAM_BOT_TOKEN: (cfg) => {
     if (!cfg.channels) cfg.channels = {};
