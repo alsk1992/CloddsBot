@@ -3,9 +3,8 @@
   //
   // Every advisory below is transitive through the Solana/crypto SDK ecosystem's own
   // pinned old dependencies (@project-serum/anchor, @coral-xyz/anchor, @drift-labs/sdk,
-  // and friends depend on old @solana/web3.js/protobufjs/uuid/@grpc-js internally) or,
-  // for sharp, an inherited native-library CVE with no upstream fix published yet even
-  // on the latest sharp release. None of these have a fix that doesn't mean either
+  // and friends depend on old @solana/web3.js/protobufjs/uuid/@grpc-js internally).
+  // None of these have a fix that doesn't mean either
   // downgrading a currently-working trading integration or forcing a major bump whose
   // breaking changes haven't been vetted (e.g. @drift-labs/sdk's suggested fix requires
   // Node 24, a separate decision from a routine audit pass).
@@ -38,10 +37,6 @@
     "GHSA-wcpc-wj8m-hjx6",
     "GHSA-f38q-mgvj-vph7",
 
-    // sharp — inherited libvips CVEs. Already on the latest sharp (0.35.4, bumped this
-    // same pass); no newer release exists yet that fixes the underlying libvips CVEs.
-    "GHSA-f88m-g3jw-g9cj",
-
     // uuid — v3/v5/v6 buffer-bounds check (the v4 generator is unaffected). Verified
     // node-cron's own source only calls uuid.v4() (scheduled-task.js, storage.js).
     // The other path, @wormhole-foundation/sdk-solana's pinned rpc-websockets, has no
@@ -50,12 +45,10 @@
     // a closer look, not as verified-safe the way node-cron's path is.
     "GHSA-w5hq-g745-h8pq",
 
-    // extract-zip — symlink path-traversal, via puppeteer>@puppeteer/browsers. No
-    // patched version published yet. extract-zip is only used by @puppeteer/browsers'
-    // own setup step to unpack the pinned, official Chromium build it downloads from
-    // Google's CDN — CloddsBot never feeds it a user-controlled or otherwise untrusted
-    // zip (the actual PDF-export feature in src/extensions/open-prose only drives an
-    // already-launched browser; it doesn't touch this download/extract path).
-    "GHSA-jmr9-qjv8-65gv"
+    // stream-json — quadratic behavior is confined to the pick/ignore/filter/replace
+    // helpers. The only production consumer is jayson, which imports StreamValues and
+    // Verifier instead. jayson 4.3 pins stream-json 1.x and is incompatible with the
+    // patched 3.x module paths, so forcing the major would break Solana RPC parsing.
+    "GHSA-528h-pc64-c93x"
   ]
 }
