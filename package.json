@@ -138,7 +138,7 @@
     "json5": "^2.2.3",
     "mammoth": "^1.11.0",
     "node-cron": "^3.0.3",
-    "nodemailer": "^9.0.6",
+    "nodemailer": "^9.1.1",
     "pg": "^8.17.2",
     "pino": "^8.18.0",
     "pino-pretty": "^10.3.1",
@@ -165,7 +165,9 @@
     "@cosmjs/stargate": "^0.38.1",
     "@cosmjs/tendermint-rpc": "^0.38.1",
     "@cosmjs/cosmwasm-stargate": "^0.38.1",
-    "@solana/kit": "^5.0.0"
+    "@solana/kit": "^5.0.0",
+    "sharp": "$sharp",
+    "toml": "^4.2.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
@@ -174,7 +176,7 @@
     "@types/nodemailer": "^6.4.22",
     "@types/sql.js": "^1.4.9",
     "@types/ws": "^8.5.10",
-    "puppeteer": "^24.37.5",
+    "puppeteer": "^25.10.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }

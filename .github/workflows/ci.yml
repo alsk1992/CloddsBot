@@ -18,10 +18,10 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: Security audit
-        run: npx --yes audit-ci --config audit-ci.jsonc --high --production
       - name: Typecheck, test, build
         run: npm run ci
+      - name: Security audit
+        run: npx --yes audit-ci --config audit-ci.jsonc --high --production
 
   security:
     runs-on: ubuntu-latest
