@@ -68,7 +68,7 @@ export interface ImageTool {
 }
 
 const DEFAULT_PROMPT = 'Describe this image in detail. Include any text visible in the image.';
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;

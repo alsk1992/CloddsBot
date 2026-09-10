@@ -175,7 +175,7 @@ async function execute(args: string): Promise<string> {
 
       case 'estimate': {
         // Estimate cost for a hypothetical request
-        const model = parts[1] || 'claude-sonnet-4-20250514';
+        const model = parts[1] || 'claude-sonnet-4-6';
         const inputTokens = parseInt(parts[2] || '1000', 10);
         const outputTokens = parseInt(parts[3] || '500', 10);
         const cost = service.estimateCost(model, inputTokens, outputTokens);

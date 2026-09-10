@@ -115,6 +115,38 @@ export function createModelRegistry(providers: Map<string, Provider>): ModelRegi
 
 // Known model metadata
 const KNOWN_MODELS: Record<string, Partial<DiscoveredModel>> = {
+  'claude-opus-4-6': {
+    name: 'Claude Opus 4.6',
+    contextWindow: 200000,
+    maxOutput: 128000,
+    inputCostPer1k: 0.005,
+    outputCostPer1k: 0.025,
+    capabilities: ['vision', 'tools', 'streaming'],
+  },
+  'claude-sonnet-4-6': {
+    name: 'Claude Sonnet 4.6',
+    contextWindow: 200000,
+    maxOutput: 64000,
+    inputCostPer1k: 0.003,
+    outputCostPer1k: 0.015,
+    capabilities: ['vision', 'tools', 'streaming'],
+  },
+  'claude-sonnet-4-5-20250929': {
+    name: 'Claude Sonnet 4.5',
+    contextWindow: 200000,
+    maxOutput: 8192,
+    inputCostPer1k: 0.003,
+    outputCostPer1k: 0.015,
+    capabilities: ['vision', 'tools', 'streaming'],
+  },
+  'claude-haiku-4-5-20251001': {
+    name: 'Claude Haiku 4.5',
+    contextWindow: 200000,
+    maxOutput: 8192,
+    inputCostPer1k: 0.001,
+    outputCostPer1k: 0.005,
+    capabilities: ['vision', 'tools', 'streaming'],
+  },
   'claude-3-5-sonnet-20241022': {
     name: 'Claude 3.5 Sonnet',
     contextWindow: 200000,

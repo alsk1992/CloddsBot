@@ -298,7 +298,7 @@ ${doc.content}
 Respond with ONLY the edited document content, no explanations. Preserve the original format.`;
 
       const response = await provider.complete({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 8192,
       });
@@ -353,7 +353,7 @@ ${textAfter ? `Text after cursor:\n${textAfter}` : ''}
 Provide only the completion text, no explanations. Write 1-3 sentences that naturally continue from where the cursor is.`;
 
       const response = await provider.complete({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 500,
       });
@@ -379,7 +379,7 @@ Provide only the completion text, no explanations. Write 1-3 sentences that natu
 ${doc.content}`;
 
       const response = await provider.complete({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 200,
       });
@@ -404,7 +404,7 @@ ${doc.content}
 Output only the rewritten document content.`;
 
       const response = await provider.complete({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 8192,
       });
@@ -448,7 +448,7 @@ ${doc.content}
 Output the expanded document.`;
 
       const response = await provider.complete({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 8192,
       });
