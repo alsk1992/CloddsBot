@@ -349,6 +349,29 @@ describe('Trading Adapters', () => {
 // ============================================================================
 
 describe('Config env var overrides', () => {
+  it('maps Discord credentials into the runtime channel config', async () => {
+    const previousToken = process.env.DISCORD_BOT_TOKEN;
+    const previousAppId = process.env.DISCORD_APP_ID;
+    process.env.DISCORD_BOT_TOKEN = 'test-discord-token';
+    process.env.DISCORD_APP_ID = 'test-discord-app-id';
+
+    try {
+      const { loadConfig } = await import('../../src/utils/config.js');
+      const config = await loadConfig('/dev/null');
+
+      assert.deepEqual(config.channels?.discord, {
+        enabled: true,
+        token: 'test-discord-token',
+        appId: 'test-discord-app-id',
+      });
+    } finally {
+      if (previousToken === undefined) delete process.env.DISCORD_BOT_TOKEN;
+      else process.env.DISCORD_BOT_TOKEN = previousToken;
+      if (previousAppId === undefined) delete process.env.DISCORD_APP_ID;
+      else process.env.DISCORD_APP_ID = previousAppId;
+    }
+  });
+
   it('MARKET_MAKING_ENABLED sets config.trading.marketMaking.enabled', async () => {
     // Save and set env
     const prev = process.env.MARKET_MAKING_ENABLED;
