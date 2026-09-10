@@ -22,6 +22,7 @@ const MODEL_META: Record<string, ModelMeta> = {
   // Latest models
   'claude-opus-4-6': { costScore: 1, speedScore: 3, qualityScore: 10 },
   'claude-opus-4-5-20250514': { costScore: 2, speedScore: 4, qualityScore: 10 },
+  'claude-sonnet-4-6': { costScore: 5, speedScore: 7, qualityScore: 9 },
   'claude-sonnet-4-5-20250929': { costScore: 5, speedScore: 7, qualityScore: 9 },
   'claude-sonnet-4-20250514': { costScore: 6, speedScore: 7, qualityScore: 8 },
   'claude-haiku-4-5-20251001': { costScore: 9, speedScore: 10, qualityScore: 7 },

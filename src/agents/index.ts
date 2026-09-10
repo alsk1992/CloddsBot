@@ -342,7 +342,7 @@ const STREAM_RESPONSE_PLATFORMS = new Set([
   'teams',
   'webchat',
 ]);
-const MEMORY_EXTRACT_MODEL = process.env.CLODDS_MEMORY_EXTRACT_MODEL || process.env.CLODDS_SUMMARY_MODEL || 'claude-3-5-haiku-20241022';
+const MEMORY_EXTRACT_MODEL = process.env.CLODDS_MEMORY_EXTRACT_MODEL || process.env.CLODDS_SUMMARY_MODEL || 'claude-haiku-4-5-20251001';
 const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 const DRIFT_GATEWAY_URL = process.env.DRIFT_GATEWAY_URL || 'http://localhost:8080';
 
@@ -17642,6 +17642,7 @@ export async function createAgentManager(
       const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
         'claude-opus-4-6': 200000,
         'claude-opus-4-5-20250514': 200000,
+        'claude-sonnet-4-6': 200000,
         'claude-sonnet-4-5-20250929': 200000,
         'claude-sonnet-4-20250514': 200000,
         'claude-haiku-4-5-20251001': 200000,

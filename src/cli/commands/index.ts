@@ -135,10 +135,7 @@ export function createModelCommands(program: Command): void {
         { id: 'claude-opus-4-6', provider: 'anthropic', context: '200K' },
         { id: 'claude-sonnet-4-5-20250929', provider: 'anthropic', context: '200K' },
         { id: 'claude-haiku-4-5-20251001', provider: 'anthropic', context: '200K' },
-        // Anthropic (Legacy)
-        { id: 'claude-3-5-sonnet-20241022', provider: 'anthropic', context: '200K' },
-        { id: 'claude-3-opus-20240229', provider: 'anthropic', context: '200K' },
-        { id: 'claude-3-5-haiku-20241022', provider: 'anthropic', context: '200K' },
+        { id: 'claude-sonnet-4-6', provider: 'anthropic', context: '200K' },
         // OpenAI
         { id: 'gpt-4o', provider: 'openai', context: '128K' },
         { id: 'gpt-4-turbo', provider: 'openai', context: '128K' },
@@ -175,7 +172,7 @@ export function createModelCommands(program: Command): void {
         writeFileSync(configPath, JSON.stringify(data, null, 2));
         console.log(`Default model set to: ${model}`);
       } else {
-        console.log(`Default model: ${data.defaultModel || 'claude-3-5-sonnet-20241022'}`);
+        console.log(`Default model: ${data.defaultModel || 'claude-sonnet-4-6'}`);
       }
     });
 }
@@ -2034,7 +2031,7 @@ export function createInitCommand(program: Command): void {
       const defaultConfig = {
         name: 'clodds-project',
         version: '0.1.0',
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         features: {
           memory: true,
           tools: true,
@@ -2201,7 +2198,7 @@ export function createCredsCommands(program: Command): void {
                 'anthropic-version': '2023-06-01',
               },
               body: JSON.stringify({
-                model: 'claude-3-haiku-20240307',
+                model: 'claude-haiku-4-5-20251001',
                 max_tokens: 1,
                 messages: [{ role: 'user', content: 'hi' }],
               }),
@@ -3434,7 +3431,7 @@ export function createDoctorCommand(program: Command): void {
           const r = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-            body: JSON.stringify({ model: 'claude-3-haiku-20240307', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+            body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
           });
           if (r.ok || r.status === 429) {
             results.push({ name: 'Anthropic', status: 'pass', message: r.ok ? 'Key valid' : 'Key valid (rate limited)' });

@@ -269,7 +269,7 @@ builtInExecutors.set('llm', {
   async execute(task, context) {
     const prompt = task.input?.prompt as string;
     const systemPrompt = task.input?.system as string;
-    const model = (task.input?.model as string) || 'claude-3-5-sonnet-20241022';
+    const model = (task.input?.model as string) || 'claude-sonnet-4-6';
 
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
     if (systemPrompt) {
@@ -441,7 +441,7 @@ export class TaskRunner {
    * Plan tasks from a high-level goal
    */
   async planTasks(goal: string, context?: string): Promise<TaskDefinition[]> {
-    const planningModel = this.config.planningModel || 'claude-3-5-sonnet-20241022';
+    const planningModel = this.config.planningModel || 'claude-sonnet-4-6';
 
     const systemPrompt = `You are a task planner. Given a high-level goal, break it down into concrete, executable tasks.
 

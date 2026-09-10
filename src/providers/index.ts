@@ -265,7 +265,7 @@ export class AnthropicProvider implements Provider {
   constructor(config: ProviderConfig) {
     this.config = {
       baseUrl: 'https://api.anthropic.com',
-      defaultModel: 'claude-3-5-sonnet-20241022',
+      defaultModel: 'claude-sonnet-4-6',
       timeout: 120000,
       maxRetries: 3,
       ...config,
@@ -403,10 +403,10 @@ export class AnthropicProvider implements Provider {
 
   async listModels(): Promise<string[]> {
     return [
-      'claude-3-5-sonnet-20241022',
-      'claude-3-opus-20240229',
-      'claude-3-sonnet-20240229',
-      'claude-3-haiku-20240307',
+      'claude-opus-4-6',
+      'claude-sonnet-4-6',
+      'claude-sonnet-4-5-20250929',
+      'claude-haiku-4-5-20251001',
     ];
   }
 
@@ -420,7 +420,7 @@ export class AnthropicProvider implements Provider {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
+          model: 'claude-haiku-4-5-20251001',
           max_tokens: 1,
           messages: [{ role: 'user', content: 'hi' }],
         }),
@@ -1044,6 +1044,10 @@ export interface CostConfig {
 }
 
 const MODEL_COSTS: Record<string, CostConfig> = {
+  'claude-opus-4-6': { inputCostPer1k: 0.005, outputCostPer1k: 0.025 },
+  'claude-sonnet-4-6': { inputCostPer1k: 0.003, outputCostPer1k: 0.015 },
+  'claude-sonnet-4-5-20250929': { inputCostPer1k: 0.003, outputCostPer1k: 0.015 },
+  'claude-haiku-4-5-20251001': { inputCostPer1k: 0.001, outputCostPer1k: 0.005 },
   'claude-3-5-sonnet-20241022': { inputCostPer1k: 0.003, outputCostPer1k: 0.015 },
   'claude-3-opus-20240229': { inputCostPer1k: 0.015, outputCostPer1k: 0.075 },
   'claude-3-sonnet-20240229': { inputCostPer1k: 0.003, outputCostPer1k: 0.015 },
