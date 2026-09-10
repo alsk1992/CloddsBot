@@ -420,6 +420,21 @@ export async function loadConfig(customPath?: string): Promise<Config> {
   // Substitute environment variables
   const config = substituteEnvVars(merged) as Config;
 
+  // Apply Discord credentials from the same environment used by the CLI entrypoint.
+  // Preserve file-provided channel settings while allowing env-only setup.
+  if (process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_APP_ID) {
+    const discord = config.channels?.discord as Partial<NonNullable<Config['channels']['discord']>> | undefined;
+    const token = process.env.DISCORD_BOT_TOKEN || discord?.token || '';
+    const appId = process.env.DISCORD_APP_ID || discord?.appId;
+    config.channels = config.channels || {};
+    config.channels.discord = {
+      ...(discord || {}),
+      enabled: discord?.enabled ?? Boolean(token),
+      token,
+      ...(appId ? { appId } : {}),
+    };
+  }
+
   // Apply trading feature env overrides
   const envBool = (v: string | undefined) => v === '1' || v?.toLowerCase() === 'true';
   if (process.env.MARKET_MAKING_ENABLED) {
