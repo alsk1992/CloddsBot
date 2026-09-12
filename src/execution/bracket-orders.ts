@@ -206,6 +206,13 @@ export function createBracketOrder(
 
   /**
    * Poll for fills
+   *
+   * cancel() can flip the bracket to 'cancelled' while this poll is awaiting
+   * an exchange call, so recheck the status after every await that precedes a
+   * state change or order submission. A cancelled bracket must never submit
+   * the stop exit or overwrite its terminal status with a stale result.
+   * Cancellation after marketSell() has been submitted cannot recall the order
+   * and is out of scope: the fill result is still recorded.
    */
   async function pollForFills(): Promise<void> {
     if (status !== 'active') return;
@@ -217,6 +224,7 @@ export function createBracketOrder(
     // Check take-profit
     if (takeProfitOrderId) {
       const tp = await checkOrderFilled(takeProfitOrderId);
+      if (status !== 'active') return;
       if (tp.filled) {
         status = 'take_profit_hit';
         filledSide = 'take_profit';
@@ -267,6 +275,7 @@ export function createBracketOrder(
           'sell',
           config.outcome
         );
+        if (status !== 'active') return;
 
         if (marketPrice !== null && marketPrice <= config.stopLossPrice) {
           logger.warn(
@@ -278,6 +287,7 @@ export function createBracketOrder(
           // exit unless that resting order was definitely cancelled first.
           if (takeProfitOrderId) {
             const cancelled = await executionService.cancelOrder(config.platform, takeProfitOrderId);
+            if (status !== 'active') return;
             if (!cancelled) {
               logger.error(
                 { orderId, takeProfitOrderId },
@@ -332,6 +342,7 @@ export function createBracketOrder(
     // Check legacy stop-loss orders created by older versions.
     if (stopLossOrderId) {
       const sl = await checkOrderFilled(stopLossOrderId);
+      if (status !== 'active') return;
       if (sl.filled) {
         status = 'stop_loss_hit';
         filledSide = 'stop_loss';
