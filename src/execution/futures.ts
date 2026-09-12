@@ -1405,11 +1405,15 @@ export function createFuturesExecutionService(config: FuturesConfig): FuturesExe
   const maxPositionSize = config.maxPositionSize ?? 10000; // $10k default
 
   async function resolveOrderPrice(request: FuturesOrderRequest): Promise<number> {
-    if (request.price !== undefined && Number.isFinite(request.price) && request.price > 0) {
-      return request.price;
-    }
-    if (request.stopPrice !== undefined && Number.isFinite(request.stopPrice) && request.stopPrice > 0) {
-      return request.stopPrice;
+    // Market orders (including the default type) do not execute at caller prices.
+    // Value them from the venue so price/stopPrice cannot understate exposure.
+    if (request.orderType && request.orderType !== 'MARKET') {
+      if (request.price !== undefined && Number.isFinite(request.price) && request.price > 0) {
+        return request.price;
+      }
+      if (request.stopPrice !== undefined && Number.isFinite(request.stopPrice) && request.stopPrice > 0) {
+        return request.stopPrice;
+      }
     }
 
     switch (request.platform) {
@@ -1452,7 +1456,9 @@ export function createFuturesExecutionService(config: FuturesConfig): FuturesExe
       try {
         if (request.platform === 'mexc' && config.mexc) {
           const valuation = await getMexcOrderValuation(config.mexc, request.symbol);
-          checkPrice = request.price ?? request.stopPrice ?? valuation.price;
+          checkPrice = request.orderType && request.orderType !== 'MARKET'
+            ? request.price ?? request.stopPrice ?? valuation.price
+            : valuation.price;
           contractSize = valuation.contractSize;
         } else {
           checkPrice = await resolveOrderPrice(request);

@@ -5373,7 +5373,8 @@ export class FuturesService extends EventEmitter {
     if (order.reduceOnly) {
       gateError = null;
     } else {
-      let price = order.price ?? order.stopPrice;
+      // Caller prices do not constrain a market fill; always discover its value.
+      let price = order.type === 'MARKET' ? undefined : order.price ?? order.stopPrice;
       let contractSize = 1;
       if (exchange === 'mexc') {
         const market = (await this.getMarkets(exchange)).find(item => item.symbol === order.symbol);
