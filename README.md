@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node.js">
   <img src="https://img.shields.io/badge/typescript-5.3-blue" alt="TypeScript">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/skills-119%2B-purple" alt="119+ Skills">
+  <img src="https://img.shields.io/badge/skills-121%2B-purple" alt="121+ Skills">
   <img src="https://img.shields.io/badge/markets-1000%2B-orange" alt="1000+ Markets">
   <img src="https://img.shields.io/badge/Colosseum-Agent%20Hackathon-blueviolet" alt="Built for Colosseum Hackathon">
   <img src="https://img.shields.io/badge/clones%2F14d-10.7k-brightgreen" alt="10.7k clones in 14 days">
@@ -50,6 +50,8 @@ Powered by Claude with 118+ trading strategies, whale tracking, arbitrage detect
 ---
 
 ## Quick Start
+
+> **Requirement:** Node.js 22 or newer. Node.js 20 is not supported and dependency installation may fail.
 
 ```bash
 npm install -g clodds --loglevel=error
@@ -147,12 +149,12 @@ See [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) for all commands.
 | **Trading Strategies** | 118+ strategies including momentum, mean reversion, penny clipper, expiry fade, DCA bots, smart routing, whale tracking, copy trading |
 | **Risk Management** | Unified risk engine with circuit breaker, VaR/CVaR, volatility regime detection, stress testing, Kelly sizing, daily loss limits, kill switch |
 | **Backtesting** | Configurable strategy backtesting with historical data, SL/TP validation, P&L analysis |
-| **Skills System** | 119 bundled skills + lazy-loaded extensions (no missing dependencies crash) — chat-driven automation |
+| **Skills System** | 121 bundled skills + lazy-loaded extensions (no missing dependencies crash) — chat-driven automation |
 | **Token Security** | GoPlus-powered audits — honeypot detection, rug-pull analysis, holder concentration, risk scoring |
 | **Security Shield** | Code scanning (75 rules), scam DB (70+ addresses), multi-chain address checking, pre-trade tx validation |
 | **Trading** | Order execution on 16+ platforms (prediction markets, futures, Solana DEXs, EVM DEXs), portfolio tracking, P&L, DCA |
 | **Market Data** | Real-time orderbooks, candles, liquidity tracking, depth analysis, price feeds across all platforms |
-| **MCP Server** | Expose all 119 skills as MCP tools for Claude Desktop and Claude Code |
+| **MCP Server** | Expose all 121 skills as MCP tools for Claude Desktop and Claude Code |
 | **Arbitrage** | Cross-platform detection, combinatorial analysis, semantic matching, real-time scanning |
 | **AI** | 8 LLM providers, 4 specialized agents, semantic memory, 18 tools |
 | **Data Persistence** | SQLite (local), LanceDB (semantic memory + embeddings), PostgreSQL (analytics) — unlimited WebChat history, trade database, context compacting, hybrid search, user profiles |
@@ -370,7 +372,7 @@ Enable: `clodds config set ledger.enabled true`
 ┌──────────────────────────────────────────┴─────────────────────────────────────┐
 │                            AI AGENTS LAYER (4)                                 │
 │  Main (Claude) • Trading (Exec) • Research (Data) • Alerts (Monitor)          │
-│  119+ Skills • 18 Tools • LanceDB Memory • Semantic Reasoning                  │
+│  121+ Skills • 18 Tools • LanceDB Memory • Semantic Reasoning                  │
 └──────────────────────────────────────────┬─────────────────────────────────────┘
                                            │
 ┌──────────────────────────────────────────┴─────────────────────────────────────┐
@@ -622,7 +624,7 @@ docker compose up --build
 | Prediction Markets | **10** |
 | Futures Exchanges | **7** |
 | AI Tools | **18** |
-| Skills | **119** |
+| Skills | **121** |
 | LLM Providers | **8** |
 | Solana DeFi Protocols | **9** |
 | Trading Strategies | **4** |

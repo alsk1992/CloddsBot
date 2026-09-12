@@ -343,7 +343,7 @@ Loaded by `src/skills/loader.ts`. These are markdown files injected into the AI'
 - Lives in: `src/skills/bundled/<name>/SKILL.md`
 - Format: YAML frontmatter + markdown body
 - Loaded by: `SkillManager`
-- 119 skills defined this way
+- 121 skills defined this way
 
 ### 2. TypeScript Handlers (Executor Skills)
 

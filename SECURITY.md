@@ -4,7 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| 1.9.x   | :white_check_mark: |
+| < 1.9   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -87,15 +88,9 @@ See `/verify` command and `src/identity/erc8004.ts` for implementation.
 
 ### npm Dependencies
 
-All npm vulnerabilities have been fixed using npm overrides:
-- **bigint-buffer** → @vekexasia/bigint-buffer2 (secure fork)
-- **elliptic** → Replaced with @noble/secp256k1 (modern, audited)
-- **axios** → Forced to ^1.7.4
-- **undici** → Forced to ^6.23.0
-- **nanoid** → Forced to ^3.3.8
-- **@cosmjs/**** → Forced to ^0.38.1 (uses @noble/curves)
+Clodds uses dependency overrides and direct upgrades where a compatible fix is available. The raw `npm audit` report still includes reviewed transitive advisories in the Solana and crypto SDK dependency trees; it is not currently a zero-vulnerability report.
 
-Run `npm audit` to verify: **0 vulnerabilities**
+CI runs `audit-ci` against production dependencies and fails on any new, unreviewed advisory of moderate severity or higher. The temporary exceptions, affected dependency paths, and rationale are documented in [`audit-ci.jsonc`](./audit-ci.jsonc). Revisit those exceptions as upstream SDKs release compatible fixes.
 
 ### Sandbox & Dynamic Code Execution
 
