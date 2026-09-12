@@ -66,7 +66,8 @@ import { setupShutdownHandlers, onShutdown, trackError } from '../utils/producti
 import { createSignalBus, type SignalBus } from './signal-bus';
 import { createTradingOrchestrator, type TradingOrchestrator } from '../trading/orchestrator';
 import { createSafetyManager, type SafetyManager } from '../trading/safety';
-import { createCircuitBreaker } from '../execution/circuit-breaker';
+import { createCircuitBreaker, type CircuitBreaker } from '../execution/circuit-breaker';
+import { configurePreTradeGate } from '../trading/pre-trade';
 import { createTradingApiRouter } from './api-routes';
 import { createPositionManager, type PositionManager } from '../execution/position-manager';
 import { createPositionCloseCallback, createPositionBridge, type PositionBridge } from '../trading/position-bridge';
@@ -649,28 +650,35 @@ export async function createGateway(config: Config): Promise<AppGateway> {
     }
   }
 
+  // Install one process-wide gate before any lazily loaded futures or Solana
+  // execution paths can run. Prediction execution is attached below as well.
+  const circuitBreaker: CircuitBreaker = createCircuitBreaker({
+    maxLossUsd: config.trading?.maxDailyLoss ?? 1000,
+    maxConsecutiveLosses: 5,
+    maxErrorRate: 0.5,
+    resetTimeoutMs: 3600_000,
+  });
+  circuitBreaker.start();
+
+  let safetyManager: SafetyManager | null = createSafetyManager(db, {
+    dailyLossLimit: config.trading?.maxDailyLoss ?? 500,
+    maxDrawdownPct: 20,
+    maxConcentrationPct: 25,
+    maxSameDirectionPositions: 5,
+  });
+
+  configurePreTradeGate({
+    circuitBreaker,
+    safety: safetyManager,
+    maxOrderSize: () => currentConfig.trading?.maxOrderSize ?? 1000,
+  });
+
   // Wire safety + circuit breaker + orchestrator around execution service.
   // By reassigning executionService, all downstream consumers (signal router,
   // copy trading, arbitrage executor) automatically get safety-checked execution.
   let orchestrator: TradingOrchestrator | null = null;
-  let safetyManager: SafetyManager | null = null;
   if (executionService) {
-    // Circuit breaker: execution-level error rate + loss tracking
-    const circuitBreaker = createCircuitBreaker({
-      maxLossUsd: config.trading?.maxDailyLoss ?? 1000,
-      maxConsecutiveLosses: 5,
-      maxErrorRate: 0.5,
-      resetTimeoutMs: 3600_000,
-    });
     executionService.setCircuitBreaker(circuitBreaker);
-
-    // Safety manager: daily loss limits, drawdown, concentration checks
-    safetyManager = createSafetyManager(db, {
-      dailyLossLimit: config.trading?.maxDailyLoss ?? 500,
-      maxDrawdownPct: 20,
-      maxConcentrationPct: 25,
-      maxSameDirectionPositions: 5,
-    });
 
     // Orchestrator wraps execution with pre-trade safety validation
     orchestrator = createTradingOrchestrator({
@@ -2518,6 +2526,9 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         if (cronService) await cronService.stop();
         if (monitoring) monitoring.stop();
         providerHealth?.stop();
+        circuitBreaker.stop();
+        safetyManager?.destroy();
+        configurePreTradeGate(null);
         await feeds.stop();
         if (channels) await channels.stop();
         await httpGateway.stop();
@@ -2823,6 +2834,10 @@ export async function createGateway(config: Config): Promise<AppGateway> {
         executionService.stop();
         executionService = null;
       }
+      circuitBreaker.stop();
+      safetyManager?.destroy();
+      safetyManager = null;
+      configurePreTradeGate(null);
 
       // Close execution queue producer
       if (executionProducer) {

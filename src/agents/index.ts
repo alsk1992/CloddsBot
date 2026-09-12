@@ -70,7 +70,6 @@ import {
   getBestPool,
 } from '../solana/pumpapi';
 import {
-  executeJupiterSwap,
   getJupiterQuote,
   createJupiterLimitOrder,
   cancelJupiterLimitOrder,
@@ -95,7 +94,6 @@ import {
 } from '../solana/jupiter';
 import { getSolanaConnection, loadSolanaKeypair } from '../solana/wallet';
 import {
-  executeMeteoraDlmmSwap,
   executeMeteoraDlmmSwapExactOut,
   executeMeteoraDlmmSwapWithPriceImpact,
   getMeteoraDlmmQuoteExactOut,
@@ -118,7 +116,6 @@ import {
   createCustomizableMeteoraDlmmPool,
 } from '../solana/meteora';
 import {
-  executeRaydiumSwap,
   getRaydiumQuote,
   getClmmPositions,
   createClmmPosition,
@@ -133,7 +130,6 @@ import {
   getClmmConfigs,
 } from '../solana/raydium';
 import {
-  executeOrcaWhirlpoolSwap,
   getOrcaWhirlpoolQuote,
   openOrcaFullRangePosition,
   openOrcaConcentratedPosition,
@@ -152,12 +148,13 @@ import { executeDriftDirectOrder } from '../solana/drift';
 import { listMeteoraDlmmPools } from '../solana/meteora';
 import { listRaydiumPools } from '../solana/raydium';
 import { listOrcaWhirlpoolPools } from '../solana/orca';
-import { selectBestPool, selectBestPoolWithResolvedMints } from '../solana/pools';
+import { selectBestPool } from '../solana/pools';
 import { getMeteoraDlmmQuote } from '../solana/meteora';
 import { wormholeQuote, wormholeBridge, wormholeRedeem, usdcBridgeAuto, usdcQuoteAuto } from '../bridge/wormhole';
 import { isRetryableError, withRetry, RETRY_POLICIES } from '../infra/retry';
 import { createMarketIndexService, MarketIndexService } from '../market-index';
 import { enforceExposureLimits, enforceMaxOrderSize } from '../trading/risk';
+import { validatePreTrade } from '../trading/pre-trade';
 // binanceFutures — migrated to handlers/binance.ts
 // bybit — migrated to handlers/bybit.ts
 import * as mexc from '../exchanges/mexc';
@@ -13661,6 +13658,19 @@ async function executeTool(
         const leverage = toolInput.leverage as number | undefined;
         try {
           const config: mexc.MexcConfig = { apiKey, apiSecret, dryRun: process.env.DRY_RUN === 'true' };
+          const availabilityError = validatePreTrade({ label: `MEXC ${symbol} futures long`, skipSizeLimit: true });
+          if (availabilityError) return JSON.stringify({ error: availabilityError });
+          const [price, contractSize] = await Promise.all([
+            mexc.getPrice(config, symbol),
+            mexc.getContractSize(config, symbol),
+          ]);
+          const gateError = validatePreTrade({
+            label: `MEXC ${symbol} futures long`,
+            notionalUsd: vol * contractSize * price,
+            maxOrderSize: context.tradingContext?.maxOrderSize,
+            requireNotional: true,
+          });
+          if (gateError) return JSON.stringify({ error: gateError });
           const result = await mexc.openLong(config, symbol, vol, leverage);
           // Log trade to database (side: 1=Open Long)
           db.logMexcFuturesTrade({
@@ -13690,6 +13700,19 @@ async function executeTool(
         const leverage = toolInput.leverage as number | undefined;
         try {
           const config: mexc.MexcConfig = { apiKey, apiSecret, dryRun: process.env.DRY_RUN === 'true' };
+          const availabilityError = validatePreTrade({ label: `MEXC ${symbol} futures short`, skipSizeLimit: true });
+          if (availabilityError) return JSON.stringify({ error: availabilityError });
+          const [price, contractSize] = await Promise.all([
+            mexc.getPrice(config, symbol),
+            mexc.getContractSize(config, symbol),
+          ]);
+          const gateError = validatePreTrade({
+            label: `MEXC ${symbol} futures short`,
+            notionalUsd: vol * contractSize * price,
+            maxOrderSize: context.tradingContext?.maxOrderSize,
+            requireNotional: true,
+          });
+          if (gateError) return JSON.stringify({ error: gateError });
           const result = await mexc.openShort(config, symbol, vol, leverage);
           // Log trade to database (side: 3=Open Short)
           db.logMexcFuturesTrade({
@@ -13717,6 +13740,11 @@ async function executeTool(
         const symbol = toolInput.symbol as string;
         try {
           const config: mexc.MexcConfig = { apiKey, apiSecret, dryRun: process.env.DRY_RUN === 'true' };
+          const gateError = validatePreTrade({
+            label: `MEXC ${symbol} futures close`,
+            skipSizeLimit: true,
+          });
+          if (gateError) return JSON.stringify({ error: gateError });
           const result = await mexc.closePosition(config, symbol);
           if (!result) {
             return JSON.stringify({ error: `No open position for ${symbol}` });
@@ -13781,36 +13809,6 @@ async function executeTool(
           return JSON.stringify({ address: keypair.publicKey.toBase58() });
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
-        }
-      }
-
-      case 'solana_jupiter_swap': {
-        const inputMint = toolInput.input_mint as string;
-        const outputMint = toolInput.output_mint as string;
-        const amount = toolInput.amount as string;
-        const slippageBps = toolInput.slippage_bps as number | undefined;
-        const swapMode = toolInput.swap_mode as 'ExactIn' | 'ExactOut' | undefined;
-        const priorityFeeLamports = toolInput.priority_fee_lamports as number | undefined;
-        const onlyDirectRoutes = toolInput.only_direct_routes as boolean | undefined;
-
-        try {
-          const keypair = loadSolanaKeypair();
-          const connection = getSolanaConnection();
-          const result = await executeJupiterSwap(connection, keypair, {
-            inputMint,
-            outputMint,
-            amount,
-            slippageBps,
-            swapMode,
-            priorityFeeLamports,
-            onlyDirectRoutes,
-          });
-          return JSON.stringify(result);
-        } catch (err: unknown) {
-          return JSON.stringify({
-            error: (err as Error).message,
-            hint: 'Set SOLANA_PRIVATE_KEY or SOLANA_KEYPAIR_PATH and SOLANA_RPC_URL if needed.',
-          });
         }
       }
 
@@ -14218,60 +14216,6 @@ async function executeTool(
         try {
           const connection = getSolanaConnection();
           const result = await getBestPool(connection, toolInput.mint as string);
-          return JSON.stringify(result);
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
-      }
-
-      case 'meteora_dlmm_swap': {
-        try {
-          const keypair = loadSolanaKeypair();
-          const connection = getSolanaConnection();
-          const result = await executeMeteoraDlmmSwap(connection, keypair, {
-            poolAddress: toolInput.pool_address as string,
-            inputMint: toolInput.input_mint as string,
-            outputMint: toolInput.output_mint as string,
-            inAmount: toolInput.in_amount as string,
-            slippageBps: toolInput.slippage_bps as number | undefined,
-            allowPartialFill: toolInput.allow_partial_fill as boolean | undefined,
-            maxExtraBinArrays: toolInput.max_extra_bin_arrays as number | undefined,
-          });
-          return JSON.stringify(result);
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
-      }
-
-      case 'raydium_swap': {
-        try {
-          const keypair = loadSolanaKeypair();
-          const connection = getSolanaConnection();
-          const result = await executeRaydiumSwap(connection, keypair, {
-            inputMint: toolInput.input_mint as string,
-            outputMint: toolInput.output_mint as string,
-            amount: toolInput.amount as string,
-            slippageBps: toolInput.slippage_bps as number | undefined,
-            swapMode: toolInput.swap_mode as 'BaseIn' | 'BaseOut' | undefined,
-            txVersion: toolInput.tx_version as 'V0' | 'LEGACY' | undefined,
-            computeUnitPriceMicroLamports: toolInput.compute_unit_price_micro_lamports as number | undefined,
-          });
-          return JSON.stringify(result);
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
-      }
-
-      case 'orca_whirlpool_swap': {
-        try {
-          const keypair = loadSolanaKeypair();
-          const connection = getSolanaConnection();
-          const result = await executeOrcaWhirlpoolSwap(connection, keypair, {
-            poolAddress: toolInput.pool_address as string,
-            inputMint: toolInput.input_mint as string,
-            amount: toolInput.amount as string,
-            slippageBps: toolInput.slippage_bps as number | undefined,
-          });
           return JSON.stringify(result);
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
@@ -15103,77 +15047,6 @@ async function executeTool(
           });
 
           return JSON.stringify(result ?? { error: 'No matching pools found' });
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
-      }
-
-      case 'solana_auto_swap': {
-        try {
-          const amount = toolInput.amount as string;
-          const slippageBps = toolInput.slippage_bps as number | undefined;
-          const sortBy = toolInput.sort_by as 'liquidity' | 'volume24h' | undefined;
-          const preferredDexes = toolInput.preferred_dexes as Array<'meteora' | 'raydium' | 'orca'> | undefined;
-
-          const inputMint = toolInput.input_mint as string | undefined;
-          const outputMint = toolInput.output_mint as string | undefined;
-          const tokenSymbols = toolInput.token_symbols as string[] | undefined;
-
-          const connection = getSolanaConnection();
-          const keypair = loadSolanaKeypair();
-
-          const resolvedMints = inputMint && outputMint
-            ? [inputMint, outputMint]
-            : tokenSymbols && tokenSymbols.length >= 2
-              ? await (await import('../solana/tokenlist')).resolveTokenMints(tokenSymbols.slice(0, 2))
-              : [];
-
-          if (resolvedMints.length < 2) {
-            return JSON.stringify({ error: 'Provide input_mint/output_mint or token_symbols with 2 entries.' });
-          }
-
-          const { pool } = await selectBestPoolWithResolvedMints(connection, {
-            tokenMints: resolvedMints,
-            sortBy,
-            preferredDexes,
-          });
-
-          if (!pool) {
-            return JSON.stringify({ error: 'No matching pools found.' });
-          }
-
-          if (pool.dex === 'meteora') {
-            const result = await executeMeteoraDlmmSwap(connection, keypair, {
-              poolAddress: pool.address,
-              inputMint: resolvedMints[0],
-              outputMint: resolvedMints[1],
-              inAmount: amount,
-              slippageBps,
-            });
-            return JSON.stringify({ dex: pool.dex, pool, result });
-          }
-
-          if (pool.dex === 'raydium') {
-            const result = await executeRaydiumSwap(connection, keypair, {
-              inputMint: resolvedMints[0],
-              outputMint: resolvedMints[1],
-              amount,
-              slippageBps,
-            });
-            return JSON.stringify({ dex: pool.dex, pool, result });
-          }
-
-          if (pool.dex === 'orca') {
-            const result = await executeOrcaWhirlpoolSwap(connection, keypair, {
-              poolAddress: pool.address,
-              inputMint: resolvedMints[0],
-              amount,
-              slippageBps,
-            });
-            return JSON.stringify({ dex: pool.dex, pool, result });
-          }
-
-          return JSON.stringify({ error: 'Unsupported pool type' });
         } catch (err: unknown) {
           return JSON.stringify({ error: (err as Error).message });
         }

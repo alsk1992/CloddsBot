@@ -9,6 +9,7 @@ import type { ToolInput, HandlerResult, HandlersMap, HandlerContext } from './ty
 import { errorResult } from './types';
 import type { HyperliquidConfig } from '../../exchanges/hyperliquid';
 import * as hyperliquid from '../../exchanges/hyperliquid';
+import { guardTrade } from './trading-guard';
 
 // =============================================================================
 // HELPERS
@@ -154,6 +155,12 @@ async function longHandler(
   const size = toolInput.size as number;
   const leverage = toolInput.leverage as number | undefined;
   try {
+    const unavailable = guardTrade(context, `Hyperliquid ${coin} futures long`, undefined, { skipSizeLimit: true });
+    if (unavailable) return unavailable;
+    const mids = await hyperliquid.getAllMids();
+    const price = Number(mids[coin]);
+    const blocked = guardTrade(context, `Hyperliquid ${coin} futures long`, size * price, { requireNotional: true });
+    if (blocked) return blocked;
     if (leverage) {
       await hyperliquid.updateLeverage(env.config, coin, leverage);
     }
@@ -190,6 +197,12 @@ async function shortHandler(
   const size = toolInput.size as number;
   const leverage = toolInput.leverage as number | undefined;
   try {
+    const unavailable = guardTrade(context, `Hyperliquid ${coin} futures short`, undefined, { skipSizeLimit: true });
+    if (unavailable) return unavailable;
+    const mids = await hyperliquid.getAllMids();
+    const price = Number(mids[coin]);
+    const blocked = guardTrade(context, `Hyperliquid ${coin} futures short`, size * price, { requireNotional: true });
+    if (blocked) return blocked;
     if (leverage) {
       await hyperliquid.updateLeverage(env.config, coin, leverage);
     }
@@ -224,6 +237,8 @@ async function closeHandler(
   if (!env) return errorResult('Set HYPERLIQUID_WALLET and HYPERLIQUID_PRIVATE_KEY');
   const coin = toolInput.coin as string;
   try {
+    const blocked = guardTrade(context, `Hyperliquid ${coin} futures close`, undefined, { skipSizeLimit: true });
+    if (blocked) return blocked;
     // Get current position
     const state = await hyperliquid.getUserState(env.wallet);
     const position = state.assetPositions.find(p => p.position.coin === coin);

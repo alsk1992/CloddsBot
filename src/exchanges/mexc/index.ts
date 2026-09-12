@@ -122,6 +122,21 @@ export async function getPrice(config: MexcConfig, symbol: string): Promise<numb
   return typeof data.lastPrice === 'string' ? parseFloat(data.lastPrice) : data.lastPrice;
 }
 
+/** Contract multiplier used to convert MEXC volume (contracts) to base units. */
+export async function getContractSize(config: MexcConfig, symbol: string): Promise<number> {
+  const data = await request(config, 'GET', '/api/v1/contract/detail', { symbol }) as
+    | { contractSize?: number | string }
+    | Array<{ symbol?: string; contractSize?: number | string }>;
+  const detail = Array.isArray(data)
+    ? data.find(item => item.symbol === symbol) ?? data[0]
+    : data;
+  const contractSize = Number(detail?.contractSize);
+  if (!Number.isFinite(contractSize) || contractSize <= 0) {
+    throw new Error(`Invalid MEXC contract size for ${symbol}`);
+  }
+  return contractSize;
+}
+
 export async function getFundingRate(config: MexcConfig, symbol: string): Promise<FundingRate> {
   const data = await request(config, 'GET', '/api/v1/contract/funding_rate', { symbol }) as {
     fundingRate: number;

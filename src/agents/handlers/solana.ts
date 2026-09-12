@@ -10,8 +10,9 @@
  * - Drift (perps + prediction markets)
  */
 
-import type { ToolInput, HandlerResult, HandlersMap } from './types';
+import type { ToolInput, HandlerResult, HandlersMap, HandlerContext } from './types';
 import { safeHandler } from './types';
+import { validatePreTrade } from '../../trading/pre-trade';
 
 // Lazy imports to avoid loading heavy SDKs unless needed
 const getSolanaModules = async () => {
@@ -29,6 +30,78 @@ const getSolanaModules = async () => {
   return { wallet, jupiter, raydium, orca, meteora, pumpapi, drift, pools, tokenlist };
 };
 
+const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const USDC_BASE_UNITS = 1_000_000;
+
+function assertSwapGate(
+  context: HandlerContext,
+  label: string,
+  notionalUsd?: number,
+  requireNotional = false
+): void {
+  const error = validatePreTrade({
+    label,
+    notionalUsd,
+    maxOrderSize: context.tradingContext?.maxOrderSize,
+    requireNotional,
+    skipSizeLimit: !requireNotional,
+  });
+  if (error) throw new Error(error);
+}
+
+type SwapQuote = { inAmount: string; outAmount: string };
+type SwapQuoteFn = (params: {
+  inputMint: string;
+  outputMint: string;
+  amount: string;
+  swapMode?: 'ExactIn' | 'ExactOut';
+  slippageBps?: number;
+}) => Promise<SwapQuote>;
+
+export async function estimateSwapNotionalUsd(
+  getQuote: SwapQuoteFn,
+  params: {
+    inputMint: string;
+    outputMint?: string;
+    amount: string;
+    exactOutput?: boolean;
+    slippageBps?: number;
+  }
+): Promise<number> {
+  let inputAmount = params.amount;
+
+  if (params.exactOutput) {
+    if (!params.outputMint) throw new Error('Output mint is required to value an exact-output swap');
+    const routeQuote = await getQuote({
+      inputMint: params.inputMint,
+      outputMint: params.outputMint,
+      amount: params.amount,
+      swapMode: 'ExactOut',
+      slippageBps: params.slippageBps,
+    });
+    inputAmount = routeQuote.inAmount;
+  }
+
+  if (params.inputMint === SOLANA_USDC_MINT) {
+    const notional = Number(inputAmount) / USDC_BASE_UNITS;
+    if (!Number.isFinite(notional) || notional <= 0) throw new Error('Invalid USDC input amount');
+    return notional;
+  }
+
+  const usdQuote = await getQuote({
+    inputMint: params.inputMint,
+    outputMint: SOLANA_USDC_MINT,
+    amount: inputAmount,
+    swapMode: 'ExactIn',
+    slippageBps: params.slippageBps,
+  });
+  const notional = Number(usdQuote.outAmount) / USDC_BASE_UNITS;
+  if (!Number.isFinite(notional) || notional <= 0) {
+    throw new Error(`Could not determine USD value for input mint ${params.inputMint}`);
+  }
+  return notional;
+}
+
 // ============================================================================
 // Wallet / Address
 // ============================================================================
@@ -45,7 +118,7 @@ async function addressHandler(): Promise<HandlerResult> {
 // Jupiter Handlers
 // ============================================================================
 
-async function jupiterSwapHandler(toolInput: ToolInput): Promise<HandlerResult> {
+async function jupiterSwapHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
   const inputMint = toolInput.input_mint as string;
   const outputMint = toolInput.output_mint as string;
   const amount = toolInput.amount as string;
@@ -56,6 +129,15 @@ async function jupiterSwapHandler(toolInput: ToolInput): Promise<HandlerResult> 
 
   return safeHandler(async () => {
     const { wallet, jupiter } = await getSolanaModules();
+    assertSwapGate(context, 'Jupiter swap');
+    const notionalUsd = await estimateSwapNotionalUsd(jupiter.getJupiterQuote, {
+      inputMint,
+      outputMint,
+      amount,
+      exactOutput: swapMode === 'ExactOut',
+      slippageBps,
+    });
+    assertSwapGate(context, 'Jupiter swap', notionalUsd, true);
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
     return jupiter.executeJupiterSwap(connection, keypair, {
@@ -74,17 +156,30 @@ async function jupiterSwapHandler(toolInput: ToolInput): Promise<HandlerResult> 
 // Raydium Handlers
 // ============================================================================
 
-async function raydiumSwapHandler(toolInput: ToolInput): Promise<HandlerResult> {
+async function raydiumSwapHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
   return safeHandler(async () => {
-    const { wallet, raydium } = await getSolanaModules();
+    const { wallet, raydium, jupiter } = await getSolanaModules();
+    const inputMint = toolInput.input_mint as string;
+    const outputMint = toolInput.output_mint as string;
+    const amount = toolInput.amount as string;
+    const swapMode = toolInput.swap_mode as 'BaseIn' | 'BaseOut' | undefined;
+    assertSwapGate(context, 'Raydium swap');
+    const notionalUsd = await estimateSwapNotionalUsd(jupiter.getJupiterQuote, {
+      inputMint,
+      outputMint,
+      amount,
+      exactOutput: swapMode === 'BaseOut',
+      slippageBps: toolInput.slippage_bps as number | undefined,
+    });
+    assertSwapGate(context, 'Raydium swap', notionalUsd, true);
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
     return raydium.executeRaydiumSwap(connection, keypair, {
-      inputMint: toolInput.input_mint as string,
-      outputMint: toolInput.output_mint as string,
-      amount: toolInput.amount as string,
+      inputMint,
+      outputMint,
+      amount,
       slippageBps: toolInput.slippage_bps as number | undefined,
-      swapMode: toolInput.swap_mode as 'BaseIn' | 'BaseOut' | undefined,
+      swapMode,
       txVersion: toolInput.tx_version as 'V0' | 'LEGACY' | undefined,
       computeUnitPriceMicroLamports: toolInput.compute_unit_price_micro_lamports as number | undefined,
     });
@@ -123,15 +218,24 @@ async function raydiumQuoteHandler(toolInput: ToolInput): Promise<HandlerResult>
 // Orca Handlers
 // ============================================================================
 
-async function orcaSwapHandler(toolInput: ToolInput): Promise<HandlerResult> {
+async function orcaSwapHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
   return safeHandler(async () => {
-    const { wallet, orca } = await getSolanaModules();
+    const { wallet, orca, jupiter } = await getSolanaModules();
+    const inputMint = toolInput.input_mint as string;
+    const amount = toolInput.amount as string;
+    assertSwapGate(context, 'Orca swap');
+    const notionalUsd = await estimateSwapNotionalUsd(jupiter.getJupiterQuote, {
+      inputMint,
+      amount,
+      slippageBps: toolInput.slippage_bps as number | undefined,
+    });
+    assertSwapGate(context, 'Orca swap', notionalUsd, true);
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
     return orca.executeOrcaWhirlpoolSwap(connection, keypair, {
       poolAddress: toolInput.pool_address as string,
-      inputMint: toolInput.input_mint as string,
-      amount: toolInput.amount as string,
+      inputMint,
+      amount,
       slippageBps: toolInput.slippage_bps as number | undefined,
     });
   });
@@ -168,16 +272,25 @@ async function orcaQuoteHandler(toolInput: ToolInput): Promise<HandlerResult> {
 // Meteora Handlers
 // ============================================================================
 
-async function meteoraSwapHandler(toolInput: ToolInput): Promise<HandlerResult> {
+async function meteoraSwapHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
   return safeHandler(async () => {
-    const { wallet, meteora } = await getSolanaModules();
+    const { wallet, meteora, jupiter } = await getSolanaModules();
+    const inputMint = toolInput.input_mint as string;
+    const amount = toolInput.in_amount as string;
+    assertSwapGate(context, 'Meteora swap');
+    const notionalUsd = await estimateSwapNotionalUsd(jupiter.getJupiterQuote, {
+      inputMint,
+      amount,
+      slippageBps: toolInput.slippage_bps as number | undefined,
+    });
+    assertSwapGate(context, 'Meteora swap', notionalUsd, true);
     const keypair = wallet.loadSolanaKeypair();
     const connection = wallet.getSolanaConnection();
     return meteora.executeMeteoraDlmmSwap(connection, keypair, {
       poolAddress: toolInput.pool_address as string,
-      inputMint: toolInput.input_mint as string,
+      inputMint,
       outputMint: toolInput.output_mint as string,
-      inAmount: toolInput.in_amount as string,
+      inAmount: amount,
       slippageBps: toolInput.slippage_bps as number | undefined,
       allowPartialFill: toolInput.allow_partial_fill as boolean | undefined,
       maxExtraBinArrays: toolInput.max_extra_bin_arrays as number | undefined,
@@ -1126,7 +1239,7 @@ async function autoRouteHandler(toolInput: ToolInput): Promise<HandlerResult> {
   });
 }
 
-async function autoSwapHandler(toolInput: ToolInput): Promise<HandlerResult> {
+async function autoSwapHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
   const amount = toolInput.amount as string;
   const slippageBps = toolInput.slippage_bps as number | undefined;
   const sortBy = toolInput.sort_by as 'liquidity' | 'volume24h' | undefined;
@@ -1136,9 +1249,8 @@ async function autoSwapHandler(toolInput: ToolInput): Promise<HandlerResult> {
   const tokenSymbols = toolInput.token_symbols as string[] | undefined;
 
   return safeHandler(async () => {
-    const { wallet, pools, tokenlist, meteora, raydium, orca } = await getSolanaModules();
+    const { wallet, pools, tokenlist, meteora, raydium, orca, jupiter } = await getSolanaModules();
     const connection = wallet.getSolanaConnection();
-    const keypair = wallet.loadSolanaKeypair();
 
     const resolvedMints = inputMint && outputMint
       ? [inputMint, outputMint]
@@ -1149,6 +1261,16 @@ async function autoSwapHandler(toolInput: ToolInput): Promise<HandlerResult> {
     if (resolvedMints.length < 2) {
       return { error: 'Provide input_mint/output_mint or token_symbols with 2 entries.' };
     }
+
+    assertSwapGate(context, 'automatic Solana swap');
+    const notionalUsd = await estimateSwapNotionalUsd(jupiter.getJupiterQuote, {
+      inputMint: resolvedMints[0],
+      outputMint: resolvedMints[1],
+      amount,
+      slippageBps,
+    });
+    assertSwapGate(context, 'automatic Solana swap', notionalUsd, true);
+    const keypair = wallet.loadSolanaKeypair();
 
     const { pool } = await pools.selectBestPoolWithResolvedMints(connection, {
       tokenMints: resolvedMints,
@@ -1309,13 +1431,16 @@ async function bagsQuoteHandler(toolInput: ToolInput): Promise<HandlerResult> {
   });
 }
 
-async function bagsSwapHandler(toolInput: ToolInput): Promise<HandlerResult> {
+async function bagsSwapHandler(toolInput: ToolInput, context: HandlerContext): Promise<HandlerResult> {
   const inputMint = toolInput.input_mint as string;
   const outputMint = toolInput.output_mint as string;
   const amount = toolInput.amount as string;
 
   return safeHandler(async () => {
-    const { wallet } = await getSolanaModules();
+    const { wallet, jupiter } = await getSolanaModules();
+    assertSwapGate(context, 'Bags swap');
+    const notionalUsd = await estimateSwapNotionalUsd(jupiter.getJupiterQuote, { inputMint, outputMint, amount });
+    assertSwapGate(context, 'Bags swap', notionalUsd, true);
     const keypair = wallet.loadSolanaKeypair();
     const walletAddress = keypair.publicKey.toBase58();
     const connection = wallet.getSolanaConnection();

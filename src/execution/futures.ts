@@ -17,6 +17,7 @@ import { Wallet } from 'ethers';
 import * as bybit from '../exchanges/bybit';
 import * as mexc from '../exchanges/mexc';
 import * as hyperliquid from '../exchanges/hyperliquid';
+import { validatePreTrade } from '../trading/pre-trade';
 
 // Helper to derive wallet address from private key
 function getWalletAddress(privateKey: string): string {
@@ -1363,22 +1364,111 @@ async function setHyperliquidMarginType(
 // SERVICE FACTORY
 // =============================================================================
 
+async function getBinanceMarkPrice(
+  config: NonNullable<FuturesConfig['binance']>,
+  symbol: string
+): Promise<number> {
+  const data = await binanceFuturesRequest(config, 'GET', '/fapi/v1/premiumIndex', { symbol }) as {
+    markPrice?: string;
+  };
+  const price = Number(data.markPrice);
+  if (!Number.isFinite(price) || price <= 0) throw new Error(`No valid Binance mark price for ${symbol}`);
+  return price;
+}
+
+async function getBybitMarkPrice(
+  config: NonNullable<FuturesConfig['bybit']>,
+  symbol: string
+): Promise<number> {
+  return bybit.getPrice({
+    apiKey: config.apiKey,
+    apiSecret: config.secretKey,
+    testnet: config.testnet,
+  }, symbol);
+}
+
+async function getMexcOrderValuation(
+  config: NonNullable<FuturesConfig['mexc']>,
+  symbol: string
+): Promise<{ price: number; contractSize: number }> {
+  const mexcConfig = { apiKey: config.apiKey, apiSecret: config.secretKey };
+  const [price, contractSize] = await Promise.all([
+    mexc.getPrice(mexcConfig, symbol),
+    mexc.getContractSize(mexcConfig, symbol),
+  ]);
+  return { price, contractSize };
+}
+
 export function createFuturesExecutionService(config: FuturesConfig): FuturesExecutionService {
   const defaultLeverage = config.defaultLeverage || 10;
   const defaultMarginType = config.defaultMarginType || 'isolated';
-  const maxPositionSize = config.maxPositionSize || 10000; // $10k default
+  const maxPositionSize = config.maxPositionSize ?? 10000; // $10k default
+
+  async function resolveOrderPrice(request: FuturesOrderRequest): Promise<number> {
+    if (request.price !== undefined && Number.isFinite(request.price) && request.price > 0) {
+      return request.price;
+    }
+    if (request.stopPrice !== undefined && Number.isFinite(request.stopPrice) && request.stopPrice > 0) {
+      return request.stopPrice;
+    }
+
+    switch (request.platform) {
+      case 'binance':
+        if (!config.binance) throw new Error('Binance Futures not configured');
+        return getBinanceMarkPrice(config.binance, request.symbol);
+      case 'bybit':
+        if (!config.bybit) throw new Error('Bybit not configured');
+        return getBybitMarkPrice(config.bybit, request.symbol);
+      case 'mexc':
+        if (!config.mexc) throw new Error('MEXC not configured');
+        return (await getMexcOrderValuation(config.mexc, request.symbol)).price;
+      case 'hyperliquid': {
+        if (!config.hyperliquid) throw new Error('Hyperliquid not configured');
+        const mids = await hyperliquid.getAllMids();
+        const price = Number(mids[request.symbol]);
+        if (!Number.isFinite(price) || price <= 0) {
+          throw new Error(`No valid Hyperliquid mark price for ${request.symbol}`);
+        }
+        return price;
+      }
+    }
+  }
 
   async function executeOrder(request: FuturesOrderRequest): Promise<FuturesOrderResult> {
-    // Validate position size
-    const checkPrice = request.price || 0;
-    if (checkPrice > 0 && request.size * checkPrice > maxPositionSize) {
-      return {
-        success: false,
-        error: `Position size exceeds max $${maxPositionSize}`,
-      };
+    if (!Number.isFinite(request.size) || request.size <= 0) {
+      return { success: false, error: `Invalid futures size: ${request.size}` };
     }
-    if (checkPrice === 0) {
-      logger.warn({ size: request.size, symbol: request.symbol }, 'No price available for notional size check (market order) — skipping guard');
+
+    const label = `${request.platform} ${request.symbol} futures order`;
+    const availabilityError = validatePreTrade({ label, skipSizeLimit: true });
+    if (availabilityError) return { success: false, error: availabilityError };
+
+    if (request.reduceOnly || request.closePosition) {
+      // Risk-reducing orders still honor kill switches, but are not blocked by
+      // an exposure cap that the existing position may already exceed.
+    } else {
+      let checkPrice: number;
+      let contractSize = 1;
+      try {
+        if (request.platform === 'mexc' && config.mexc) {
+          const valuation = await getMexcOrderValuation(config.mexc, request.symbol);
+          checkPrice = request.price ?? request.stopPrice ?? valuation.price;
+          contractSize = valuation.contractSize;
+        } else {
+          checkPrice = await resolveOrderPrice(request);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Futures pre-trade price check failed: ${detail}` };
+      }
+
+      const gateError = validatePreTrade({
+        label,
+        notionalUsd: request.size * contractSize * checkPrice,
+        maxOrderSize: maxPositionSize,
+        requireNotional: true,
+      });
+      if (gateError) return { success: false, error: gateError };
     }
 
     // Dry run
@@ -1777,4 +1867,3 @@ export function createFuturesExecutionService(config: FuturesConfig): FuturesExe
 
   return service;
 }
-

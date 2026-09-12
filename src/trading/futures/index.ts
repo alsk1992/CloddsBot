@@ -19,6 +19,7 @@ import * as secp from '@noble/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { logger } from '../../utils/logger';
 import { Pool } from 'pg';
+import { validatePreTrade } from '../pre-trade';
 
 // =============================================================================
 // HELPERS
@@ -143,6 +144,8 @@ export interface FuturesMarket {
   quoteAsset: string;
   tickSize: number;
   lotSize: number;
+  /** Base-asset amount represented by one contract (derivatives venues only). */
+  contractSize?: number;
   minNotional: number;
   maxLeverage: number;
   fundingRate: number;
@@ -4211,6 +4214,7 @@ class MexcFuturesClient {
         quoteCoin: string;
         priceUnit: string;
         volUnit: string;
+        contractSize: string;
         minVol: string;
         maxLeverage: number;
       }>>,
@@ -4237,6 +4241,7 @@ class MexcFuturesClient {
           quoteAsset: c.quoteCoin,
           tickSize: parseFloat(c.priceUnit),
           lotSize: parseFloat(c.volUnit),
+          contractSize: parseFloat(c.contractSize),
           minNotional: parseFloat(c.minVol),
           maxLeverage: c.maxLeverage,
           fundingRate: parseFloat(ticker?.fundingRate || '0') * 100,
@@ -5352,9 +5357,41 @@ export class FuturesService extends EventEmitter {
   async placeOrder(exchange: FuturesExchange, order: FuturesOrderRequest): Promise<FuturesOrder> {
     const config = this.config.find(c => c.exchange === exchange);
 
+    if (!Number.isFinite(order.size) || order.size <= 0) {
+      throw new Error(`Invalid futures size: ${order.size}`);
+    }
+
     if (config?.maxLeverage && order.leverage && order.leverage > config.maxLeverage) {
       throw new Error(`Leverage ${order.leverage}x exceeds max ${config.maxLeverage}x`);
     }
+
+    const label = `${exchange} ${order.symbol} futures order`;
+    const availabilityError = validatePreTrade({ label, skipSizeLimit: true });
+    if (availabilityError) throw new Error(availabilityError);
+
+    let gateError: string | null;
+    if (order.reduceOnly) {
+      gateError = null;
+    } else {
+      let price = order.price ?? order.stopPrice;
+      let contractSize = 1;
+      if (exchange === 'mexc') {
+        const market = (await this.getMarkets(exchange)).find(item => item.symbol === order.symbol);
+        price = price ?? market?.markPrice;
+        contractSize = market?.contractSize ?? 0;
+      } else if (!Number.isFinite(price) || (price ?? 0) <= 0) {
+        const tickers = await this.getTickerPrice(exchange, order.symbol);
+        price = tickers.find(ticker => ticker.symbol === order.symbol)?.price ?? tickers[0]?.price;
+      }
+
+      gateError = validatePreTrade({
+        label,
+        notionalUsd: price !== undefined ? order.size * contractSize * price : undefined,
+        maxOrderSize: config?.maxPositionSize ?? 10000,
+        requireNotional: true,
+      });
+    }
+    if (gateError) throw new Error(gateError);
 
     const result = await this.getClient(exchange).placeOrder(order);
     this.emit('order', result);
@@ -5409,6 +5446,12 @@ export class FuturesService extends EventEmitter {
   }
 
   async closePosition(exchange: FuturesExchange, symbol: string): Promise<FuturesOrder | null> {
+    const gateError = validatePreTrade({
+      label: `${exchange} ${symbol} futures close`,
+      skipSizeLimit: true,
+    });
+    if (gateError) throw new Error(gateError);
+
     const result = await this.getClient(exchange).closePosition(symbol);
     if (result) {
       this.emit('positionClosed', result);
