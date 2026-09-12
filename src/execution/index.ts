@@ -3330,11 +3330,34 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
       const indexedOrders = orders.map((o, i) => ({ order: o, index: i }));
       const resultsByIndex: OrderResult[] = new Array(orders.length);
 
-      const polyIndexed = indexedOrders.filter(o => o.order.platform === 'polymarket');
-      const kalshiIndexed = indexedOrders.filter(o => o.order.platform === 'kalshi');
-      const opinionIndexed = indexedOrders.filter(o => o.order.platform === 'opinion');
-      const predictfunIndexed = indexedOrders.filter(o => o.order.platform === 'predictfun');
-      const otherIndexed = indexedOrders.filter(o => o.order.platform !== 'opinion' && o.order.platform !== 'polymarket' && o.order.platform !== 'kalshi' && o.order.platform !== 'predictfun');
+      // Batch transports must enforce the same pre-trade checks as single orders.
+      // Invalid and dry-run items are resolved locally and excluded from every
+      // venue batch below, while valid items retain their original result index.
+      const executableOrders = indexedOrders.filter(({ order, index }) => {
+        const error = validateOrder({ ...order, orderType: 'GTC' });
+        if (error) {
+          resultsByIndex[index] = { success: false, error };
+          return false;
+        }
+
+        if (config.dryRun) {
+          logger.info({ ...order, dryRun: true }, 'Dry run batch order');
+          resultsByIndex[index] = {
+            success: true,
+            orderId: `dry_${randomBytes(8).toString('hex')}`,
+            status: 'open',
+          };
+          return false;
+        }
+
+        return true;
+      });
+
+      const polyIndexed = executableOrders.filter(o => o.order.platform === 'polymarket');
+      const kalshiIndexed = executableOrders.filter(o => o.order.platform === 'kalshi');
+      const opinionIndexed = executableOrders.filter(o => o.order.platform === 'opinion');
+      const predictfunIndexed = executableOrders.filter(o => o.order.platform === 'predictfun');
+      const otherIndexed = executableOrders.filter(o => o.order.platform !== 'opinion' && o.order.platform !== 'polymarket' && o.order.platform !== 'kalshi' && o.order.platform !== 'predictfun');
 
       // Execute Polymarket batch if we have Polymarket orders and config
       if (polyIndexed.length > 0 && config.polymarket) {
@@ -3457,7 +3480,12 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         }
       }
 
-      const results = resultsByIndex;
+      const results = resultsByIndex.map((result, index) => {
+        const resolved = result ?? { success: false, error: 'Missing batch result' };
+        const order = orders[index];
+        recordOrderToCircuitBreaker(resolved, order.price * order.size);
+        return resolved;
+      });
 
       return results;
     },
