@@ -4,7 +4,7 @@
  * Features:
  * - JSON5 config file loading
  * - Environment variable substitution
- * - Config validation with Zod
+ * - Handwritten config validation
  * - Default values
  * - Config paths resolution
  * - Backup rotation

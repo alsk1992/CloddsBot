@@ -5,6 +5,22 @@ All notable changes to Clodds will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Updated supported-version, dependency-audit, Node.js, and bundled-skill documentation to match the current release.
+- The Docker runtime now runs as the unprivileged `node` user and keeps writable state under `/data`.
+
+## [1.9.0] - 2026-08-31
+
+### Fixed
+- Replaced broken or deprecated integrations across Pump.fun, PumpSwap, Meteora DBC, Kalshi, Polymarket, Lighter, and Robinhood/Pons.
+- Corrected Solana transaction confirmation so reverted transactions are not reported as successful.
+
+### Changed
+- Improved hot-path performance for market scans, deduplication, and Lighter nonce handling.
+- Completed a live-verification audit of supported trading venues.
+
 ## [1.2.1] - 2026-02-09
 
 ### Fixed

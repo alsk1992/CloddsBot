@@ -13,6 +13,7 @@ FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV HOME=/data
 ENV CLODDS_STATE_DIR=/data
 ENV CLODDS_WORKSPACE=/data/workspace
 
@@ -21,7 +22,10 @@ RUN npm ci --omit=dev --legacy-peer-deps
 
 COPY --from=builder /app/dist ./dist
 
-RUN mkdir -p /data /data/workspace .transformers-cache
+RUN mkdir -p /data /data/workspace .transformers-cache \
+  && chown -R node:node /data /app/.transformers-cache
+
+USER node
 
 # Pre-download embedding model so it's warm at runtime (no first-request hang)
 RUN node -e "const{pipeline,env}=require('@xenova/transformers');env.cacheDir='./.transformers-cache';pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2',{quantized:true}).then(()=>console.log('Model cached')).catch(e=>console.error('Model cache failed:',e))"
