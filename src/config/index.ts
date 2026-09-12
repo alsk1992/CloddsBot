@@ -619,6 +619,7 @@ export const DEFAULT_CONFIG: CloddsConfig = {
     fearGreedEnabled: true,
     fundingRatesEnabled: true,
     redditEnabled: false,
+    adanosEnabled: false,
   },
   signalRouter: {
     enabled: false,
@@ -1086,6 +1087,20 @@ const ENV_MAPPINGS: Record<string, (cfg: CloddsConfig) => void> = {
     if (!cfg.altData) cfg.altData = {};
     const raw = process.env.ALT_DATA_REDDIT_SUBREDDITS;
     if (raw) cfg.altData.redditSubreddits = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  },
+  ADANOS_API_KEY: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    cfg.altData.adanosApiKey = process.env.ADANOS_API_KEY;
+  },
+  ALT_DATA_ADANOS_ENABLED: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_ADANOS_ENABLED;
+    if (raw) cfg.altData.adanosEnabled = raw === '1' || raw.toLowerCase() === 'true';
+  },
+  ALT_DATA_ADANOS_INTERVAL_MS: (cfg) => {
+    if (!cfg.altData) cfg.altData = {};
+    const raw = process.env.ALT_DATA_ADANOS_INTERVAL_MS;
+    if (raw) cfg.altData.adanosIntervalMs = safeParseInt(raw) ?? cfg.altData.adanosIntervalMs;
   },
   SIGNAL_ROUTER_ENABLED: (cfg) => {
     if (!cfg.signalRouter) cfg.signalRouter = {};

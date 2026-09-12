@@ -13,6 +13,7 @@ import { createMarketMatcher } from './market-matcher.js';
 import { createFearGreedFeed, type FearGreedFeed } from './feeds/fear-greed.js';
 import { createFundingRatesFeed, type FundingRatesFeed } from './feeds/funding-rates.js';
 import { createRedditFeed, type RedditFeed } from './feeds/reddit.js';
+import { createAdanosFeed, type AdanosFeed } from './feeds/adanos.js';
 import { logger } from '../../utils/logger.js';
 
 // ── Config defaults ────────────────────────────────────────────────────────
@@ -30,6 +31,10 @@ const DEFAULTS: Required<AltDataConfig> = {
   redditEnabled: false,
   redditIntervalMs: 300_000,
   redditSubreddits: ['polymarket', 'cryptocurrency', 'wallstreetbets'],
+  adanosEnabled: false,
+  adanosApiKey: '',
+  adanosIntervalMs: 10_800_000,
+  adanosLimit: 20,
 };
 
 // ── Dependencies (loose coupling) ──────────────────────────────────────────
@@ -87,6 +92,7 @@ export function createAltDataService(opts: AltDataServiceOptions): AltDataServic
   let fearGreedFeed: FearGreedFeed | null = null;
   let fundingRatesFeed: FundingRatesFeed | null = null;
   let redditFeed: RedditFeed | null = null;
+  let adanosFeed: AdanosFeed | null = null;
 
   // News bridge listener (stored for cleanup on stop)
   let newsListener: ((...args: unknown[]) => void) | null = null;
@@ -247,6 +253,15 @@ export function createAltDataService(opts: AltDataServiceOptions): AltDataServic
       redditFeed.start();
     }
 
+    if (cfg.adanosEnabled) {
+      if (cfg.adanosApiKey) {
+        adanosFeed = createAdanosFeed(onFeedEvent, cfg.adanosApiKey, cfg.adanosIntervalMs, cfg.adanosLimit);
+        adanosFeed.start();
+      } else {
+        logger.warn('[alt-data] Adanos feed enabled without ADANOS_API_KEY; feed disabled');
+      }
+    }
+
     // Bridge existing news events if FeedManager is available
     if (opts.feeds?.on) {
       newsListener = (item: unknown) => {
@@ -284,9 +299,11 @@ export function createAltDataService(opts: AltDataServiceOptions): AltDataServic
     fearGreedFeed?.stop();
     fundingRatesFeed?.stop();
     redditFeed?.stop();
+    adanosFeed?.stop();
     fearGreedFeed = null;
     fundingRatesFeed = null;
     redditFeed = null;
+    adanosFeed = null;
     // Clear pending queue
     eventQueue.length = 0;
     logger.info({ eventsProcessed, signalsEmitted }, '[alt-data] Service stopped');
@@ -297,6 +314,7 @@ export function createAltDataService(opts: AltDataServiceOptions): AltDataServic
     if (fearGreedFeed) active.push('fear_greed');
     if (fundingRatesFeed) active.push('funding_rates');
     if (redditFeed) active.push('reddit');
+    if (adanosFeed) active.push('adanos');
     if (opts.feeds?.on) active.push('news_bridge');
     return active;
   }

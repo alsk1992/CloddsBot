@@ -13,7 +13,8 @@ export type AltDataSourceType =
   | 'news_headline'
   | 'reddit_post'
   | 'fear_greed'
-  | 'funding_rate';
+  | 'funding_rate'
+  | 'adanos_sentiment';
 
 // ── Core events ────────────────────────────────────────────────────────────
 
@@ -93,6 +94,12 @@ export interface AltDataConfig {
   redditEnabled?: boolean;
   redditIntervalMs?: number;
   redditSubreddits?: string[];
+
+  // Adanos crypto sentiment
+  adanosEnabled?: boolean;
+  adanosApiKey?: string;
+  adanosIntervalMs?: number;
+  adanosLimit?: number;
 }
 
 // ── Service interface ──────────────────────────────────────────────────────
