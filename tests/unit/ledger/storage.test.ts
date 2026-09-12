@@ -351,6 +351,14 @@ describe('LedgerStorage.list', () => {
     assert.strictEqual(results.length, 2);
   });
 
+  it('should respect offset option', () => {
+    const firstPage = storage.list(MOCK_USER_ID, { limit: 2 });
+    const secondPage = storage.list(MOCK_USER_ID, { limit: 2, offset: 2 });
+
+    assert.strictEqual(secondPage.length, 2);
+    assert.notStrictEqual(secondPage[0].id, firstPage[0].id);
+  });
+
   it('should filter by category', () => {
     const results = storage.list(MOCK_USER_ID, { category: 'trade' });
 
