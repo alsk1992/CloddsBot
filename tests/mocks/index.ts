@@ -255,11 +255,20 @@ export function createMockDb(): LedgerDb & {
         );
       }
 
-      // Handle ORDER BY and LIMIT
-      const limitMatch = sql.match(/LIMIT (\d+)/i);
-      if (limitMatch) {
-        const limit = parseInt(limitMatch[1], 10);
-        result = result.slice(0, limit);
+      // Handle ORDER BY, LIMIT, and OFFSET in both literal and bound-parameter
+      // forms. Production queries bind these values, so the mock must preserve
+      // the same pagination semantics.
+      const literalLimit = sql.match(/LIMIT\s+(\d+)/i);
+      const boundLimit = /LIMIT\s+\?/i.test(sql);
+      const boundOffset = /OFFSET\s+\?/i.test(sql);
+      const limit = literalLimit
+        ? parseInt(literalLimit[1], 10)
+        : boundLimit
+          ? Number(params[params.length - (boundOffset ? 2 : 1)])
+          : undefined;
+      const offset = boundOffset ? Number(params[params.length - 1]) : 0;
+      if (limit !== undefined && Number.isFinite(limit)) {
+        result = result.slice(offset, offset + limit);
       }
 
       return result as T[];

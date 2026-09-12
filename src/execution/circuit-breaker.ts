@@ -186,12 +186,20 @@ export function createCircuitBreaker(
         reset();
       }
     }, cfg.resetTimeoutMs);
+    // A tripped standalone breaker should not keep a CLI or test process alive.
+    // Gateway processes remain alive through their servers and monitoring loop.
+    autoResetTimer.unref?.();
   }
 
   /**
    * Reset the circuit breaker
    */
   function reset(): void {
+    if (autoResetTimer) {
+      clearTimeout(autoResetTimer);
+      autoResetTimer = null;
+    }
+
     logger.info({ previousReason: tripReason }, 'Circuit breaker RESET');
 
     isTripped = false;
