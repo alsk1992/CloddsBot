@@ -414,6 +414,7 @@ function wrapExecutionWithLogging(
     getUSDCAllowance: execution.getUSDCAllowance.bind(execution),
     // Batch orderbook fetching
     getOrderbooksBatch: execution.getOrderbooksBatch.bind(execution),
+    getExecutablePrice: execution.getExecutablePrice.bind(execution),
     // Circuit breaker integration
     setCircuitBreaker: execution.setCircuitBreaker.bind(execution),
     getCircuitBreakerState: execution.getCircuitBreakerState.bind(execution),

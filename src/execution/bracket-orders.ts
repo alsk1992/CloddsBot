@@ -2,8 +2,8 @@
  * OCO Bracket Orders - One-Cancels-Other stop-loss + take-profit pairs
  *
  * Features:
- * - Pairs a take-profit limit with a stop-loss limit
- * - When one fills, automatically cancels the other
+ * - Pairs a take-profit limit with a monitored stop-loss trigger
+ * - Cancels the take-profit before executing a triggered market exit
  * - Supports Polymarket and Kalshi
  * - Polling-based fill detection
  * - Database persistence (survives restarts)
@@ -63,9 +63,9 @@ export interface BracketStatus {
 export interface BracketOrder extends EventEmitter {
   /** Unique order ID */
   id: string;
-  /** Place both orders and begin monitoring */
+  /** Place the take-profit and begin monitoring the stop trigger */
   start(): Promise<void>;
-  /** Cancel both orders */
+  /** Cancel the resting take-profit and stop monitoring */
   cancel(): Promise<void>;
   /** Get current bracket status */
   getStatus(): BracketStatus;
@@ -165,17 +165,6 @@ export function createBracketOrder(
   }
 
   /**
-   * Place the stop-loss order
-   */
-  async function placeStopLoss(): Promise<OrderResult> {
-    return executionService.sellLimit({
-      ...buildBaseOrder(),
-      price: config.stopLossPrice,
-      size: config.size,
-    });
-  }
-
-  /**
    * Check if an order has filled
    * Returns { filled, price, missing } where missing=true means the order no longer exists on the exchange
    */
@@ -223,7 +212,7 @@ export function createBracketOrder(
 
     // Track whether each order is missing from the exchange for resolution detection
     let tpMissing = !takeProfitOrderId; // If no TP order ID, treat as missing
-    let slMissing = !stopLossOrderId;   // If no SL order ID, treat as missing
+    let slMissing = !stopLossOrderId;   // Legacy resting stop orders only
 
     // Check take-profit
     if (takeProfitOrderId) {
@@ -262,7 +251,85 @@ export function createBracketOrder(
       tpMissing = tp.missing === true;
     }
 
-    // Check stop-loss
+    // New brackets keep the stop off-book. A sell limit below the market is
+    // marketable, not a stop, so wait until the executable bid crosses the
+    // threshold and only then submit the exit.
+    if (!stopLossOrderId) {
+      const marketKey = config.platform === 'polymarket'
+        ? config.tokenId
+        : config.marketId;
+      if (!marketKey) {
+        logger.error({ orderId }, 'Bracket: cannot monitor stop-loss without a market identifier');
+      } else {
+        const marketPrice = await executionService.getExecutablePrice(
+          config.platform,
+          marketKey,
+          'sell',
+          config.outcome
+        );
+
+        if (marketPrice !== null && marketPrice <= config.stopLossPrice) {
+          logger.warn(
+            { orderId, marketPrice, stopLossPrice: config.stopLossPrice },
+            'Bracket: stop-loss threshold crossed'
+          );
+
+          // The take-profit can reserve the same shares. Do not submit the stop
+          // exit unless that resting order was definitely cancelled first.
+          if (takeProfitOrderId) {
+            const cancelled = await executionService.cancelOrder(config.platform, takeProfitOrderId);
+            if (!cancelled) {
+              logger.error(
+                { orderId, takeProfitOrderId },
+                'Bracket: stop-loss delayed because take-profit cancellation was not confirmed'
+              );
+              return;
+            }
+            takeProfitOrderId = undefined;
+          }
+
+          const result = await executionService.marketSell({
+            ...buildBaseOrder(),
+            size: config.size,
+          });
+          if (!result.success) {
+            status = 'failed';
+            cleanup();
+            try {
+              updateBracketStatus(orderId, { status: 'failed' });
+            } catch (err) {
+              logger.warn({ error: String(err) }, 'Failed to persist bracket stop-loss failure');
+            }
+            emitter.emit('failed', { error: `Stop-loss execution failed: ${result.error}` });
+            return;
+          }
+
+          stopLossOrderId = result.orderId;
+          status = 'stop_loss_hit';
+          filledSide = 'stop_loss';
+          fillPrice = result.avgFillPrice ?? marketPrice;
+          cleanup();
+          try {
+            updateBracketStatus(orderId, {
+              stopLossOrderId,
+              status: 'stop_loss_hit',
+              filledSide: 'stop_loss',
+              fillPrice,
+            });
+          } catch (err) {
+            logger.warn({ error: String(err) }, 'Failed to persist bracket SL hit');
+          }
+          emitter.emit('stop_loss_hit', {
+            orderId: stopLossOrderId,
+            fillPrice,
+            status: getStatusSnapshot(),
+          });
+          return;
+        }
+      }
+    }
+
+    // Check legacy stop-loss orders created by older versions.
     if (stopLossOrderId) {
       const sl = await checkOrderFilled(stopLossOrderId);
       if (sl.filled) {
@@ -390,11 +457,11 @@ export function createBracketOrder(
         sl: config.stopLossPrice,
         size: config.size,
       },
-      'Bracket order: placing TP + SL'
+      'Bracket order: placing TP + monitored SL'
     );
 
-    // Place TP first, then SL. If SL fails after TP succeeds, cancel TP to
-    // avoid leaving the user without stop-loss protection.
+    // The take-profit rests on the book. The stop-loss remains an off-book
+    // trigger and is submitted only after the monitored bid crosses it.
     try {
       const tpResult = await placeTakeProfit();
       if (tpResult.success) {
@@ -419,51 +486,6 @@ export function createBracketOrder(
         logger.warn({ error: String(persistErr) }, 'Failed to persist bracket failure');
       }
       emitter.emit('failed', { error: `Take-profit placement threw: ${String(err)}` });
-      return;
-    }
-
-    try {
-      const slResult = await placeStopLoss();
-      if (slResult.success) {
-        stopLossOrderId = slResult.orderId;
-      } else {
-        logger.error({ error: slResult.error }, 'Bracket: failed to place stop-loss');
-        // Cancel the TP since SL failed -- user would have no stop-loss protection
-        if (takeProfitOrderId) {
-          try {
-            await executionService.cancelOrder(config.platform, takeProfitOrderId);
-            logger.info({ orderId: takeProfitOrderId }, 'Bracket: cancelled TP after SL failure');
-          } catch (cancelErr) {
-            logger.warn({ error: String(cancelErr) }, 'Bracket: failed to cancel TP after SL failure');
-          }
-        }
-        status = 'failed';
-        try {
-          updateBracketStatus(orderId, { status: 'failed' });
-        } catch (persistErr) {
-          logger.warn({ error: String(persistErr) }, 'Failed to persist bracket failure');
-        }
-        emitter.emit('failed', { error: `Stop-loss placement failed: ${slResult.error}` });
-        return;
-      }
-    } catch (err) {
-      logger.error({ error: String(err) }, 'Bracket: stop-loss placement threw');
-      // Cancel the TP since SL failed
-      if (takeProfitOrderId) {
-        try {
-          await executionService.cancelOrder(config.platform, takeProfitOrderId);
-          logger.info({ orderId: takeProfitOrderId }, 'Bracket: cancelled TP after SL throw');
-        } catch (cancelErr) {
-          logger.warn({ error: String(cancelErr) }, 'Bracket: failed to cancel TP after SL throw');
-        }
-      }
-      status = 'failed';
-      try {
-        updateBracketStatus(orderId, { status: 'failed' });
-      } catch (persistErr) {
-        logger.warn({ error: String(persistErr) }, 'Failed to persist bracket failure');
-      }
-      emitter.emit('failed', { error: `Stop-loss placement threw: ${String(err)}` });
       return;
     }
 
