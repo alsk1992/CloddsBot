@@ -27,12 +27,16 @@ jobs:
       - name: Verify types
         run: npm run typecheck
 
+      - name: Build CLI
+        run: npm run build
+
       - name: Pack CLI
         run: |
           mkdir release
           npm pack --pack-destination release
           cd release
           mv clodds-*.tgz clodds.tgz
+          tar -tzf clodds.tgz | grep -q '^package/dist/cli/index.js$'
           sha256sum clodds.tgz > clodds.tgz.sha256
 
       - name: Publish GitHub Release
