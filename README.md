@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/clodds"><img src="https://img.shields.io/npm/v/clodds?color=blue" alt="npm version"></a>
+  <a href="https://github.com/alsk1992/CloddsBot/releases/latest"><img src="https://img.shields.io/github/v/release/alsk1992/CloddsBot?display_name=tag&color=blue" alt="GitHub release"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen" alt="Node.js">
   <img src="https://img.shields.io/badge/typescript-5.3-blue" alt="TypeScript">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License"></a>
@@ -54,9 +54,11 @@ Powered by Claude with 118+ trading strategies, whale tracking, arbitrage detect
 > **Requirement:** Node.js 22 or newer. Node.js 20 is not supported and dependency installation may fail.
 
 ```bash
-npm install -g clodds --loglevel=error
+npm install -g https://github.com/alsk1992/CloddsBot/releases/latest/download/clodds.tgz --loglevel=error
 clodds onboard
 ```
+
+> The old `clodds` package on npmjs.com is no longer maintained. Install the current release from GitHub using the command above.
 
 That's it. The setup wizard walks you through everything — API key, messaging channel, and starts the gateway. WebChat opens at `http://localhost:18789/webchat`.
 
@@ -78,7 +80,7 @@ npm run build && npm start
 [![Watch the demo video](https://img.shields.io/badge/▶-Watch%20Demo-blue?style=for-the-badge)](https://cloddsbot.com/onboard.mp4)
 
 The demo shows:
-- `npm install -g clodds` → `clodds onboard`
+- Install the latest GitHub Release → `clodds onboard`
 - Onboarding wizard walks through credentials setup
 - Fetches live 15-minute BTC prediction markets from Polymarket (in real-time)
 - One command away from trading

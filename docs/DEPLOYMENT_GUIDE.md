@@ -33,10 +33,10 @@ You can control paths for config and workspace with:
 
 ## Deployment options
 
-### 1) npm install (recommended)
+### 1) GitHub Release (recommended)
 
 ```bash
-npm install -g clodds
+npm install -g https://github.com/alsk1992/CloddsBot/releases/latest/download/clodds.tgz
 clodds onboard
 ```
 

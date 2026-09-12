@@ -5,9 +5,11 @@ Get Clodds running in 2 commands.
 ## Install & Setup
 
 ```bash
-npm install -g clodds
+npm install -g https://github.com/alsk1992/CloddsBot/releases/latest/download/clodds.tgz
 clodds onboard
 ```
+
+The legacy `clodds` package on npmjs.com is outdated; supported builds are published through GitHub Releases.
 
 The setup wizard will:
 1. Ask for your [Anthropic API key](https://console.anthropic.com)

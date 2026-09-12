@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-09-12
+
 ### Changed
+- Moved supported CLI distribution from the inaccessible legacy npm package to installable GitHub Release archives.
+- Updated the installer, upgrade guidance, documentation, and release badge to use GitHub Releases.
+- Corrected CLI version output to read the installed package version.
+- Prevented type-only checks from poisoning the incremental cache used by release builds.
 - Updated supported-version, dependency-audit, Node.js, and bundled-skill documentation to match the current release.
 - The Docker runtime now runs as the unprivileged `node` user and keeps writable state under `/data`.
 

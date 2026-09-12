@@ -243,10 +243,10 @@ OTEL_SAMPLE_RATE=1.0
 
 ## Deployment Options
 
-### 1. npm Install (Recommended)
+### 1. GitHub Release (Recommended)
 
 ```bash
-npm install -g clodds
+npm install -g https://github.com/alsk1992/CloddsBot/releases/latest/download/clodds.tgz
 clodds onboard
 ```
 

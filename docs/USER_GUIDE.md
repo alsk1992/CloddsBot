@@ -6,7 +6,7 @@ chat commands, and common workflows.
 ## Quick start
 
 ```bash
-npm install -g clodds
+npm install -g https://github.com/alsk1992/CloddsBot/releases/latest/download/clodds.tgz
 clodds onboard
 ```
 

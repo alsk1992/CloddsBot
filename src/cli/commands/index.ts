@@ -16,6 +16,7 @@ import { execApprovals } from '../../permissions';
 import type { User } from '../../types';
 import { loadConfig } from '../../utils/config';
 import { loginWhatsAppWithQr, resolveWhatsAppAuthDir } from '../../channels/whatsapp/index';
+import { RELEASE_INSTALL_COMMAND, RELEASES_URL, VERSION } from '../../version';
 
 // =============================================================================
 // CONFIG COMMANDS
@@ -2058,11 +2059,10 @@ export function createUpgradeCommand(program: Command): void {
       console.log('Checking for updates...');
 
       if (options.check) {
-        console.log('Current version: 0.1.0');
-        console.log('Latest version: 0.1.0');
-        console.log('You are up to date!');
+        console.log(`Current version: ${VERSION}`);
+        console.log(`Latest release: ${RELEASES_URL}`);
       } else {
-        console.log('To upgrade, run: npm install -g clodds@latest');
+        console.log(`To upgrade, run: ${RELEASE_INSTALL_COMMAND}`);
       }
     });
 }
@@ -2107,7 +2107,7 @@ export function createVersionCommand(program: Command): void {
     .description('Show detailed version info')
     .action(async () => {
       console.log('\nClodds Version Info\n');
-      console.log('  Version: 0.1.0');
+      console.log('  Version: ' + VERSION);
       console.log('  Node.js: ' + process.version);
       console.log('  Platform: ' + process.platform);
       console.log('  Arch: ' + process.arch);

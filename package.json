@@ -1,6 +1,6 @@
 {
   "name": "clodds",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "Open-source AI trading terminal. Trade Polymarket, Kalshi, Betfair, Binance, Bybit, Hyperliquid, Solana DEXs from Telegram, Discord, Slack or web. Arbitrage detection, whale tracking, copy trading, perpetual futures up to 200x, DeFi swaps, MEV protection. Self-hosted, 119 skills, powered by Claude.",
   "main": "dist/index.js",
   "bin": {
@@ -13,12 +13,11 @@
     "gateway": "tsx src/gateway/index.ts",
     "worker": "tsx src/bin/worker.ts",
     "onboard": "tsx src/cli/onboard.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental false",
     "test": "node --test --import tsx --import ./tests/helpers/test-setup.ts \"tests/**/*.test.ts\"",
     "ci": "npm run typecheck && npm run test && npm run build",
     "postinstall": "node scripts/fix-native-bindings.js && node scripts/fix-anchor-bn-export.js && node -e \"try{const{pipeline,env}=require('@xenova/transformers');env.cacheDir='./.transformers-cache';pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2',{quantized:true}).then(()=>console.log('Embedding model cached')).catch(()=>{})}catch{}\"",
-    "prepublishOnly": "npm run build",
-    "publish:npm": "npm publish --registry https://registry.npmjs.org"
+    "prepack": "npm run build"
   },
   "keywords": [
     "trading",
@@ -68,9 +67,6 @@
     "README.md",
     "LICENSE"
   ],
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org"
-  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@anthropic-ai/tokenizer": "^0.0.4",

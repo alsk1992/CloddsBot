@@ -30,6 +30,7 @@ import { createGateway } from '../gateway/index';
 import { loadConfig } from '../utils/config';
 import { logger } from '../utils/logger';
 import { installHttpClient, configureHttpClient } from '../utils/http';
+import { VERSION } from '../version';
 
 import { createSkillsCommands } from './commands/skills';
 import { addAllCommands } from './commands/index';
@@ -50,7 +51,7 @@ process.on('uncaughtException', (error) => {
 program
   .name('clodds')
   .description('Claude + Odds: AI assistant for prediction markets')
-  .version('0.1.0');
+  .version(VERSION);
 
 // Start command
 program
