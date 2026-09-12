@@ -63,6 +63,8 @@
   "files": [
     "dist",
     "public",
+    "scripts/fix-native-bindings.js",
+    "scripts/fix-anchor-bn-export.js",
     "README.md",
     "LICENSE"
   ],
