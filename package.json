@@ -14,7 +14,7 @@
     "worker": "tsx src/bin/worker.ts",
     "onboard": "tsx src/cli/onboard.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import tsx --import ./tests/helpers/test-setup.ts tests/**/*.test.ts",
+    "test": "node --test --import tsx --import ./tests/helpers/test-setup.ts \"tests/**/*.test.ts\"",
     "ci": "npm run typecheck && npm run test && npm run build",
     "postinstall": "node scripts/fix-native-bindings.js && node scripts/fix-anchor-bn-export.js && node -e \"try{const{pipeline,env}=require('@xenova/transformers');env.cacheDir='./.transformers-cache';pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2',{quantized:true}).then(()=>console.log('Embedding model cached')).catch(()=>{})}catch{}\"",
     "prepublishOnly": "npm run build",
