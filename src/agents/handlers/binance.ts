@@ -9,6 +9,7 @@ import type { ToolInput, HandlerResult, HandlersMap, HandlerContext } from './ty
 import { errorResult, successResult } from './types';
 import type { BinanceFuturesConfig } from '../../exchanges/binance-futures';
 import * as binanceFutures from '../../exchanges/binance-futures';
+import { guardTrade } from './trading-guard';
 
 // =============================================================================
 // HELPERS
@@ -116,6 +117,11 @@ async function longHandler(
   const leverage = toolInput.leverage as number | undefined;
   try {
     const config: BinanceFuturesConfig = { ...env.config, dryRun: env.dryRun };
+    const unavailable = guardTrade(context, `Binance ${symbol} futures long`, undefined, { skipSizeLimit: true });
+    if (unavailable) return unavailable;
+    const price = await binanceFutures.getPrice(config, symbol);
+    const blocked = guardTrade(context, `Binance ${symbol} futures long`, quantity * price, { requireNotional: true });
+    if (blocked) return blocked;
     const result = await binanceFutures.openLong(config, symbol, quantity, leverage);
     // Log trade to database
     context.db.logBinanceFuturesTrade({
@@ -146,6 +152,11 @@ async function shortHandler(
   const leverage = toolInput.leverage as number | undefined;
   try {
     const config: BinanceFuturesConfig = { ...env.config, dryRun: env.dryRun };
+    const unavailable = guardTrade(context, `Binance ${symbol} futures short`, undefined, { skipSizeLimit: true });
+    if (unavailable) return unavailable;
+    const price = await binanceFutures.getPrice(config, symbol);
+    const blocked = guardTrade(context, `Binance ${symbol} futures short`, quantity * price, { requireNotional: true });
+    if (blocked) return blocked;
     const result = await binanceFutures.openShort(config, symbol, quantity, leverage);
     // Log trade to database
     context.db.logBinanceFuturesTrade({
@@ -174,6 +185,8 @@ async function closeHandler(
   const symbol = toolInput.symbol as string;
   try {
     const config: BinanceFuturesConfig = { ...env.config, dryRun: env.dryRun };
+    const blocked = guardTrade(context, `Binance ${symbol} futures close`, undefined, { skipSizeLimit: true });
+    if (blocked) return blocked;
     const result = await binanceFutures.closePosition(config, symbol);
     if (!result) {
       return JSON.stringify({ error: `No open position for ${symbol}` });

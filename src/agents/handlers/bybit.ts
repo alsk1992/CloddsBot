@@ -9,6 +9,7 @@ import type { ToolInput, HandlerResult, HandlersMap, HandlerContext } from './ty
 import { errorResult } from './types';
 import type { BybitConfig } from '../../exchanges/bybit';
 import * as bybit from '../../exchanges/bybit';
+import { guardTrade } from './trading-guard';
 
 // =============================================================================
 // HELPERS
@@ -116,6 +117,11 @@ async function longHandler(
   const leverage = toolInput.leverage as number | undefined;
   try {
     const config: BybitConfig = { ...env.config, dryRun: env.dryRun };
+    const unavailable = guardTrade(context, `Bybit ${symbol} futures long`, undefined, { skipSizeLimit: true });
+    if (unavailable) return unavailable;
+    const price = await bybit.getPrice(config, symbol);
+    const blocked = guardTrade(context, `Bybit ${symbol} futures long`, qty * price, { requireNotional: true });
+    if (blocked) return blocked;
     const result = await bybit.openLong(config, symbol, qty, leverage);
     // Log trade to database
     context.db.logBybitFuturesTrade({
@@ -146,6 +152,11 @@ async function shortHandler(
   const leverage = toolInput.leverage as number | undefined;
   try {
     const config: BybitConfig = { ...env.config, dryRun: env.dryRun };
+    const unavailable = guardTrade(context, `Bybit ${symbol} futures short`, undefined, { skipSizeLimit: true });
+    if (unavailable) return unavailable;
+    const price = await bybit.getPrice(config, symbol);
+    const blocked = guardTrade(context, `Bybit ${symbol} futures short`, qty * price, { requireNotional: true });
+    if (blocked) return blocked;
     const result = await bybit.openShort(config, symbol, qty, leverage);
     // Log trade to database
     context.db.logBybitFuturesTrade({
@@ -174,6 +185,8 @@ async function closeHandler(
   const symbol = toolInput.symbol as string;
   try {
     const config: BybitConfig = { ...env.config, dryRun: env.dryRun };
+    const blocked = guardTrade(context, `Bybit ${symbol} futures close`, undefined, { skipSizeLimit: true });
+    if (blocked) return blocked;
     const result = await bybit.closePosition(config, symbol);
     if (!result) {
       return JSON.stringify({ error: `No open position for ${symbol}` });
