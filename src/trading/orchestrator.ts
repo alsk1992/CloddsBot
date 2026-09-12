@@ -256,6 +256,7 @@ export function createTradingOrchestrator(deps: OrchestratorDeps): TradingOrches
     approveUSDC: execution.approveUSDC.bind(execution),
     getUSDCAllowance: execution.getUSDCAllowance.bind(execution),
     getOrderbooksBatch: execution.getOrderbooksBatch.bind(execution),
+    getExecutablePrice: execution.getExecutablePrice.bind(execution),
     setCircuitBreaker: execution.setCircuitBreaker.bind(execution),
     getCircuitBreakerState: execution.getCircuitBreakerState.bind(execution),
     stop: execution.stop?.bind(execution) ?? (() => {}),

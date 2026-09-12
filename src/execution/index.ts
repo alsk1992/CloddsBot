@@ -270,6 +270,14 @@ export interface ExecutionService {
   /** Fetch orderbooks for multiple tokens in one call */
   getOrderbooksBatch(tokenIds: string[]): Promise<Map<string, OrderbookData | null>>;
 
+  /** Fetch the executable market price for trigger-based orders. */
+  getExecutablePrice(
+    platform: 'polymarket' | 'kalshi',
+    marketIdOrTokenId: string,
+    side: 'buy' | 'sell',
+    outcome?: string
+  ): Promise<number | null>;
+
   // Circuit Breaker Integration
   /** Enable circuit breaker for order validation (blocks orders when tripped) */
   setCircuitBreaker(breaker: import('./circuit-breaker').CircuitBreaker | null): void;
@@ -3688,6 +3696,29 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
 
     async getOrderbooksBatch(tokenIds: string[]) {
       return getPolymarketOrderbooksBatch(tokenIds);
+    },
+
+    async getExecutablePrice(platform, marketIdOrTokenId, side, outcome) {
+      const orderbook = platform === 'polymarket'
+        ? await fetchPolymarketOrderbook(marketIdOrTokenId)
+        : await fetchKalshiOrderbook(marketIdOrTokenId);
+      if (!orderbook) return null;
+
+      // A sell stop is triggered by the price it can actually sell at (best bid),
+      // while a buy trigger uses the best ask. Mid-price can falsely indicate that
+      // an illiquid stop is still safe.
+      let price: number | undefined;
+      if (platform === 'kalshi' && outcome?.toLowerCase() === 'no') {
+        // Kalshi orderbooks are normalized above to the YES perspective.
+        price = side === 'sell'
+          ? 1 - (orderbook.asks[0]?.[0] ?? 1)
+          : 1 - (orderbook.bids[0]?.[0] ?? 0);
+      } else {
+        price = side === 'sell'
+          ? orderbook.bids[0]?.[0]
+          : orderbook.asks[0]?.[0];
+      }
+      return price !== undefined && Number.isFinite(price) && price > 0 ? price : null;
     },
 
     // =========================================================================
