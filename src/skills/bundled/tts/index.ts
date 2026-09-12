@@ -2,7 +2,7 @@
  * TTS CLI Skill
  *
  * Commands:
- * /tts <text> - Speak text via ElevenLabs
+ * /tts <text> - Speak text via the configured TTS provider
  * /tts voices - List available voices
  * /tts config - Show TTS config and availability
  */
@@ -18,15 +18,17 @@ async function execute(args: string): Promise<string> {
     const { createTTSService } = await import('../../../tts/index');
 
     const tts = createTTSService();
+    const engine = tts.provider === 'atlas' ? 'Atlas Cloud' : 'ElevenLabs';
+    const apiKeyName = tts.provider === 'atlas' ? 'ATLASCLOUD_API_KEY' : 'ELEVENLABS_API_KEY';
 
     switch (cmd) {
       case 'voices': {
         if (!tts.isAvailable()) {
-          return '**TTS Voices**\n\nTTS not configured. Set ELEVENLABS_API_KEY environment variable.';
+          return `**TTS Voices**\n\nTTS not configured. Set ${apiKeyName} environment variable.`;
         }
         const voices = await tts.listVoices();
         if (voices.length === 0) {
-          return '**TTS Voices**\n\nNo voices returned from ElevenLabs API. Check your API key.';
+          return `**TTS Voices**\n\nNo voices returned from ${engine}. Check your API key.`;
         }
         const lines = voices.map(v => {
           const preview = v.preview_url ? ` [preview](${v.preview_url})` : '';
@@ -38,13 +40,15 @@ async function execute(args: string): Promise<string> {
       case 'config':
       case 'status': {
         const available = tts.isAvailable();
-        const voiceDisplay = ttsPrefs.voice || 'Bella (EXAVITQu4vr4xnSDxMaL)';
+        const voiceDisplay = ttsPrefs.voice || (
+          tts.provider === 'atlas' ? 'provider default' : 'Bella (EXAVITQu4vr4xnSDxMaL)'
+        );
         const stabilityDisplay = ttsPrefs.stability ?? 0.5;
         return `**TTS Config**\n\n` +
-          `Engine: ElevenLabs\n` +
-          `Available: ${available ? 'Yes' : 'No (set ELEVENLABS_API_KEY)'}\n` +
+          `Engine: ${engine}\n` +
+          `Available: ${available ? 'Yes' : `No (set ${apiKeyName})`}\n` +
           `Voice: ${voiceDisplay}\n` +
-          `Default model: eleven_monolingual_v1\n` +
+          `Default model: ${tts.provider === 'atlas' ? 'elevenlabs/v3/text-to-speech' : 'eleven_monolingual_v1'}\n` +
           `Stability: ${stabilityDisplay}\n` +
           `Similarity boost: 0.75`;
       }
@@ -74,7 +78,7 @@ async function execute(args: string): Promise<string> {
       }
 
       case 'help':
-        return helpText();
+        return helpText(engine);
 
       default: {
         // Everything else is text to speak
@@ -82,7 +86,7 @@ async function execute(args: string): Promise<string> {
         if (!text) return 'Usage: /tts <text>';
 
         if (!tts.isAvailable()) {
-          return 'TTS not configured. Set ELEVENLABS_API_KEY environment variable.';
+          return `TTS not configured. Set ${apiKeyName} environment variable.`;
         }
 
         // Parse optional --voice flag (overrides session default)
@@ -97,7 +101,7 @@ async function execute(args: string): Promise<string> {
         return `**TTS Synthesized**\n\n` +
           `Text: "${cleanText.slice(0, 100)}${cleanText.length > 100 ? '...' : ''}"\n` +
           `Audio size: ${(buffer.length / 1024).toFixed(1)} KB\n` +
-          `Voice: ${voiceId || 'default (Bella)'}`;
+          `Voice: ${voiceId || (tts.provider === 'atlas' ? 'provider default' : 'default (Bella)')}`;
       }
     }
   } catch (error) {
@@ -105,10 +109,10 @@ async function execute(args: string): Promise<string> {
   }
 }
 
-function helpText(): string {
+function helpText(engine: string): string {
   return `**TTS Commands**
 
-  /tts <text>                        - Speak text via ElevenLabs
+  /tts <text>                        - Speak text via ${engine}
   /tts <text> --voice <id>           - Speak with specific voice
   /tts voices                        - List available voices
   /tts config                        - Show TTS config
@@ -118,7 +122,7 @@ function helpText(): string {
 
 export default {
   name: 'tts',
-  description: 'Text-to-speech synthesis with ElevenLabs and system voices',
+  description: 'Text-to-speech synthesis with ElevenLabs or Atlas Cloud',
   commands: ['/tts', '/speak'],
   handle: execute,
 };

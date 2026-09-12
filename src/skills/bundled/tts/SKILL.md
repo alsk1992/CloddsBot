@@ -1,16 +1,20 @@
 ---
 name: tts
-description: "Text-to-speech synthesis with ElevenLabs and system voices"
+description: "Text-to-speech synthesis with ElevenLabs or Atlas Cloud"
 emoji: "🔊"
 gates:
   envs:
     anyOf:
       - ELEVENLABS_API_KEY
+      - ATLASCLOUD_API_KEY
 ---
 
 # TTS (Text-to-Speech) - Complete API Reference
 
-Convert text to natural-sounding speech using ElevenLabs, macOS say, or espeak.
+Convert text to natural-sounding speech using ElevenLabs or Atlas Cloud.
+
+ElevenLabs remains the default. To opt into Atlas Cloud, set
+`CLODDS_TTS_PROVIDER=atlas` and `ATLASCLOUD_API_KEY`.
 
 ---
 
@@ -53,11 +57,6 @@ import { createTTSService } from 'clodds/tts';
 const tts = createTTSService({
   provider: 'elevenlabs',
   apiKey: process.env.ELEVENLABS_API_KEY,
-
-  // Defaults
-  defaultVoice: 'rachel',
-  defaultSpeed: 1.0,
-  defaultPitch: 1.0,
 });
 ```
 
@@ -157,6 +156,7 @@ tts.skip();
 | Provider | Quality | Latency | Cost | Setup |
 |----------|---------|---------|------|-------|
 | **ElevenLabs** | Premium | ~500ms | $5/100k chars | API key |
+| **Atlas Cloud** | Premium | Async | Usage based | API key |
 | **say** (macOS) | Good | ~100ms | Free | Built-in |
 | **espeak** | Basic | ~50ms | Free | Install |
 
@@ -167,6 +167,12 @@ tts.skip();
 const tts = createTTSService({
   provider: 'elevenlabs',
   apiKey: process.env.ELEVENLABS_API_KEY,
+});
+
+// Atlas Cloud (optional; uses elevenlabs/v3/text-to-speech)
+const atlasTts = createTTSService({
+  provider: 'atlas',
+  apiKey: process.env.ATLASCLOUD_API_KEY,
 });
 
 // macOS say (free, local)

@@ -583,6 +583,8 @@ export function createServer(
         { key: 'FIREWORKS_API_KEY', label: 'Fireworks API Key', secret: true, required: false },
         { key: 'TOGETHER_API_KEY', label: 'Together API Key', secret: true, required: false },
         { key: 'ELEVENLABS_API_KEY', label: 'ElevenLabs API Key', secret: true, required: false },
+        { key: 'ATLASCLOUD_API_KEY', label: 'Atlas Cloud API Key', secret: true, required: false },
+        { key: 'CLODDS_TTS_PROVIDER', label: 'TTS Provider (elevenlabs or atlas)', secret: false, required: false },
         { key: 'VOYAGE_API_KEY', label: 'Voyage API Key', secret: true, required: false },
       ],
     },
