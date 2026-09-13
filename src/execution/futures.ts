@@ -1405,10 +1405,17 @@ export function createFuturesExecutionService(config: FuturesConfig): FuturesExe
   const maxPositionSize = config.maxPositionSize ?? 10000; // $10k default
 
   async function resolveOrderPrice(request: FuturesOrderRequest): Promise<number> {
-    if (request.price !== undefined && Number.isFinite(request.price) && request.price > 0) {
+    // MARKET orders fill at the venue's current price, which the exchange
+    // determines at execution time. A caller-supplied price is never forwarded
+    // for MARKET submissions (see placeBinanceFuturesOrder), so trusting it
+    // here would let a low `price` shrink the notional cap check while the
+    // order still fills at market. MARKET (and orderType-less, which submits
+    // as MARKET) must therefore value exclusively off discovered price.
+    const isMarketOrder = request.orderType === undefined || request.orderType === 'MARKET';
+    if (!isMarketOrder && request.price !== undefined && Number.isFinite(request.price) && request.price > 0) {
       return request.price;
     }
-    if (request.stopPrice !== undefined && Number.isFinite(request.stopPrice) && request.stopPrice > 0) {
+    if (!isMarketOrder && request.stopPrice !== undefined && Number.isFinite(request.stopPrice) && request.stopPrice > 0) {
       return request.stopPrice;
     }
 
@@ -1452,7 +1459,12 @@ export function createFuturesExecutionService(config: FuturesConfig): FuturesExe
       try {
         if (request.platform === 'mexc' && config.mexc) {
           const valuation = await getMexcOrderValuation(config.mexc, request.symbol);
-          checkPrice = request.price ?? request.stopPrice ?? valuation.price;
+          // Same MARKET rule as resolveOrderPrice: caller price is never the
+          // fill price for MARKET orders, so the cap must use venue price.
+          const isMarketOrder = request.orderType === undefined || request.orderType === 'MARKET';
+          checkPrice = isMarketOrder
+            ? valuation.price
+            : request.price ?? request.stopPrice ?? valuation.price;
           contractSize = valuation.contractSize;
         } else {
           checkPrice = await resolveOrderPrice(request);
