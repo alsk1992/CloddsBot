@@ -98,4 +98,32 @@ describe('futures pre-trade enforcement', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('ignores caller-supplied price for MARKET notional cap (#126)', async () => {
+    configurePreTradeGate({ maxOrderSize: 1000 });
+    const originalFetch = globalThis.fetch;
+    // Venue discovers BTC at $60,000: 1 BTC = $60,000 notional > $1,000 cap.
+    // A caller-smuggled `price: 1` must not shrink the cap check to $1.
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ markPrice: '60000' }), { status: 200 });
+
+    try {
+      const service = createFuturesExecutionService({
+        binance: { apiKey: 'test', secretKey: 'test' },
+        dryRun: true,
+      });
+      const result = await service.placeMarketOrder({
+        platform: 'binance',
+        symbol: 'BTCUSDT',
+        side: 'long',
+        size: 1,
+        price: 1,
+      } as unknown as Omit<Parameters<typeof service.placeMarketOrder>[0], 'price'>);
+
+      assert.equal(result.success, false);
+      assert.match(result.error ?? '', /exceeds max \$1000/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
