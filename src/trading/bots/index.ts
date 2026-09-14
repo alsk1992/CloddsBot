@@ -201,6 +201,10 @@ export interface BotManagerConfig {
   getMarket?: (platform: Platform, marketId: string) => Promise<Market | null>;
   /** Portfolio provider */
   getPortfolio?: () => Promise<{ value: number; balance: number; positions: Array<{ platform: Platform; marketId: string; outcome: string; shares: number; avgPrice: number; currentPrice: number; [key: string]: unknown }> }>;
+  /** Watchlist provider: markets a strategy should scan for ENTRY (not just held positions) */
+  getMarkets?: (strategy: StrategyConfig) => Promise<Market[]>;
+  /** Historical prices for a market outcome, oldest first */
+  getPriceHistory?: (platform: Platform, marketId: string, outcome: string) => Promise<number[]>;
   /** External trade logger (shared with gateway); creates own if not provided */
   tradeLogger?: TradeLogger;
 }
@@ -247,13 +251,50 @@ export function createBotManager(db: Database, config: BotManagerConfig = {}): B
       limit: 100,
     });
 
+    // Load the watchlist so strategies can find ENTRY candidates, not only
+    // markets already held. Without this, markets stays empty and
+    // arbitrage/mean-reversion can never open a position.
+    const markets = new Map<string, Market>();
+    if (config.getMarkets) {
+      try {
+        for (const m of await config.getMarkets(strategy.config)) {
+          markets.set(m.id, m);
+        }
+      } catch (err) {
+        logger.warn({ err, strategyId: strategy.config.id }, 'getMarkets failed; evaluating without market data');
+      }
+    }
+
+    // Price history keyed the same way positions are: platform:marketId:outcome
+    const priceHistory = new Map<string, number[]>();
+    if (config.getPriceHistory) {
+      const wanted = new Set<string>(positions.keys());
+      for (const m of markets.values()) {
+        for (const o of m.outcomes ?? []) wanted.add(`${m.platform}:${m.id}:${o.name}`);
+      }
+      for (const key of wanted) {
+        const idx = key.indexOf(':');
+        const idx2 = key.indexOf(':', idx + 1);
+        if (idx < 0 || idx2 < 0) continue;
+        const platform = key.slice(0, idx) as Platform;
+        const marketId = key.slice(idx + 1, idx2);
+        const outcome = key.slice(idx2 + 1);
+        try {
+          const prices = await config.getPriceHistory(platform, marketId, outcome);
+          if (prices?.length) priceHistory.set(key, prices);
+        } catch (err) {
+          logger.warn({ err, key }, 'getPriceHistory failed for market');
+        }
+      }
+    }
+
     return {
       portfolioValue: portfolio.value,
       availableBalance: portfolio.balance,
       positions,
       recentTrades,
-      markets: new Map(),
-      priceHistory: new Map(),
+      markets,
+      priceHistory,
       timestamp: new Date(),
       isBacktest,
     };
@@ -611,13 +652,27 @@ export function createMeanReversionStrategy(config: Partial<StrategyConfig> = {}
       const lookback = params.lookbackPeriod as number;
       const entryThreshold = params.entryThreshold as number;
 
-      for (const [key, position] of ctx.positions) {
+      // Candidates = held positions PLUS watchlist outcomes, otherwise the
+      // strategy can only ever exit and never enter a new position.
+      const candidates = new Map<string, { shares: number; avgPrice: number; currentPrice: number }>(ctx.positions);
+      for (const m of ctx.markets.values()) {
+        for (const o of m.outcomes ?? []) {
+          const key = `${m.platform}:${m.id}:${o.name}`;
+          if (!candidates.has(key)) candidates.set(key, { shares: 0, avgPrice: 0, currentPrice: o.price });
+        }
+      }
+
+      for (const [key, position] of candidates) {
         const [platform, marketId, outcome] = key.split(':');
-        const history = priceHistory.get(key) || [];
+        // Seed from the shared context history, then keep appending live ticks.
+        let history = priceHistory.get(key);
+        if (!history) {
+          history = [...(ctx.priceHistory.get(key) ?? [])];
+        }
 
         // Add current price to history
         history.push(position.currentPrice);
-        if (history.length > lookback) history.shift();
+        while (history.length > lookback) history.shift();
         priceHistory.set(key, history);
 
         if (history.length < lookback) continue;
@@ -721,12 +776,24 @@ export function createMomentumStrategy(config: Partial<StrategyConfig> = {}): St
       const longPeriod = params.longPeriod as number;
       const minMomentum = params.minMomentum as number;
 
-      for (const [key, position] of ctx.positions) {
+      // Same fix as mean-reversion: scan the watchlist, not only held positions.
+      const candidates = new Map<string, { shares: number; avgPrice: number; currentPrice: number }>(ctx.positions);
+      for (const m of ctx.markets.values()) {
+        for (const o of m.outcomes ?? []) {
+          const key = `${m.platform}:${m.id}:${o.name}`;
+          if (!candidates.has(key)) candidates.set(key, { shares: 0, avgPrice: 0, currentPrice: o.price });
+        }
+      }
+
+      for (const [key, position] of candidates) {
         const [platform, marketId, outcome] = key.split(':');
-        const history = priceHistory.get(key) || [];
+        let history = priceHistory.get(key);
+        if (!history) {
+          history = [...(ctx.priceHistory.get(key) ?? [])];
+        }
 
         history.push(position.currentPrice);
-        if (history.length > longPeriod) history.shift();
+        while (history.length > longPeriod) history.shift();
         priceHistory.set(key, history);
 
         if (history.length < longPeriod) continue;
