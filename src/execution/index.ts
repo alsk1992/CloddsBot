@@ -62,7 +62,7 @@ export interface OrderRequest {
   outcome?: string;  // 'yes' | 'no' for Kalshi
   side: OrderSide;
   price: number;     // 0.01 to 0.99
-  size: number;      // Number of shares/contracts
+  size: number;      // Shares/contracts; Opinion BUY is quote-token spend (USDC)
   orderType?: OrderType;
   expiration?: number; // Unix timestamp for GTD
   /** Polymarket: true for negative risk markets (crypto 15-min markets) */
@@ -2799,6 +2799,17 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
 
   // ==========================================================================
 
+  /**
+   * USD notional for size-cap and circuit-breaker accounting.
+   * Opinion BUY `size` is already quote-token spend (USDC); other paths use price * size.
+   */
+  function orderNotionalUsd(request: Pick<OrderRequest, 'platform' | 'side' | 'price' | 'size'>): number {
+    if (request.platform === 'opinion' && request.side === 'buy') {
+      return request.size;
+    }
+    return request.price * request.size;
+  }
+
   function validateOrder(request: OrderRequest): string | null {
     // Guard against NaN/Infinity values that would bypass all checks
     if (!Number.isFinite(request.price) || !Number.isFinite(request.size)) {
@@ -2811,7 +2822,7 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
       return `Trading blocked by circuit breaker: ${state.tripReason || 'tripped'}. Reset at: ${state.resetAt?.toISOString() || 'manual reset required'}`;
     }
 
-    const notional = request.price * request.size;
+    const notional = orderNotionalUsd(request);
 
     if (notional > maxOrderSize) {
       return `Order size $${notional.toFixed(2)} exceeds max $${maxOrderSize}`;
@@ -2983,29 +2994,33 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
 
   const service: ExecutionService = {
     async buyLimit(request) {
-      const result = await executeOrder({ ...request, side: 'buy', orderType: request.orderType || 'GTC' });
-      recordOrderToCircuitBreaker(result, request.price * request.size);
+      const full = { ...request, side: 'buy' as const, orderType: request.orderType || 'GTC' };
+      const result = await executeOrder(full);
+      recordOrderToCircuitBreaker(result, orderNotionalUsd(full));
       return result;
     },
 
     async sellLimit(request) {
-      const result = await executeOrder({ ...request, side: 'sell', orderType: request.orderType || 'GTC' });
-      recordOrderToCircuitBreaker(result, request.price * request.size);
+      const full = { ...request, side: 'sell' as const, orderType: request.orderType || 'GTC' };
+      const result = await executeOrder(full);
+      recordOrderToCircuitBreaker(result, orderNotionalUsd(full));
       return result;
     },
 
     async marketBuy(request) {
       // Market orders use FOK (Fill or Kill)
       // Price is set to max (0.99) to ensure fill
-      const result = await executeOrder({ ...request, side: 'buy', price: 0.99, orderType: 'FOK' });
-      recordOrderToCircuitBreaker(result, 0.99 * request.size);
+      const full = { ...request, side: 'buy' as const, price: 0.99, orderType: 'FOK' as const };
+      const result = await executeOrder(full);
+      recordOrderToCircuitBreaker(result, orderNotionalUsd(full));
       return result;
     },
 
     async marketSell(request) {
       // Price is set to min (0.01) to ensure fill
-      const result = await executeOrder({ ...request, side: 'sell', price: 0.01, orderType: 'FOK' });
-      recordOrderToCircuitBreaker(result, 0.01 * request.size);
+      const full = { ...request, side: 'sell' as const, price: 0.01, orderType: 'FOK' as const };
+      const result = await executeOrder(full);
+      recordOrderToCircuitBreaker(result, orderNotionalUsd(full));
       return result;
     },
 
@@ -3473,13 +3488,15 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
         }
       }
 
-      // Execute other orders individually (fallback)
+      // Execute other orders individually (fallback).
+      // Use executeOrder (not buyLimit/sellLimit) so the circuit breaker is recorded
+      // once below — buyLimit/sellLimit already record on their own.
       for (const o of otherIndexed) {
         try {
-          const result = o.order.side === 'buy'
-            ? await this.buyLimit(o.order)
-            : await this.sellLimit(o.order);
-          resultsByIndex[o.index] = result;
+          resultsByIndex[o.index] = await executeOrder({
+            ...o.order,
+            orderType: 'GTC',
+          });
         } catch (err) {
           resultsByIndex[o.index] = {
             success: false,
@@ -3491,7 +3508,7 @@ export function createExecutionService(config: ExecutionConfig): ExecutionServic
       const results = resultsByIndex.map((result, index) => {
         const resolved = result ?? { success: false, error: 'Missing batch result' };
         const order = orders[index];
-        recordOrderToCircuitBreaker(resolved, order.price * order.size);
+        recordOrderToCircuitBreaker(resolved, orderNotionalUsd(order));
         return resolved;
       });
 
