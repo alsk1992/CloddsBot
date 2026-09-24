@@ -12926,40 +12926,11 @@ async function executeTool(
           }
         }
 
-        // Fallback to direct call with env vars
-        const apiKey = process.env.OPINION_API_KEY;
-        const privateKey = process.env.OPINION_PRIVATE_KEY;
-        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
-
-        if (!apiKey || !privateKey || !vaultAddress) {
-          return JSON.stringify({
-            error: 'Opinion trading requires either trading.opinion config or OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS env vars.',
-            docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
-          });
-        }
-
-        try {
-          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
-          const result = await opinion.placeOrder(config, marketId, tokenId, side, price, amount, orderType);
-
-          if (result.success) {
-            db.logOpinionTrade({
-              oddsUserId: vaultAddress.slice(0, 16),
-              orderId: result.orderId || '',
-              marketId: String(marketId),
-              tokenId,
-              side,
-              price,
-              size: amount,
-              orderType,
-              timestamp: new Date(),
-            });
-          }
-
-          return JSON.stringify(result);
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
+        // Direct venue fallback is ungated (no breaker / maxOrderSize). Refuse it.
+        return JSON.stringify({
+          error: 'Opinion order placement requires tradingContext.executionService so circuit breaker, maxOrderSize, and dry-run are enforced.',
+          docs: 'https://docs.opinion.trade/developer-guide/opinion-clob-sdk',
+        });
       }
 
       case 'opinion_cancel_order': {
@@ -13212,29 +13183,10 @@ async function executeTool(
           }
         }
 
-        // Fallback to direct call
-        const apiKey = process.env.OPINION_API_KEY;
-        const privateKey = process.env.OPINION_PRIVATE_KEY;
-        const vaultAddress = process.env.OPINION_VAULT_ADDRESS;
-
-        if (!apiKey || !privateKey || !vaultAddress) {
-          return JSON.stringify({ error: 'Opinion trading requires either trading.opinion config or OPINION_API_KEY, OPINION_PRIVATE_KEY, and OPINION_VAULT_ADDRESS' });
-        }
-
-        try {
-          const config = { apiKey, privateKey, vaultAddress, dryRun: process.env.DRY_RUN === 'true' };
-          const orderInputs = orders.map(o => ({
-            marketId: o.market_id,
-            tokenId: o.token_id,
-            side: o.side.toUpperCase() as 'BUY' | 'SELL',
-            price: o.price,
-            amount: o.amount,
-          }));
-          const results = await opinion.placeOrdersBatch(config, orderInputs);
-          return JSON.stringify({ results, count: results.length });
-        } catch (err: unknown) {
-          return JSON.stringify({ error: (err as Error).message });
-        }
+        // Direct venue fallback is ungated (no breaker / maxOrderSize). Refuse it.
+        return JSON.stringify({
+          error: 'Opinion batch order placement requires tradingContext.executionService so circuit breaker, maxOrderSize, and dry-run are enforced.',
+        });
       }
 
       case 'opinion_cancel_orders_batch': {

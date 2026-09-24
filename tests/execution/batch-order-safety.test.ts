@@ -58,4 +58,52 @@ describe('batch order pre-trade safety', () => {
     assert.ok(results.every(result => result.error?.includes('circuit breaker')));
     breaker.stop();
   });
+
+  it('values Opinion BUY size as quote-token spend for the maxOrderSize cap', async () => {
+    const service = createExecutionService({ dryRun: true, maxOrderSize: 100 });
+
+    // price*size = $100 would incorrectly pass; quote spend is $1000 and must fail.
+    const oversized = await service.placeOrdersBatch([
+      order({ platform: 'opinion', price: 0.1, size: 1000, tokenId: '1-0' }),
+    ]);
+    assert.match(oversized[0].error ?? '', /exceeds max \$100/);
+
+    // Quote spend of $100 at price 0.10 is exactly at the cap and must pass.
+    const ok = await service.placeOrdersBatch([
+      order({ platform: 'opinion', price: 0.1, size: 100, tokenId: '1-0' }),
+    ]);
+    assert.equal(ok[0].success, true);
+    assert.ok(ok[0].orderId?.startsWith('dry_'));
+
+    // Opinion SELL still uses price * size (base shares).
+    const sellOversized = await service.placeOrdersBatch([
+      order({ platform: 'opinion', side: 'sell', price: 0.5, size: 300, tokenId: '1-0' }),
+    ]);
+    assert.match(sellOversized[0].error ?? '', /exceeds max \$100/);
+  });
+
+  it('records fallback batch orders to the circuit breaker only once', async () => {
+    // dryRun must be false so the unknown venue reaches the per-order fallback
+    // (dry-run short-circuits before platform dispatch).
+    const service = createExecutionService({ dryRun: false });
+    const breaker = createCircuitBreaker({
+      maxLossUsd: 1_000_000,
+      maxConsecutiveLosses: 100,
+      maxErrorRate: 1,
+      minTradesForErrorRate: 1000,
+      maxDailyTrades: 1000,
+    });
+    service.setCircuitBreaker(breaker);
+
+    const results = await service.placeOrdersBatch([
+      // Untyped/unknown venue hits the per-order fallback path.
+      order({ platform: 'betfair' as 'polymarket' }),
+    ]);
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].success, false);
+    assert.match(results[0].error ?? '', /Unknown platform/);
+    assert.equal(breaker.getState().dailyTrades, 1);
+    breaker.stop();
+  });
 });
