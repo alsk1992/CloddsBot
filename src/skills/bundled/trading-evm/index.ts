@@ -2,7 +2,7 @@
  * Trading EVM CLI Skill
  *
  * Commands:
- * /trading-evm swap <token> <amount> - Swap via DEX aggregator
+ * /trading-evm swap <token> <amount> [--force] - Swap via DEX aggregator (token checked first)
  * /trading-evm balance [chain] - Check balances
  * /trading-evm transfer <to> <amount> <token> - Transfer tokens
  * /trading-evm wallet - Wallet info
@@ -12,6 +12,7 @@
 
 import { formatHelp } from '../../help.js';
 import { wrapSkillError } from '../../errors.js';
+import { preSwapCheck } from './pre-swap-check.js';
 
 function helpText(): string {
   return formatHelp({
@@ -21,7 +22,7 @@ function helpText(): string {
       {
         title: 'Trading',
         commands: [
-          { cmd: '/trading-evm swap <token> <amount> [--chain <chain>]', description: 'DEX swap (Odos/1inch/Uniswap)' },
+          { cmd: '/trading-evm swap <token> <amount> [--chain <chain>] [--force]', description: 'DEX swap (Odos/1inch/Uniswap); refuses honeypots unless --force' },
           { cmd: '/trading-evm approve <token> <spender>', description: 'Token approval' },
         ],
       },
@@ -66,7 +67,7 @@ async function execute(args: string): Promise<string> {
       case 'swap': {
         const token = parts[1];
         const amount = parts[2];
-        if (!token || !amount) return 'Usage: /trading-evm swap <token> <amount> [--chain <chain>]';
+        if (!token || !amount) return 'Usage: /trading-evm swap <token> <amount> [--chain <chain>] [--force]';
 
         // Parse --chain flag
         const chainIdx = parts.indexOf('--chain');
@@ -76,6 +77,13 @@ async function execute(args: string): Promise<string> {
 
         const wallet = evmMod.getCurrentWallet();
         if (!wallet) return 'No wallet configured. Set EVM_PRIVATE_KEY env var or use wallet management.';
+
+        // Check the token before buying it (GoPlus, via src/token-security). See pre-swap-check.ts.
+        const { createTokenSecurityService } = await import('../../../token-security/index.js');
+        const security = createTokenSecurityService();
+        const check = await preSwapCheck(token, chain, (a, c) => security.auditToken(a, c), parts.includes('--force'));
+        if (check.block) return check.block;
+        const warn = check.warnings.map((w) => `⚠️ ${w}\n\n`).join('');
 
         // Try Odos first (best aggregator), fall back to Uniswap
         try {
@@ -97,7 +105,7 @@ async function execute(args: string): Promise<string> {
             maxSlippageBps: 100,
           });
 
-          return `**Swap Executed via Odos**
+          return `${warn}**Swap Executed via Odos**
 
 Input: ${amount} (native)
 Output: ${result.outputAmount}
@@ -113,7 +121,7 @@ Tx: ${result.txHash || 'N/A'}`;
               amount: amount,
             });
 
-            return `**Uniswap Quote**
+            return `${warn}**Uniswap Quote**
 
 Input: ${amount} (native)
 Output: ~${uniQuote.outputAmount}
