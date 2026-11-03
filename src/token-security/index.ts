@@ -33,6 +33,8 @@ export interface TokenSecurityResult {
   riskScore: number; // 0-100 (100 = safest)
   riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical';
   riskFlags: string[];
+  /** Optional second opinion from TokenGuard (Solana only, when TOKENGUARD_PARTNER_ID is set). */
+  secondOpinion?: { source: 'TokenGuard'; verdict: string; score: number /* 0-100, 0 = safest */; reasons: string[]; url: string };
 }
 
 export interface TokenSecurityService {
@@ -90,6 +92,22 @@ async function fetchGoPlusSolana(address: string): Promise<Record<string, any>> 
   return result;
 }
 
+// Optional second opinion for Solana from the free TokenGuard partner API (no key, no fee, attribution only).
+// Adds what GoPlus does not cover on Solana: a simulated sell, pump.fun creator history and crash risk.
+// Enabled only when TOKENGUARD_PARTNER_ID is set; never fails the audit (6 s timeout, ignored on error).
+async function fetchTokenGuard(address: string): Promise<TokenSecurityResult['secondOpinion'] | undefined> {
+  const pid = process.env.TOKENGUARD_PARTNER_ID;
+  if (!pid) return undefined;
+  try {
+    const res = await fetch(`https://tokenguard-bot.vercel.app/api/p/${pid}/${address}`, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return undefined;
+    const d = await res.json() as any;
+    return { source: 'TokenGuard', verdict: d.verdict, score: d.risk_score, reasons: (d.reasons || []).map((x: any) => x.text), url: d.report_url };
+  } catch {
+    return undefined;
+  }
+}
+
 // =============================================================================
 // RISK SCORING
 // =============================================================================
@@ -113,6 +131,12 @@ function computeRisk(flags: string[]): { score: number; level: TokenSecurityResu
     'Hidden owner': 20,
     'Can take back ownership': 20,
     'Anti-whale mechanism': 5,
+    'Freeze authority active': 40,
+    'Balances can be modified': 40,
+    'Non-transferable token': 100,
+    'Has transfer fee': 15,
+    'Has transfer hook': 20,
+    'Flagged DANGER by TokenGuard': 40,
   };
   for (const flag of flags) {
     score -= deductions[flag] ?? 5;
@@ -202,37 +226,44 @@ function parseEvmResult(address: string, chainId: number, r: Record<string, any>
 function parseSolanaResult(address: string, r: Record<string, any>): TokenSecurityResult {
   const flags: string[] = [];
 
-  if (!bool1(r.is_open_source)) flags.push('Not open source');
-  if (bool1(r.is_mintable)) flags.push('Has mint function');
-  if (bool1(r.is_proxy)) flags.push('Has proxy contract');
+  // GoPlus Solana fields differ from EVM: authorities are { status: "0" | "1", authority: [] } objects,
+  // there is no is_open_source / is_mintable / top_10_holder_rate / total_liquidity.
+  const on = (v: any) => bool1(v?.status ?? v);
+  const hasMint = on(r.mintable);
+  const hasFreeze = on(r.freezable);
+  if (hasMint) flags.push('Has mint function');
+  if (hasFreeze) flags.push('Freeze authority active');
+  if (on(r.balance_mutable_authority)) flags.push('Balances can be modified');
+  if (bool1(r.non_transferable)) flags.push('Non-transferable token');
+  if (r.transfer_fee && Object.keys(r.transfer_fee).length > 0) flags.push('Has transfer fee');
+  if (Array.isArray(r.transfer_hook) && r.transfer_hook.length > 0) flags.push('Has transfer hook');
 
-  // Solana-specific fields vary; handle gracefully
-  const creatorPct = num(r.creator_percentage) * 100;
-  if (creatorPct > 10) flags.push('Creator holds >10%');
-
-  const top10Pct = num(r.top_10_holder_rate) * 100;
+  const holders = Array.isArray(r.holders) ? r.holders : [];
+  const top10Pct = holders.slice(0, 10).reduce((s: number, h: any) => s + num(h.percent) * 100, 0);
   if (top10Pct > 50) flags.push('Top 10 holders own >50%');
 
-  const liq = num(r.total_liquidity);
-  if (liq < 10000) flags.push('Low liquidity (<$10k)');
+  const pools = Array.isArray(r.dex) ? r.dex : [];
+  const liq = pools.reduce((s: number, d: any) => s + num(d.tvl), 0);
+  if (pools.length > 0 && liq < 10000) flags.push('Low liquidity (<$10k)');
 
   const { score, level } = computeRisk(flags);
 
   return {
     address,
     chain: 'solana',
-    name: r.token_name || undefined,
-    symbol: r.token_symbol || undefined,
-    isHoneypot: false, // GoPlus doesn't report honeypot for Solana the same way
-    hasProxyContract: bool1(r.is_proxy),
-    hasMintFunction: bool1(r.is_mintable),
-    hasBlacklist: false,
-    isOpenSource: bool1(r.is_open_source),
+    name: r.metadata?.name || r.token_name || undefined,
+    symbol: r.metadata?.symbol || r.token_symbol || undefined,
+    // A frozen account or a non-transferable token cannot be sold: the closest Solana equivalent of a honeypot.
+    isHoneypot: hasFreeze || bool1(r.non_transferable),
+    hasProxyContract: false,
+    hasMintFunction: hasMint,
+    hasBlacklist: hasFreeze,
+    isOpenSource: true, // SPL tokens all run the shared token program
     buyTax: 0,
     sellTax: 0,
     holderCount: num(r.holder_count),
     top10HolderPct: top10Pct,
-    creatorHolderPct: creatorPct,
+    creatorHolderPct: 0,
     totalLiquidity: liq,
     liquidityLocked: false,
     riskScore: score,
@@ -267,8 +298,18 @@ export function createTokenSecurityService(): TokenSecurityService {
 
     async auditSolanaToken(address: string): Promise<TokenSecurityResult> {
       logger.info({ address }, 'Auditing Solana token');
-      const raw = await fetchGoPlusSolana(address);
-      return parseSolanaResult(address, raw);
+      const [raw, second] = await Promise.all([fetchGoPlusSolana(address), fetchTokenGuard(address)]);
+      const result = parseSolanaResult(address, raw);
+      if (second) {
+        result.secondOpinion = second;
+        if (second.verdict === 'DANGER') {
+          result.riskFlags.push(`TokenGuard: DANGER (${second.reasons.join(', ') || 'see report'})`);
+          const risk = computeRisk([...result.riskFlags.slice(0, -1), 'Flagged DANGER by TokenGuard']);
+          result.riskScore = risk.score;
+          result.riskLevel = risk.level;
+        }
+      }
+      return result;
     },
 
     async auditToken(address: string, chain: string): Promise<TokenSecurityResult> {
