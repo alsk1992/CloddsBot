@@ -6362,7 +6362,7 @@ function buildTools(): ToolDefinition[] {
 
     {
       name: 'evm_swap',
-      description: 'Swap tokens on EVM chains (Ethereum, Arbitrum, Optimism, Base, Polygon) using Uniswap V3 or 1inch.',
+      description: 'Swap tokens on EVM chains (Ethereum, Arbitrum, Optimism, Base, Polygon) using Uniswap V3, 1inch, or LCX Liberty DEX (only when LCX_API_KEY is set).',
       input_schema: {
         type: 'object',
         properties: {
@@ -6376,14 +6376,14 @@ function buildTools(): ToolDefinition[] {
           output_token: { type: 'string', description: 'Output token symbol or address' },
           amount: { type: 'string', description: 'Amount to swap (in token units, e.g., "100" for 100 USDC)' },
           slippage_bps: { type: 'number', description: 'Slippage tolerance in basis points (default 50 = 0.5%)' },
-          dex: { type: 'string', description: 'DEX to use', enum: ['uniswap', '1inch', 'auto'], default: 'auto' },
+          dex: { type: 'string', description: 'DEX to use', enum: ['uniswap', '1inch', 'lcx', 'auto'], default: 'auto' },
         },
         required: ['input_token', 'output_token', 'amount'],
       },
     },
     {
       name: 'evm_quote',
-      description: 'Get swap quote without executing (compare Uniswap vs 1inch).',
+      description: 'Get swap quote without executing (compare Uniswap vs 1inch, plus LCX Liberty DEX when LCX_API_KEY is set).',
       input_schema: {
         type: 'object',
         properties: {
@@ -15158,7 +15158,7 @@ async function executeTool(
 
         try {
           // Dynamic import to avoid loading if not needed
-          const { executeUniswapSwap, executeOneInchSwap, compareDexRoutes } = await import('../evm');
+          const { executeUniswapSwap, executeOneInchSwap, executeLcxSwap, compareDexRoutes } = await import('../evm');
 
           if (dex === 'auto') {
             // Compare routes and use best one
@@ -15178,6 +15178,15 @@ async function executeTool(
                 slippageBps,
               });
               return JSON.stringify({ ...result, routedVia: 'uniswap', comparison });
+            } else if (comparison.best === 'lcx' && comparison.lcxQuote) {
+              const result = await executeLcxSwap({
+                chain: toEvmChain(chain),
+                fromToken: inputToken,
+                toToken: outputToken,
+                amount,
+                slippageBps,
+              });
+              return JSON.stringify({ ...result, routedVia: 'lcx', comparison });
             } else if (comparison.oneInchQuote) {
               const result = await executeOneInchSwap({
                 chain: toEvmChain(chain),
@@ -15199,6 +15208,15 @@ async function executeTool(
             return JSON.stringify(result);
           } else if (dex === '1inch') {
             const result = await executeOneInchSwap({
+              chain: toEvmChain(chain),
+              fromToken: inputToken,
+              toToken: outputToken,
+              amount,
+              slippageBps,
+            });
+            return JSON.stringify(result);
+          } else if (dex === 'lcx') {
+            const result = await executeLcxSwap({
               chain: toEvmChain(chain),
               fromToken: inputToken,
               toToken: outputToken,

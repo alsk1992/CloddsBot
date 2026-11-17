@@ -396,12 +396,17 @@ export async function getOneInchProtocols(chain: EvmChain): Promise<string[]> {
 // =============================================================================
 
 export interface RouteComparison {
-  best: 'uniswap' | '1inch';
+  best: 'uniswap' | '1inch' | 'lcx';
   uniswapQuote?: {
     outputAmount: string;
     priceImpact: number;
   };
   oneInchQuote?: {
+    outputAmount: string;
+    protocols: string[];
+  };
+  /** Only present when LCX_API_KEY is set */
+  lcxQuote?: {
     outputAmount: string;
     protocols: string[];
   };
@@ -447,25 +452,23 @@ export async function compareDexRoutes(
     logger.debug({ error: (e as Error).message }, '1inch quote failed');
   }
 
-  // Compare and determine best
-  if (results.uniswapQuote && results.oneInchQuote) {
-    const uniOut = parseFloat(results.uniswapQuote.outputAmount);
-    const oneInchOut = parseFloat(results.oneInchQuote.outputAmount);
+  // Get LCX Liberty DEX quote (opt-in: only when LCX_API_KEY is set)
+  if (process.env.LCX_API_KEY) {
+    try {
+      const { getLcxQuote } = await import('./lcx');
+      const lcxQuote = await getLcxQuote(params);
 
-    if (oneInchOut > uniOut) {
-      results.best = '1inch';
-      results.savings = uniOut > 0
-        ? ((oneInchOut - uniOut) / uniOut * 100).toFixed(2) + '%'
-        : 'N/A';
-    } else {
-      results.best = 'uniswap';
-      results.savings = oneInchOut > 0
-        ? ((uniOut - oneInchOut) / oneInchOut * 100).toFixed(2) + '%'
-        : 'N/A';
+      results.lcxQuote = {
+        outputAmount: lcxQuote.toAmount,
+        protocols: lcxQuote.protocols,
+      };
+    } catch (e) {
+      logger.debug({ error: (e as Error).message }, 'LCX Liberty DEX quote failed');
     }
-  } else if (results.oneInchQuote && !results.uniswapQuote) {
-    results.best = '1inch';
   }
+
+  // Compare and determine best
+  Object.assign(results, pickBestRoute(results));
 
   logger.info(
     { best: results.best, savings: results.savings },
@@ -473,6 +476,37 @@ export async function compareDexRoutes(
   );
 
   return results;
+}
+
+/**
+ * Highest output wins; on a tie the earlier source (uniswap, then 1inch, then lcx)
+ * keeps the route. Savings are measured against the runner-up.
+ */
+export function pickBestRoute(
+  results: Pick<RouteComparison, 'uniswapQuote' | 'oneInchQuote' | 'lcxQuote'>
+): Pick<RouteComparison, 'best' | 'savings'> {
+  const ranked = ([
+    ['uniswap', results.uniswapQuote],
+    ['1inch', results.oneInchQuote],
+    ['lcx', results.lcxQuote],
+  ] as const)
+    .flatMap(([dex, quote]) => (quote ? [{ dex, out: parseFloat(quote.outputAmount) }] : []))
+    .sort((a, b) => b.out - a.out);
+
+  if (ranked.length === 0) {
+    return { best: 'uniswap' };
+  }
+  if (ranked.length === 1) {
+    return { best: ranked[0].dex };
+  }
+
+  const [first, second] = ranked;
+  return {
+    best: first.dex,
+    savings: second.out > 0
+      ? ((first.out - second.out) / second.out * 100).toFixed(2) + '%'
+      : 'N/A',
+  };
 }
 
 // =============================================================================
