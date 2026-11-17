@@ -7,7 +7,7 @@
  * API docs: https://dex.lcx.com/docs
  */
 
-import { Wallet, JsonRpcProvider, Contract, Interface, parseUnits, formatUnits } from 'ethers';
+import { Wallet, JsonRpcProvider, Contract, Interface, ZeroAddress, parseUnits, formatUnits } from 'ethers';
 import { logger } from '../utils/logger';
 import type { EvmChain, TokenInfo } from './uniswap';
 import { resolveToken, getTokenInfo } from './uniswap';
@@ -323,13 +323,18 @@ export function verifyLcxCalldata(
   ensure(a.deadline > BigInt(nowSeconds), 'calldata deadline has passed');
 
   if (call.name === 'makerSwap') {
+    // The maker leg either goes to Bebop or is left completely empty
     const m = call.args[2].toObject();
-    if (m.amountIn > 0n) {
-      ensure(
-        BEBOP_CONTRACTS.includes(m.target.toLowerCase()) && BEBOP_CONTRACTS.includes(m.spender.toLowerCase()),
-        'maker leg does not go to Bebop'
-      );
-      ensure(m.amountIn <= totalIn, 'maker leg sells more than the total');
+    const isBebop = BEBOP_CONTRACTS.includes(m.target.toLowerCase()) && BEBOP_CONTRACTS.includes(m.spender.toLowerCase());
+    const isEmpty = m.amountIn === 0n && m.target === ZeroAddress && m.spender === ZeroAddress && m.data === '0x';
+    ensure(isBebop || isEmpty, 'maker leg is neither a Bebop fill nor empty');
+    ensure(m.amountIn <= totalIn, 'maker leg sells more than the total');
+  } else if (call.name !== 'swapSplit') {
+    // No integrator fee is ever requested. The prop-AMM venue needs no allowlist: the router
+    // reverts the whole swap unless the recipient gets minAmountOut, checked above.
+    ensure(a.integrator === ZeroAddress, `calldata pays an integrator fee to ${a.integrator}`);
+    if (call.name === 'swapSplitWithPropAMMSplit') {
+      ensure(call.args[3].toObject().venueIn <= totalIn, 'prop-AMM leg sells more than the total');
     }
   }
 }

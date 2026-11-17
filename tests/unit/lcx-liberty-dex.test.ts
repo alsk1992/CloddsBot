@@ -37,11 +37,20 @@ function swapSplitData(overrides: Partial<Trade> = {}): string {
   return ROUTER.encodeFunctionData('swapSplit', [t.tokenIn, t.tokenOut, t.totalIn, t.minAmountOut, t.recipient, t.deadline, ROUTE]);
 }
 
-function feeArgs(overrides: Partial<Trade> = {}) {
-  return { ...trade(overrides), integrator: NATIVE };
+function feeArgs({ integrator = NATIVE, ...overrides }: Partial<Trade> & { integrator?: string } = {}) {
+  return { ...trade(overrides), integrator };
 }
 
-function makerSwapData(maker: { target?: string; spender?: string; amountIn?: bigint } = {}): string {
+function propAmmSplitData(venueIn = 0n, overrides: Partial<Trade> & { integrator?: string } = {}): string {
+  return ROUTER.encodeFunctionData('swapSplitWithPropAMMSplit', [
+    feeArgs(overrides),
+    ROUTE,
+    ROUTE,
+    { venue: OTHER, venueIn, venueMinOut: 0n },
+  ]);
+}
+
+function makerSwapData(maker: { target?: string; spender?: string; amountIn?: bigint; data?: string } = {}): string {
   const { totalIn, ...t } = trade();
   return ROUTER.encodeFunctionData('makerSwap', [
     { ...t, amountIn: totalIn },
@@ -262,13 +271,13 @@ describe('verifyLcxCalldata', () => {
   });
 
   it('accepts each entrypoint when it matches the trade', () => {
-    const venue = { venue: OTHER, venueIn: 0n, venueMinOut: 0n };
     const calls = [
       swapSplitData(),
       swapSplitData({ minAmountOut: MIN_OUT + 1n }), // a higher floor is fine
       ROUTER.encodeFunctionData('swapSplitWithFee', [feeArgs(), ROUTE]),
       ROUTER.encodeFunctionData('swapSplitViaPropAMM', [feeArgs(), ROUTE, OTHER, 0n]),
-      ROUTER.encodeFunctionData('swapSplitWithPropAMMSplit', [feeArgs(), ROUTE, ROUTE, venue]),
+      propAmmSplitData(),
+      propAmmSplitData(ONE_ETH), // the venue may take the whole amount
       makerSwapData(),
     ];
 
@@ -297,5 +306,35 @@ describe('verifyLcxCalldata', () => {
     for (const [name, tx, expected] of cases) {
       assert.throws(() => verifyLcxCalldata('base', tx, EXPECTED), expected, name);
     }
+  });
+
+  it('refuses a maker leg to a non-Bebop contract even when it sells nothing', () => {
+    for (const leg of [{ target: OTHER }, { spender: OTHER }, { target: NATIVE, spender: NATIVE, data: '0x01' }]) {
+      const data = makerSwapData({ ...leg, amountIn: 0n });
+      assert.throws(() => verifyLcxCalldata('base', routerTx(data), EXPECTED), /neither a Bebop fill nor empty/);
+    }
+  });
+
+  it('accepts an empty maker leg', () => {
+    const data = makerSwapData({ target: NATIVE, spender: NATIVE, amountIn: 0n, data: '0x' });
+    assert.doesNotThrow(() => verifyLcxCalldata('base', routerTx(data), EXPECTED));
+  });
+
+  it('refuses a non-zero integrator on every wrapper', () => {
+    const fee = feeArgs({ integrator: OTHER });
+    const calls = [
+      ROUTER.encodeFunctionData('swapSplitWithFee', [fee, ROUTE]),
+      ROUTER.encodeFunctionData('swapSplitViaPropAMM', [fee, ROUTE, OTHER, 0n]),
+      propAmmSplitData(0n, { integrator: OTHER }),
+    ];
+
+    for (const data of calls) {
+      assert.throws(() => verifyLcxCalldata('base', routerTx(data), EXPECTED), /integrator fee/);
+    }
+  });
+
+  it('refuses a prop-AMM leg that sells more than the total', () => {
+    const data = propAmmSplitData(ONE_ETH + 1n);
+    assert.throws(() => verifyLcxCalldata('base', routerTx(data), EXPECTED), /prop-AMM leg sells more/);
   });
 });
