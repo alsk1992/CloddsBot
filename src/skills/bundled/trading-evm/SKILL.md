@@ -17,6 +17,7 @@ Trade any token on Ethereum, Arbitrum, Optimism, Base, and Polygon using Uniswap
 EVM_PRIVATE_KEY=0x...                      # Your EVM wallet private key
 ALCHEMY_API_KEY=...                        # Optional: for better RPC
 ONEINCH_API_KEY=...                        # Optional: for 1inch API
+LCX_API_KEY=...                            # Optional: adds LCX Liberty DEX quotes (free key: https://dex.lcx.com/dashboard)
 ```
 
 ---

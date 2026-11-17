@@ -8,7 +8,7 @@
  * - DEX aggregation via Odos
  * - Token transfers (ETH and ERC20)
  * - Generic smart contract interactions
- * - DEX trading (Uniswap, 1inch)
+ * - DEX trading (Uniswap, 1inch, LCX Liberty DEX when LCX_API_KEY is set)
  * - Virtuals Protocol (Base chain AI agents)
  * - Pons Family launchpad (Robinhood Chain)
  */
@@ -31,6 +31,7 @@ export * from './contracts';
 // DEX trading
 export * from './uniswap';
 export * from './oneinch';
+export * from './lcx';
 
 // PancakeSwap DEX
 export * from './pancakeswap';
