@@ -169,6 +169,7 @@ Complete reference of all bundled skills organized by category. Use `/skills` in
 | bankr | `/bankr` | Natural language crypto trading via Bankr |
 | yoink | `/yoink` | Capture the Flag game on Base |
 | acp | `/acp` | Agent Commerce Protocol for agent services |
+| agent-kiosk | `/kiosk` | x402 & MCP pre-swap safety gate, prediction/perp arb, AML screening, and EVM swap calldata |
 | harden | `/harden` | VPS security hardening and configuration audit |
 
 ## Security (2 skills)
